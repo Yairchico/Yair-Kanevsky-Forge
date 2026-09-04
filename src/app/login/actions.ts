@@ -19,12 +19,19 @@ export async function signIn(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) {
+  if (error || !data.user) {
     return { error: "אימייל או סיסמה שגויים" };
   }
 
-  // Middleware routes signed-in users away from /login to /trainer or /trainee.
-  redirect("/login");
+  // Redirect straight to the right area instead of bouncing through /login
+  // again (proxy.ts would otherwise re-fetch the profile a second time).
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", data.user.id)
+    .single();
+
+  redirect(profile?.role === "trainer" ? "/trainer" : "/trainee");
 }

@@ -3,6 +3,11 @@
 // Once the Supabase project is linked, regenerate the real thing with:
 //   npx supabase gen types typescript --project-id <ref> > src/lib/supabase/types.ts
 // and this file (and this comment) can go away.
+//
+// Every table needs `Relationships` (even if empty) and the schema needs
+// `Views`/`Functions` (even if empty) — @supabase/postgrest-js's generic
+// constraints require them structurally, or column types silently degrade
+// to `never`.
 
 export type UserRole = "trainer" | "trainee";
 export type ProgramStatus = "draft" | "published";
@@ -25,6 +30,7 @@ export interface Database {
           full_name: string;
         };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Row"]>;
+        Relationships: [];
       };
       exercises: {
         Row: {
@@ -42,6 +48,7 @@ export interface Database {
           name: string;
         };
         Update: Partial<Database["public"]["Tables"]["exercises"]["Row"]>;
+        Relationships: [];
       };
       programs: {
         Row: {
@@ -59,6 +66,7 @@ export interface Database {
           title: string;
         };
         Update: Partial<Database["public"]["Tables"]["programs"]["Row"]>;
+        Relationships: [];
       };
       program_days: {
         Row: {
@@ -72,6 +80,7 @@ export interface Database {
           day_index: number;
         };
         Update: Partial<Database["public"]["Tables"]["program_days"]["Row"]>;
+        Relationships: [];
       };
       workouts: {
         Row: {
@@ -85,6 +94,7 @@ export interface Database {
           program_day_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workouts"]["Row"]>;
+        Relationships: [];
       };
       workout_exercises: {
         Row: {
@@ -104,6 +114,7 @@ export interface Database {
           exercise_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workout_exercises"]["Row"]>;
+        Relationships: [];
       };
       workout_logs: {
         Row: {
@@ -120,6 +131,7 @@ export interface Database {
           trainee_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workout_logs"]["Row"]>;
+        Relationships: [];
       };
       workout_completions: {
         Row: {
@@ -133,7 +145,10 @@ export interface Database {
           trainee_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workout_completions"]["Row"]>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }

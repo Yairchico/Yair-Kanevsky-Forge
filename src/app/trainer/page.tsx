@@ -1,5 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import { signOut } from "@/lib/auth-actions";
+import { AppShell } from "@/components/app-shell";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export default async function TrainerHomePage() {
   const supabase = await createClient();
@@ -8,19 +15,18 @@ export default async function TrainerHomePage() {
   } = await supabase.auth.getUser();
 
   return (
-    <main className="flex flex-1 flex-col gap-4 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">אזור מאמן</h1>
-        <form action={signOut}>
-          <button type="submit" className="text-sm underline">
-            התנתקות
-          </button>
-        </form>
-      </div>
-      <p className="text-sm text-black/60 dark:text-white/60">
-        מחובר כ-{user?.email}. כאן יופיעו בהמשך רשימת המתאמנים, ספריית
-        התרגילים ובניית התוכניות.
-      </p>
-    </main>
+    <AppShell title="אזור מאמן" userEmail={user?.email}>
+      <Card>
+        <CardHeader>
+          <CardTitle>ברוך הבא</CardTitle>
+          <CardDescription>
+            כאן יופיעו בהמשך רשימת המתאמנים, ספריית התרגילים ובניית התוכניות.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          השלב הבא: ניהול מתאמנים + ספריית תרגילים.
+        </CardContent>
+      </Card>
+    </AppShell>
   );
 }

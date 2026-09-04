@@ -2,6 +2,16 @@
 
 import { useActionState } from "react";
 import { signIn, type SignInState } from "./actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const initialState: SignInState = {};
 
@@ -10,52 +20,42 @@ export default function LoginPage() {
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">
-      <form
-        action={formAction}
-        className="w-full max-w-sm space-y-4 rounded-xl border border-black/10 p-6 shadow-sm dark:border-white/10"
-      >
-        <h1 className="text-xl font-semibold">התחברות</h1>
+      <Card className="w-full max-w-sm">
+        <CardHeader className="items-center gap-2 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-2xl">
+            💪
+          </div>
+          <CardTitle>ברוכים הבאים</CardTitle>
+          <CardDescription>התחברות לאפליקציית האימונים</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={formAction} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email">אימייל</Label>
+              <Input id="email" name="email" type="email" required autoComplete="email" />
+            </div>
 
-        <div className="space-y-1">
-          <label htmlFor="email" className="text-sm font-medium">
-            אימייל
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
-          />
-        </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="password">סיסמה</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+              />
+            </div>
 
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium">
-            סיסמה
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            className="w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
-          />
-        </div>
+            {state.error && (
+              <p className="text-sm text-destructive">{state.error}</p>
+            )}
 
-        {state.error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
-        )}
-
-        <button
-          type="submit"
-          disabled={pending}
-          className="w-full rounded-md bg-black px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {pending ? "מתחבר…" : "התחבר"}
-        </button>
-      </form>
+            <Button type="submit" className="w-full" disabled={pending}>
+              {pending ? "מתחבר…" : "התחבר"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }
