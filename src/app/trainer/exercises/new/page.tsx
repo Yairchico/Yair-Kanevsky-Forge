@@ -15,20 +15,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 
 const initialState: CreateExerciseState = {};
-
-const MUSCLE_GROUPS = [
-  "חזה",
-  "גב",
-  "רגליים",
-  "כתפיים",
-  "יד קדמית",
-  "יד אחורית",
-  "בטן / core",
-  "גוף מלא",
-  "אירובי",
-];
 
 export default function NewExercisePage() {
   const [state, formAction, pending] = useActionState(createExercise, initialState);

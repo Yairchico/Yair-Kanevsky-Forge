@@ -1,30 +1,37 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f7fb;
-  --foreground: #14161a;
+  /* Palette sampled from the "Yair Kanevsky" logo (indigo/violet mark on a
+     warm cream ground) + the builder sketch (blue primary actions, amber
+     draft badge, green published/done state). */
+  --background: #faf4ee;
+  --foreground: #1c1233;
 
   --card: #ffffff;
-  --card-foreground: #14161a;
+  --card-foreground: #1c1233;
 
-  --border: #e7e8ec;
-  --input: #e2e4e9;
-  --ring: #4f46e5;
+  --border: #ece1d5;
+  --input: #e5d8c9;
+  --ring: #4c3aef;
 
-  --muted: #f0f1f4;
-  --muted-foreground: #6b7280;
+  --muted: #f3ece2;
+  --muted-foreground: #7a7189;
 
-  --primary: #4f46e5;
+  --primary: #4c3aef;
   --primary-foreground: #ffffff;
 
-  --secondary: #f0f1f4;
-  --secondary-foreground: #14161a;
+  --secondary: #f3ece2;
+  --secondary-foreground: #1c1233;
 
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
   --success: #16a34a;
   --success-foreground: #ffffff;
+
+  /* Draft/pending state (e.g. the "טיוטה" badge in the builder sketch). */
+  --warning: #f59e0b;
+  --warning-foreground: #1c1233;
 
   --radius: 0.75rem;
 }
@@ -47,6 +54,8 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 0.25rem);
   --radius-sm: calc(var(--radius) - 0.5rem);
@@ -55,16 +64,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0f1115;
-    --foreground: #eceef2;
-    --card: #171a20;
-    --card-foreground: #eceef2;
-    --border: #262a33;
-    --input: #262a33;
-    --muted: #1c1f26;
-    --muted-foreground: #9aa1ad;
-    --secondary: #1c1f26;
-    --secondary-foreground: #eceef2;
+    --background: #150f26;
+    --foreground: #f1ece5;
+    --card: #201a35;
+    --card-foreground: #f1ece5;
+    --border: #322a49;
+    --input: #322a49;
+    --muted: #251e3c;
+    --muted-foreground: #a79fc0;
+    --secondary: #251e3c;
+    --secondary-foreground: #f1ece5;
   }
 }
 

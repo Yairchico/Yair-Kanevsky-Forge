@@ -1,80 +1,86 @@
--- Base exercise library. Safe to re-run (ON CONFLICT on the unique name
--- from migration 0002). Custom, trainer-added exercises are untouched.
+-- Base exercise library. Exercise names in English, muscle_group in Hebrew
+-- (matches the app's Hebrew UI — see the exercise library filter chips).
+-- Safe to re-run: ON CONFLICT on the unique name from migration 0002.
+--
+-- NOTE: if you already ran an earlier version of this file with Hebrew
+-- exercise names, delete those rows first so they don't sit alongside the
+-- English ones as duplicates:
+--   delete from public.exercises where is_custom = false and name ~ '[א-ת]';
 
 insert into public.exercises (name, muscle_group, equipment, is_custom) values
   -- חזה
-  ('לחיצת חזה במוט', 'חזה', 'מוט', false),
-  ('לחיצת חזה בשיפוע חיובי', 'חזה', 'מוט', false),
-  ('לחיצת חזה בשיפוע שלילי', 'חזה', 'מוט', false),
-  ('לחיצת חזה עם משקולות יד', 'חזה', 'משקולות יד', false),
-  ('פרפר משקולות', 'חזה', 'משקולות יד', false),
-  ('פרפר בכבלים', 'חזה', 'כבלים', false),
-  ('מקבילים לחזה', 'חזה', 'מקבילים', false),
-  ('שכיבות סמיכה', 'חזה', 'משקל גוף', false),
+  ('Bench Press', 'חזה', 'מוט', false),
+  ('Incline Bench Press', 'חזה', 'מוט', false),
+  ('Decline Bench Press', 'חזה', 'מוט', false),
+  ('Dumbbell Bench Press', 'חזה', 'משקולות יד', false),
+  ('Dumbbell Fly', 'חזה', 'משקולות יד', false),
+  ('Cable Fly', 'חזה', 'כבלים', false),
+  ('Dips', 'חזה', 'מקבילים', false),
+  ('Push-Up', 'חזה', 'משקל גוף', false),
 
   -- גב
-  ('משיכת מוט לחתירה', 'גב', 'מוט', false),
-  ('חתירה עם משקולת יד', 'גב', 'משקולת יד', false),
-  ('מתח', 'גב', 'מתח', false),
-  ('מתח אחיזה הפוכה', 'גב', 'מתח', false),
-  ('משיכה לחזה במכונה', 'גב', 'מכונת כבלים', false),
-  ('חתירה בישיבה בכבל', 'גב', 'כבלים', false),
-  ('חתירה במכונה', 'גב', 'מכונה', false),
-  ('הרמת גו', 'גב', 'ספסל היפראקסטנשן', false),
+  ('Barbell Row', 'גב', 'מוט', false),
+  ('Dumbbell Row', 'גב', 'משקולת יד', false),
+  ('Pull-Up', 'גב', 'מתח', false),
+  ('Chin-Up', 'גב', 'מתח', false),
+  ('Lat Pulldown', 'גב', 'מכונת כבלים', false),
+  ('Seated Cable Row', 'גב', 'כבלים', false),
+  ('Machine Row', 'גב', 'מכונה', false),
+  ('Back Extension', 'גב', 'ספסל היפראקסטנשן', false),
 
   -- רגליים
-  ('סקוואט מוט', 'רגליים', 'מוט', false),
-  ('סקוואט קדמי', 'רגליים', 'מוט', false),
-  ('דדליפט', 'רגליים', 'מוט', false),
-  ('דדליפט רומני', 'רגליים', 'מוט', false),
-  ('לחיצת רגליים', 'רגליים', 'מכונה', false),
-  ('פשיטת ברך', 'רגליים', 'מכונה', false),
-  ('כפיפת ברך שכיבה', 'רגליים', 'מכונה', false),
-  ('לאנג', 'רגליים', 'משקולות יד', false),
-  ('מכרעים בולגרית', 'רגליים', 'משקולות יד', false),
-  ('עליה לקצות אצבעות', 'רגליים', 'מכונה / משקולות', false),
+  ('Back Squat', 'רגליים', 'מוט', false),
+  ('Front Squat', 'רגליים', 'מוט', false),
+  ('Deadlift', 'רגליים', 'מוט', false),
+  ('Romanian Deadlift', 'רגליים', 'מוט', false),
+  ('Leg Press', 'רגליים', 'מכונה', false),
+  ('Leg Extension', 'רגליים', 'מכונה', false),
+  ('Lying Leg Curl', 'רגליים', 'מכונה', false),
+  ('Lunge', 'רגליים', 'משקולות יד', false),
+  ('Bulgarian Split Squat', 'רגליים', 'משקולות יד', false),
+  ('Calf Raise', 'רגליים', 'מכונה / משקולות', false),
 
   -- כתפיים
-  ('לחיצת כתפיים מעל הראש', 'כתפיים', 'מוט', false),
-  ('לחיצת כתפיים עם משקולות', 'כתפיים', 'משקולות יד', false),
-  ('הרחקת כתפיים צד', 'כתפיים', 'משקולות יד', false),
-  ('הרחקת כתפיים קדמית', 'כתפיים', 'משקולות יד', false),
-  ('פרפר הפוך', 'כתפיים', 'משקולות יד', false),
-  ('משיכת חבל לפנים', 'כתפיים', 'כבלים', false),
-  ('שראגס', 'כתפיים', 'מוט / משקולות יד', false),
+  ('Overhead Press', 'כתפיים', 'מוט', false),
+  ('Dumbbell Shoulder Press', 'כתפיים', 'משקולות יד', false),
+  ('Lateral Raise', 'כתפיים', 'משקולות יד', false),
+  ('Front Raise', 'כתפיים', 'משקולות יד', false),
+  ('Reverse Fly', 'כתפיים', 'משקולות יד', false),
+  ('Face Pull', 'כתפיים', 'כבלים', false),
+  ('Shrug', 'כתפיים', 'מוט / משקולות יד', false),
 
   -- יד קדמית (ביצפס)
-  ('כפיפת מרפקים עם מוט', 'יד קדמית', 'מוט', false),
-  ('כפיפת מרפקים עם משקולות יד', 'יד קדמית', 'משקולות יד', false),
-  ('כפיפת פטיש', 'יד קדמית', 'משקולות יד', false),
-  ('כפיפת מרפקים בספסל שיפוע', 'יד קדמית', 'משקולות יד', false),
-  ('כפיפת מרפקים בכבל', 'יד קדמית', 'כבלים', false),
+  ('Barbell Curl', 'יד קדמית', 'מוט', false),
+  ('Dumbbell Curl', 'יד קדמית', 'משקולות יד', false),
+  ('Hammer Curl', 'יד קדמית', 'משקולות יד', false),
+  ('Incline Dumbbell Curl', 'יד קדמית', 'משקולות יד', false),
+  ('Cable Curl', 'יד קדמית', 'כבלים', false),
 
   -- יד אחורית (טריצפס)
-  ('פשיטת מרפקים בכבל', 'יד אחורית', 'כבלים', false),
-  ('פשיטת מרפקים מעל הראש', 'יד אחורית', 'משקולת יד', false),
-  ('לחיצה צרפתית', 'יד אחורית', 'מוט', false),
-  ('מקבילים לטריצפס', 'יד אחורית', 'ספסל', false),
-  ('פשיטת מרפקים בחבל', 'יד אחורית', 'כבלים', false),
+  ('Triceps Pushdown', 'יד אחורית', 'כבלים', false),
+  ('Overhead Triceps Extension', 'יד אחורית', 'משקולת יד', false),
+  ('Skull Crusher', 'יד אחורית', 'מוט', false),
+  ('Bench Dips', 'יד אחורית', 'ספסל', false),
+  ('Rope Pushdown', 'יד אחורית', 'כבלים', false),
 
   -- בטן / core
-  ('כפיפות בטן', 'בטן / core', 'משקל גוף', false),
-  ('פלאנק', 'בטן / core', 'משקל גוף', false),
-  ('הרמת רגליים תלויה', 'בטן / core', 'מתח', false),
-  ('גלגלת בטן', 'בטן / core', 'גלגלת בטן', false),
-  ('פיתול רוסי', 'בטן / core', 'משקל / משקולת', false),
-  ('כפיפות בטן בכבל', 'בטן / core', 'כבלים', false),
+  ('Crunch', 'בטן / core', 'משקל גוף', false),
+  ('Plank', 'בטן / core', 'משקל גוף', false),
+  ('Hanging Leg Raise', 'בטן / core', 'מתח', false),
+  ('Ab Wheel Rollout', 'בטן / core', 'גלגלת בטן', false),
+  ('Russian Twist', 'בטן / core', 'משקל / משקולת', false),
+  ('Cable Crunch', 'בטן / core', 'כבלים', false),
 
   -- גוף מלא / פונקציונלי
-  ('סווינג קטלבל', 'גוף מלא', 'קטלבל', false),
-  ('ניקוי וכתף', 'גוף מלא', 'מוט', false),
-  ('ברפי', 'גוף מלא', 'משקל גוף', false),
-  ('משיכת חבלים', 'גוף מלא', 'חבלי אימון', false),
-  ('קפיצת קופסה', 'גוף מלא', 'קופסת קפיצה', false),
+  ('Kettlebell Swing', 'גוף מלא', 'קטלבל', false),
+  ('Clean and Press', 'גוף מלא', 'מוט', false),
+  ('Burpee', 'גוף מלא', 'משקל גוף', false),
+  ('Battle Ropes', 'גוף מלא', 'חבלי אימון', false),
+  ('Box Jump', 'גוף מלא', 'קופסת קפיצה', false),
 
   -- אירובי
-  ('הליכון', 'אירובי', 'הליכון', false),
-  ('אופניים נייחים', 'אירובי', 'אופניים', false),
-  ('חתירה', 'אירובי', 'מכונת חתירה', false),
-  ('מדרגות', 'אירובי', 'מכונת מדרגות', false)
+  ('Treadmill', 'אירובי', 'הליכון', false),
+  ('Stationary Bike', 'אירובי', 'אופניים', false),
+  ('Rowing Machine', 'אירובי', 'מכונת חתירה', false),
+  ('Stair Climber', 'אירובי', 'מכונת מדרגות', false)
 on conflict (name) do nothing;

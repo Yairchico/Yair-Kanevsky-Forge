@@ -4,13 +4,15 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
+import { cn } from "@/lib/utils";
 
 export default async function ExercisesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; group?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, group } = await searchParams;
   const supabase = await createClient();
 
   let query = supabase
@@ -19,13 +21,41 @@ export default async function ExercisesPage({
     .order("name");
 
   if (q) query = query.ilike("name", `%${q}%`);
+  if (group) query = query.eq("muscle_group", group);
 
   const { data: exercises } = await query;
 
   return (
     <AppShell title="ספריית תרגילים">
+      <div className="flex flex-wrap gap-2">
+        {["הכל", ...MUSCLE_GROUPS].map((g) => {
+          const isAll = g === "הכל";
+          const active = isAll ? !group : group === g;
+          const params = new URLSearchParams();
+          if (q) params.set("q", q);
+          if (!isAll) params.set("group", g);
+          const href = `/trainer/exercises${params.size ? `?${params}` : ""}`;
+
+          return (
+            <Link
+              key={g}
+              href={href}
+              className={cn(
+                "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+              )}
+            >
+              {g}
+            </Link>
+          );
+        })}
+      </div>
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <form className="flex-1 sm:max-w-xs">
+          <input type="hidden" name="group" value={group ?? ""} />
           <Input name="q" defaultValue={q ?? ""} placeholder="חיפוש תרגיל…" />
         </form>
         <Link href="/trainer/exercises/new" className={buttonVariants({})}>
@@ -36,7 +66,7 @@ export default async function ExercisesPage({
       {!exercises?.length ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            {q ? <>לא נמצאו תרגילים עבור &quot;{q}&quot;.</> : "אין תרגילים בספרייה."}
+            {q || group ? "לא נמצאו תרגילים תואמים." : "אין תרגילים בספרייה."}
           </CardContent>
         </Card>
       ) : (

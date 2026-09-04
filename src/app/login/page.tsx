@@ -14,7 +14,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { BrandMark } from "@/components/brand";
-import { APP_NAME } from "@/lib/constants";
 
 const initialState: SignInState = {};
 
@@ -28,10 +27,15 @@ export default function LoginPage() {
   return (
     <main className="flex flex-1 items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <CardHeader className="items-center gap-2 text-center">
-          <BrandMark className="h-14 w-14 text-3xl" />
-          <CardTitle>{APP_NAME}</CardTitle>
-          <CardDescription>התחברות לאזור האישי</CardDescription>
+        <CardHeader className="items-center gap-1 text-center">
+          <BrandMark className="mb-2 h-16 w-16 rounded-2xl text-lg" />
+          <CardTitle className="text-2xl font-black tracking-tight">
+            YAIR KANEVSKY
+          </CardTitle>
+          <p className="text-xs font-semibold tracking-[0.3em] text-primary">
+            FITNESS COACH
+          </p>
+          <CardDescription className="pt-2">התחברות לאזור האישי</CardDescription>
         </CardHeader>
         <CardContent>
           <form action={formAction} className="space-y-4">
