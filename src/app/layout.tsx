@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Rubik } from "next/font/google";
+import { APP_NAME } from "@/lib/constants";
 import "./globals.css";
 
 // Rubik has solid Hebrew glyph coverage and a friendly, modern feel —
@@ -10,7 +11,7 @@ const rubik = Rubik({
 });
 
 export const metadata: Metadata = {
-  title: "אפליקציית אימונים",
+  title: APP_NAME,
   description: "אפליקציית אימונים למאמן ולמתאמנים שלו",
 };
 

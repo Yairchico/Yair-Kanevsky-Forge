@@ -1,8 +1,8 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -16,17 +16,29 @@ export default async function TrainerHomePage() {
 
   return (
     <AppShell title="אזור מאמן" userEmail={user?.email}>
-      <Card>
-        <CardHeader>
-          <CardTitle>ברוך הבא</CardTitle>
-          <CardDescription>
-            כאן יופיעו בהמשך רשימת המתאמנים, ספריית התרגילים ובניית התוכניות.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          השלב הבא: ניהול מתאמנים + ספריית תרגילים.
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/trainer/trainees">
+          <Card className="h-full transition-colors hover:bg-muted">
+            <CardHeader>
+              <CardTitle>מתאמנים</CardTitle>
+              <CardDescription>
+                רשימת המתאמנים שלך, והוספת מתאמן חדש
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+
+        <Link href="/trainer/exercises">
+          <Card className="h-full transition-colors hover:bg-muted">
+            <CardHeader>
+              <CardTitle>ספריית תרגילים</CardTitle>
+              <CardDescription>
+                חיפוש תרגילים, והוספת תרגיל מותאם אישית
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+      </div>
     </AppShell>
   );
 }

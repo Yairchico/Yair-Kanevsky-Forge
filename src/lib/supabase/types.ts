@@ -21,6 +21,7 @@ export interface Database {
           role: UserRole;
           full_name: string;
           phone: string | null;
+          email: string | null;
           avatar_url: string | null;
           status: "active" | "archived";
           created_at: string;

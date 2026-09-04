@@ -29,7 +29,10 @@ npm run dev
    { "role": "trainer", "full_name": "השם של המאמן" }
    ```
    הטריגר `handle_new_user` (במיגרציה) ייצור אוטומטית שורת `profiles` עם `role='trainer'`. משתמשים חדשים בלי `role` במטה-דאטה ייחשבו כברירת מחדל ל-`trainee`.
-5. חשבונות מתאמנים ייווצרו בהמשך דרך מסך "יצירת מתאמן" באזור המאמן (שלב 1 בתוכנית) — כרגע אפשר גם ליצור ידנית באותה מסך Add user, בלי `role` במטה-דאטה (ברירת המחדל `trainee`).
+5. חשבונות מתאמנים נוצרים דרך מסך "מתאמן חדש" באזור המאמן (`/trainer/trainees/new`) — זה משתמש ב-`SUPABASE_SERVICE_ROLE_KEY` (שלב 3) כדי ליצור את חשבון ה-auth של המתאמן, לכן חשוב שהמפתח הזה יהיה מוגדר גם ב-Cloudflare (ראו "Deploy" למטה), לא רק מקומית.
+6. **עדכון סכימה + ספריית תרגילים** (חד פעמי, אחרי המיגרציה הראשונית): ב-SQL Editor, הריצו בסדר הזה:
+   1. `supabase/migrations/0002_profiles_email_and_exercise_uniqueness.sql` — מוסיף `email` לפרופילים ומכין את `exercises` לזריעה בטוחה (idempotent).
+   2. `supabase/seed.sql` — מכניס ~58 תרגילי בסיס לספרייה. אפשר להריץ שוב בעתיד בלי סיכון לכפילויות (`ON CONFLICT DO NOTHING`).
 
 ## Deploy ל-Cloudflare (חד פעמי)
 
@@ -41,6 +44,7 @@ npm run dev
    npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
    npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
    ```
+   (או דרך הדשבורד: Settings → Variables and Secrets. `NEXT_PUBLIC_*` צריכים להיות זמינים כבר בזמן ה-**build**, לא רק ב-runtime — Next.js צורב אותם לקוד ה-JS.)
 4. בנייה + פריסה:
    ```bash
    npm run cf:deploy
@@ -54,9 +58,13 @@ npm run dev
 ## מבנה הפרויקט
 
 ```
-src/app/                 מסכים (App Router): /login, /trainer, /trainee
-src/lib/supabase/        Supabase clients (browser/server/middleware) + types
-src/proxy.ts               רענון session + ניתוב לפי role (Next.js "Proxy" — לשעבר middleware)
-supabase/migrations/      סכימת DB + RLS
-PLAN.md                   תוכנית הפיתוח המלאה
+src/app/                        מסכים (App Router): /login, /trainer (+trainees, +exercises), /trainee
+src/components/ui/              קומפוננטות UI בסיסיות (Button, Card, Input, Label, Select, Textarea)
+src/components/                 Brand, AppShell, SignOutButton
+src/lib/supabase/               Supabase clients (browser/server/admin) + types
+src/lib/constants.ts            שם האפליקציה (APP_NAME)
+src/proxy.ts                    רענון session + ניתוב לפי role (Next.js "Proxy" — לשעבר middleware)
+supabase/migrations/            סכימת DB + RLS
+supabase/seed.sql               ספריית תרגילי הבסיס
+PLAN.md                         תוכנית הפיתוח המלאה
 ```
