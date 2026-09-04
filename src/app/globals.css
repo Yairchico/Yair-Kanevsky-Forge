@@ -4,24 +4,24 @@
   /* Palette sampled from the "Yair Kanevsky" logo (indigo/violet mark on a
      warm cream ground) + the builder sketch (blue primary actions, amber
      draft badge, green published/done state). */
-  --background: #faf4ee;
-  --foreground: #1c1233;
+  --background: #fcf5ed;
+  --foreground: #19013d;
 
   --card: #ffffff;
-  --card-foreground: #1c1233;
+  --card-foreground: #19013d;
 
   --border: #ece1d5;
   --input: #e5d8c9;
-  --ring: #4c3aef;
+  --ring: #511ce0;
 
   --muted: #f3ece2;
   --muted-foreground: #7a7189;
 
-  --primary: #4c3aef;
+  --primary: #511ce0;
   --primary-foreground: #ffffff;
 
   --secondary: #f3ece2;
-  --secondary-foreground: #1c1233;
+  --secondary-foreground: #19013d;
 
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;

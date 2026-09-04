@@ -1,22 +1,29 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
 
 /**
- * Placeholder brand mark — recreated (colors + a "YK" monogram) from the
- * logo image shared in chat, since we only have the image, not an actual
- * asset file (PNG/SVG) to embed. Once that file exists, replace the div
- * below with an <Image src="/logo.svg" .../> here and every screen that
- * uses <BrandMark> picks it up automatically.
+ * public/logo-mark.png and public/logo-full.png are cropped (via sharp,
+ * see git history) from the logo image the user uploaded to public/logo.png.
+ * `unoptimized` because we already pre-sized them and this app doesn't
+ * have Cloudflare's Images binding configured (see wrangler.jsonc).
  */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-black tracking-tighter text-primary-foreground",
+        "relative h-10 w-10 shrink-0 overflow-hidden rounded-xl",
         className,
       )}
     >
-      YK
+      <Image
+        src="/logo-mark.png"
+        alt=""
+        fill
+        sizes="40px"
+        unoptimized
+        className="object-cover"
+      />
     </div>
   );
 }

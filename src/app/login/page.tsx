@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn, type SignInState } from "./actions";
 import { Button } from "@/components/ui/button";
@@ -11,9 +12,7 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
-import { BrandMark } from "@/components/brand";
 
 const initialState: SignInState = {};
 
@@ -27,15 +26,17 @@ export default function LoginPage() {
   return (
     <main className="flex flex-1 items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <CardHeader className="items-center gap-1 text-center">
-          <BrandMark className="mb-2 h-16 w-16 rounded-2xl text-lg" />
-          <CardTitle className="text-2xl font-black tracking-tight">
-            YAIR KANEVSKY
-          </CardTitle>
-          <p className="text-xs font-semibold tracking-[0.3em] text-primary">
-            FITNESS COACH
-          </p>
-          <CardDescription className="pt-2">התחברות לאזור האישי</CardDescription>
+        <CardHeader className="items-center text-center">
+          <Image
+            src="/logo-full.png"
+            alt="Yair Kanevsky Fitness Coach"
+            width={700}
+            height={663}
+            unoptimized
+            priority
+            className="h-auto w-48"
+          />
+          <CardDescription className="pt-1">התחברות לאזור האישי</CardDescription>
         </CardHeader>
         <CardContent>
           <form action={formAction} className="space-y-4">

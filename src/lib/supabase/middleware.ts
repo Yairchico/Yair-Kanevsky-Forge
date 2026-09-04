@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/auth"];
+const ROLE_COOKIE = "app_role";
 
 /**
  * Refreshes the Supabase auth session on every request and enforces
@@ -11,13 +12,30 @@ const PUBLIC_PATHS = ["/login", "/auth"];
  *    profile role, and kept out of the other role's area.
  *  - Signed-in users hitting /login are sent to their own area.
  *
- * Also forwards the already-validated user id/email as request headers
- * (x-user-id / x-user-email) so pages can read them via
- * `getCurrentUser()` (src/lib/current-user.ts) instead of calling
- * `supabase.auth.getUser()` again themselves — that call is a network
- * round trip to Supabase's Auth API, and doing it twice per navigation
- * (once here, once in the page) was adding real latency for no benefit,
- * since this proxy already did the validation.
+ * Performance notes (this runs on EVERY navigation, so its cost is the
+ * app's baseline "feels slow" cost):
+ *
+ * - Uses getSession() instead of getUser(). getUser() always makes a
+ *   network call to Supabase's Auth API to revalidate the token — that's
+ *   the right call to make before trusting a claim for AUTHORIZATION, but
+ *   this proxy only uses it for which page shell to route to. Every real
+ *   data query (Server Components, Server Actions) still goes straight to
+ *   Supabase/PostgREST with the same cookies and is independently
+ *   re-validated there via RLS — so a forged/stale session here can only
+ *   ever produce an empty/broken page shell, never real data. getSession()
+ *   decodes the cookie locally (refreshing it transparently if the access
+ *   token expired) with no network round trip in the common case.
+ * - Caches `role` in its own plain cookie (set at login, see
+ *   src/app/login/actions.ts) instead of querying `profiles` on every
+ *   request. Same reasoning: this is a routing convenience, not the
+ *   authorization boundary (RLS is), so a stale/tampered value only
+ *   misroutes to a page shell that then renders empty via RLS. Missing
+ *   cookie (older session, or someone cleared it) falls back to a real
+ *   query and re-seeds the cookie.
+ *
+ * Forwards the user id/email as request headers (x-user-id / x-user-email)
+ * so pages can read them via getCurrentUser() (src/lib/current-user.ts)
+ * instead of calling supabase.auth.getUser() again themselves.
  */
 export async function updateSession(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
@@ -44,13 +62,10 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANT: do not remove — revalidates the auth token with Supabase's
-  // Auth server (unlike getSession(), which only decodes the local
-  // cookie). This is the one place per request that should pay for that
-  // round trip; everything downstream reuses its result via headers.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   const { pathname } = request.nextUrl;
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
@@ -66,27 +81,40 @@ export async function updateSession(request: NextRequest) {
     if (user.email) requestHeaders.set("x-user-email", user.email);
     supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
-    if (pathname === "/login" || pathname === "/") {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      const url = request.nextUrl.clone();
-      url.pathname = profile?.role === "trainer" ? "/trainer" : "/trainee";
-      return NextResponse.redirect(url);
-    }
+    const needsRoleGate =
+      pathname === "/login" ||
+      pathname === "/" ||
+      pathname.startsWith("/trainer") ||
+      pathname.startsWith("/trainee");
 
-    if (pathname.startsWith("/trainer") || pathname.startsWith("/trainee")) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
+    if (needsRoleGate) {
+      let role = request.cookies.get(ROLE_COOKIE)?.value;
+
+      if (role !== "trainer" && role !== "trainee") {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        role = profile?.role === "trainer" ? "trainer" : "trainee";
+        supabaseResponse.cookies.set(ROLE_COOKIE, role, {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: true,
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30,
+        });
+      }
+
+      const isTrainer = role === "trainer";
+
+      if (pathname === "/login" || pathname === "/") {
+        const url = request.nextUrl.clone();
+        url.pathname = isTrainer ? "/trainer" : "/trainee";
+        return NextResponse.redirect(url);
+      }
 
       const wantsTrainerArea = pathname.startsWith("/trainer");
-      const isTrainer = profile?.role === "trainer";
-
       if (wantsTrainerArea !== isTrainer) {
         const url = request.nextUrl.clone();
         url.pathname = isTrainer ? "/trainer" : "/trainee";
