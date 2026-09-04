@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/current-user";
 import { AppShell } from "@/components/app-shell";
 import {
   Card,
@@ -9,10 +9,7 @@ import {
 } from "@/components/ui/card";
 
 export default async function TrainerHomePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   return (
     <AppShell title="אזור מאמן" userEmail={user?.email}>

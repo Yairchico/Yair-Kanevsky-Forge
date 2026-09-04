@@ -24,7 +24,7 @@ export default async function TraineesPage({
   const { data: trainees } = await query;
 
   return (
-    <AppShell title="מתאמנים">
+    <AppShell title="מתאמנים" backHref="/trainer">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <form className="flex-1 sm:max-w-xs">
           <Input name="q" defaultValue={q ?? ""} placeholder="חיפוש לפי שם…" />

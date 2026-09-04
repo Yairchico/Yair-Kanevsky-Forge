@@ -26,7 +26,7 @@ export default async function ExercisesPage({
   const { data: exercises } = await query;
 
   return (
-    <AppShell title="ספריית תרגילים">
+    <AppShell title="ספריית תרגילים" backHref="/trainer">
       <div className="flex flex-wrap gap-2">
         {["הכל", ...MUSCLE_GROUPS].map((g) => {
           const isAll = g === "הכל";

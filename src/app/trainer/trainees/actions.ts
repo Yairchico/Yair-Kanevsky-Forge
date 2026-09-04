@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentUser } from "@/lib/current-user";
 
 export interface CreateTraineeState {
   error?: string;
@@ -25,11 +26,10 @@ export async function createTrainee(
     return { error: "הסיסמה חייבת להכיל לפחות 6 תווים" };
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const supabase = await createClient();
 
   // Defense in depth: RLS already blocks non-trainers from most tables,
   // but admin.createUser below uses the service-role key, which bypasses

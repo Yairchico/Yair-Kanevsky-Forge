@@ -10,9 +10,18 @@ const PUBLIC_PATHS = ["/login", "/auth"];
  *  - Signed-in users are routed to /trainer or /trainee based on their
  *    profile role, and kept out of the other role's area.
  *  - Signed-in users hitting /login are sent to their own area.
+ *
+ * Also forwards the already-validated user id/email as request headers
+ * (x-user-id / x-user-email) so pages can read them via
+ * `getCurrentUser()` (src/lib/current-user.ts) instead of calling
+ * `supabase.auth.getUser()` again themselves — that call is a network
+ * round trip to Supabase's Auth API, and doing it twice per navigation
+ * (once here, once in the page) was adding real latency for no benefit,
+ * since this proxy already did the validation.
  */
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  const requestHeaders = new Headers(request.headers);
+  let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,7 +35,7 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
           );
@@ -35,7 +44,10 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANT: do not remove — refreshes the auth token if expired.
+  // IMPORTANT: do not remove — revalidates the auth token with Supabase's
+  // Auth server (unlike getSession(), which only decodes the local
+  // cookie). This is the one place per request that should pay for that
+  // round trip; everything downstream reuses its result via headers.
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -50,6 +62,10 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user) {
+    requestHeaders.set("x-user-id", user.id);
+    if (user.email) requestHeaders.set("x-user-email", user.email);
+    supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
+
     if (pathname === "/login" || pathname === "/") {
       const { data: profile } = await supabase
         .from("profiles")

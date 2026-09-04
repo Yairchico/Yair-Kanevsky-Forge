@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/current-user";
 
 export interface CreateExerciseState {
   error?: string;
@@ -21,11 +22,10 @@ export async function createExercise(
     return { error: "נא להזין שם תרגיל" };
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const supabase = await createClient();
 
   // RLS ("trainer manages exercises") already restricts inserts to
   // role='trainer'; the trainee never reaches this action since it's only
