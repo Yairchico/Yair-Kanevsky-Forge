@@ -35,7 +35,7 @@ export default function NewTraineePage() {
           <CardHeader>
             <CardTitle>מתאמן חדש</CardTitle>
             <CardDescription>
-              נוצר חשבון התחברות עבור המתאמן. את פרטי ההתחברות (אימייל +
+              נוצר חשבון התחברות עבור המתאמן. את פרטי ההתחברות (שם משתמש +
               סיסמה) יש להעביר אליו בנפרד (וואטסאפ / טלפון).
             </CardDescription>
           </CardHeader>
@@ -47,8 +47,25 @@ export default function NewTraineePage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="email">אימייל</Label>
-                <Input id="email" name="email" type="email" required />
+                <Label htmlFor="username">שם משתמש</Label>
+                <Input
+                  id="username"
+                  name="username"
+                  required
+                  pattern="[a-z0-9_.]{3,32}"
+                  placeholder="למשל: dani_levi"
+                  onChange={(e) => {
+                    e.target.value = e.target.value.toLowerCase();
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  אותיות אנגלית קטנות, ספרות, נקודה או קו תחתון, 3-32 תווים
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="email">אימייל (אופציונלי)</Label>
+                <Input id="email" name="email" type="email" />
               </div>
 
               <div className="space-y-1.5">

@@ -30,16 +30,19 @@ const ROLE_COOKIE = "app_role";
  *   request. Same reasoning: this is a routing convenience, not the
  *   authorization boundary (RLS is), so a stale/tampered value only
  *   misroutes to a page shell that then renders empty via RLS. Missing
- *   cookie (older session, or someone cleared it) falls back to a real
- *   query and re-seeds the cookie.
+ *   cookie (older session) falls back to a real query and re-seeds it.
  *
- * Forwards the user id/email as request headers (x-user-id / x-user-email)
- * so pages can read them via getCurrentUser() (src/lib/current-user.ts)
- * instead of calling supabase.auth.getUser() again themselves.
+ * NOTE: an earlier version also forwarded the user id/email as request
+ * headers so pages could skip their own getUser() call. That's removed —
+ * it's suspected of not surviving the OpenNext/Cloudflare "Node.js
+ * middleware" experimental runtime for Server Action requests specifically
+ * (a trainee-creation submit was silently bouncing to /login instead of
+ * running). Pages and Server Actions call supabase.auth.getUser() directly
+ * again, which reads the actual auth cookie rather than a header this
+ * proxy set — more code, but it doesn't depend on that propagation path.
  */
 export async function updateSession(request: NextRequest) {
-  const requestHeaders = new Headers(request.headers);
-  let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
+  let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,7 +56,7 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
-          supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
+          supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
           );
@@ -77,10 +80,6 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user) {
-    requestHeaders.set("x-user-id", user.id);
-    if (user.email) requestHeaders.set("x-user-email", user.email);
-    supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
-
     const needsRoleGate =
       pathname === "/login" ||
       pathname === "/" ||

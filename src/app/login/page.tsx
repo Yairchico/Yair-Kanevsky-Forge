@@ -18,9 +18,9 @@ const initialState: SignInState = {};
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(signIn, initialState);
-  // Controlled so the email the user typed survives a failed submit
+  // Controlled so the username the user typed survives a failed submit
   // (the password field is intentionally left to reset on error).
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   return (
@@ -41,15 +41,15 @@ export default function LoginPage() {
         <CardContent>
           <form action={formAction} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">אימייל</Label>
+              <Label htmlFor="username">שם משתמש</Label>
               <Input
-                id="email"
-                name="email"
-                type="email"
+                id="username"
+                name="username"
+                type="text"
                 required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
               />
             </div>
 

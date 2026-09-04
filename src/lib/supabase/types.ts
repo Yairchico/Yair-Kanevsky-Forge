@@ -20,6 +20,7 @@ export interface Database {
           id: string;
           role: UserRole;
           full_name: string;
+          username: string;
           phone: string | null;
           email: string | null;
           avatar_url: string | null;
@@ -150,6 +151,11 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      email_for_username: {
+        Args: { p_username: string };
+        Returns: string | null;
+      };
+    };
   };
 }

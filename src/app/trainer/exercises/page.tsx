@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchBar } from "@/components/search-bar";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { cn } from "@/lib/utils";
 
@@ -54,10 +54,9 @@ export default async function ExercisesPage({
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <form className="flex-1 sm:max-w-xs">
-          <input type="hidden" name="group" value={group ?? ""} />
-          <Input name="q" defaultValue={q ?? ""} placeholder="חיפוש תרגיל…" />
-        </form>
+        <div className="flex-1 sm:max-w-xs">
+          <SearchBar placeholder="חיפוש תרגיל…" />
+        </div>
         <Link href="/trainer/exercises/new" className={buttonVariants({})}>
           + תרגיל מותאם אישית
         </Link>

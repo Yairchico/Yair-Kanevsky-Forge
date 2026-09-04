@@ -32,7 +32,11 @@ npm run dev
 5. חשבונות מתאמנים נוצרים דרך מסך "מתאמן חדש" באזור המאמן (`/trainer/trainees/new`) — זה משתמש ב-`SUPABASE_SERVICE_ROLE_KEY` (שלב 3) כדי ליצור את חשבון ה-auth של המתאמן, לכן חשוב שהמפתח הזה יהיה מוגדר גם ב-Cloudflare (ראו "Deploy" למטה), לא רק מקומית.
 6. **עדכון סכימה + ספריית תרגילים** (חד פעמי, אחרי המיגרציה הראשונית): ב-SQL Editor, הריצו בסדר הזה:
    1. `supabase/migrations/0002_profiles_email_and_exercise_uniqueness.sql` — מוסיף `email` לפרופילים ומכין את `exercises` לזריעה בטוחה (idempotent).
-   2. `supabase/seed.sql` — מכניס ~58 תרגילי בסיס לספרייה. אפשר להריץ שוב בעתיד בלי סיכון לכפילויות (`ON CONFLICT DO NOTHING`).
+   2. `supabase/migrations/0003_prevent_role_self_escalation.sql` — תיקון אבטחה (חוסם מתאמן מלשנות role של עצמו).
+   3. `supabase/migrations/0004_username_login.sql` — **חשוב**: מוסיף `username` ומעביר את ההתחברות מאימייל לשם משתמש (ראו קופסת האזהרה למטה).
+   4. `supabase/seed.sql` — מכניס ~58 תרגילי בסיס לספרייה (שמות באנגלית, קבוצת שריר בעברית). אפשר להריץ שוב בעתיד בלי סיכון לכפילויות (`ON CONFLICT DO NOTHING`). אם כבר הרצתם גרסה ישנה עם שמות עבריים — יש הערת ניקוי בראש הקובץ.
+
+   > ⚠️ **אחרי migration 0004 ההתחברות היא לפי שם משתמש, לא אימייל.** המיגרציה מייצרת `username` אוטומטית לכל המשתמשים הקיימים (כולל המאמן) מהחלק הראשון של כתובת האימייל שלהם. כדי לדעת מה שם המשתמש שלך: ב-SQL Editor הריצו `select username from public.profiles where role = 'trainer';`.
 
 ## Deploy ל-Cloudflare (חד פעמי)
 
