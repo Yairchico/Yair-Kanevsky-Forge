@@ -1,7 +1,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"main": ".open-next/worker.js",
-	"name": "trainer-app",
+	"name": "yair-kanevsky-forge",
 	"compatibility_date": "2026-09-04",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"assets": {
@@ -13,7 +13,7 @@
 			// Self-reference service binding, required for ISR/on-demand revalidation.
 			// See https://opennext.js.org/cloudflare/caching
 			"binding": "WORKER_SELF_REFERENCE",
-			"service": "trainer-app"
+			"service": "yair-kanevsky-forge"
 		}
 	]
 	// Not yet configured (add when needed):
