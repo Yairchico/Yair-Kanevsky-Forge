@@ -5,17 +5,15 @@
 
 ---
 
-## 0. עקרון מנחה: "Single-tenant UX, Multi-tenant DB"
+## 0. עקרון מנחה: MVP רזה, מאמן יחיד (superadmin)
 
-כדי לא לשלם היום את המחיר של multi-tenant מלא (ניהול לקוחות, billing, custom domains) אבל גם לא להיתקע בעתיד:
+**עדכון:** בשלב הזה יש **מאמן אחד בלבד**, שהוא בפועל superadmin של המערכת. **אין** בונים היום טבלת `organizations` / multi-tenant — זה over-engineering מיותר לשלב הנוכחי.
 
-- **הסכימה בדאטהבייס תיבנה כבר עכשיו סביב `organizations` (= "מותג/סטודיו של מאמן")**, גם אם כרגע יש רק ארגון אחד.
-- כל מאמן שייך לארגון אחד. כל מתאמן שייך לארגון (דרך המאמן שלו).
-- הרשאות (RLS ב-Supabase) ייכתבו לפי `org_id` מהיום הראשון — כך שהוספת ארגון שני (=מאמן נוסף עם חשבון נפרד) בעתיד היא **feature flag / רשומה חדשה**, לא refactor.
-- הגדרות מיתוג (`branding`: לוגו, צבע ראשי, שם אפליקציה) יישבו בטבלת `organizations` מההתחלה, גם אם כרגע נשתמש רק בברירת מחדל אחת. זה מה שהופך את "המיתוג מחדש" למאוחר יותר לעניין של שינוי שורה בטבלה + בניית תהליך onboarding, לא build מחדש.
-- פיצ'רים ספציפיים-למאמן (למשל: האם מוצג RPE, האם יש שדה "הנחיות וידאו" וכו') ייכתבו כ-**feature flags בטבלת organizations/settings**, לא כ-if מקודד בקוד.
-
-זו ההשקעה היחידה ש"עולה" לנו כסף היום למען העתיד — כל השאר הוא MVP רזה לגמרי.
+- טבלת `profiles` מכילה `role` (`'trainer' | 'trainee'`). המאמן היחיד הוא הרשומה היחידה עם `role='trainer'`.
+- כל מתאמן משויך ישירות למאמן דרך `trainee_id`/RLS לפי role — **אין** טבלת קישור `trainer_trainee_links` ואין `org_id` בשום טבלה.
+- הרשאות (RLS): `role='trainer'` → גישה מלאה לכל המתאמנים/תוכניות/תרגילים. `role='trainee'` → גישה רק לנתונים שבהם `trainee_id = auth.uid()`, ורק לתוכניות עם `status='published'`.
+- מיתוג (לוגו/צבעים/שם) — כרגע **הארד-קוד** בקונפיג של האפליקציה (לא בדאטהבייס). כשיגיע הצורך למכור למאמן נוסף, זה יהיה פרויקט נפרד (deploy נפרד + Supabase project נפרד) ולא multi-tenant בתוך אותה מערכת — גישה פשוטה בהרבה ל"מיתוג מחדש" מ-white-label אמיתי, ומתאימה בדיוק לאופי המכירה שתיארת (אפליקציה אישית לכל מאמן).
+- המשמעות: קוד פשוט יותר, סכימה קטנה יותר, RLS פשוט יותר, ופיתוח מהיר יותר עכשיו. אם בעתיד יוחלט על multi-tenant אמיתי בתוך מערכת אחת — זה יהיה מיגרציה מודעת, לא deviation מתוכנית קיימת.
 
 ---
 
@@ -39,21 +37,16 @@
 ## 2. מודל נתונים (סכימת DB עיקרית)
 
 ```
-organizations            -- "המותג" של המאמן (לעתיד: מאמן נוסף = ארגון נוסף)
-  id, name, branding_json, settings_json, created_at
-
 profiles                 -- מרחיב את auth.users של Supabase
-  id (=auth.users.id), org_id, role ('trainer' | 'trainee'), full_name, phone, avatar_url
+  id (=auth.users.id), role ('trainer' | 'trainee'), full_name, phone, avatar_url,
+  status ('active'|'archived'), created_at
 
-trainer_trainee_links     -- קישור מאמן-מתאמן (מאפשר בעתיד כמה מאמנים לארגון)
-  id, trainer_id, trainee_id, org_id, status ('active'|'archived'), created_at
-
-exercises                -- ספריית תרגילים
-  id, org_id (NULL = תרגיל גלובלי משותף לכולם, ערך = תרגיל custom של מאמן),
-  name, muscle_group, equipment, instructions, media_url, is_custom, created_by
+exercises                -- ספריית תרגילים (משותפת, נוצרת ע"י המאמן)
+  id, name, muscle_group, equipment, instructions, media_url,
+  is_custom, created_by, created_at
 
 programs                 -- תוכנית שבועית של מתאמן
-  id, org_id, trainee_id, created_by (trainer_id), title,
+  id, trainee_id, title,
   status ('draft'|'published'), version, published_at, created_at, updated_at
 
 program_days             -- ימים בתוכנית (יום א', יום ב'...)
@@ -86,9 +79,9 @@ workout_completions       -- סימון "בוצע" ברמת האימון השל�
 
 - **Supabase Auth**: אימייל+סיסמה ל-MVP (מספיק לשלב פרטי). Magic link אפשרי כשלב הבא.
 - **Row Level Security (RLS)** על כל טבלה:
-  - מאמן רואה/עורך רק נתונים של `org_id` שלו ושל מתאמנים המקושרים אליו.
-  - מתאמן רואה רק את הנתונים שלו, ורק תוכניות עם `status='published'`.
-  - טבלת `exercises`: תרגילים גלובליים (`org_id IS NULL`) נגישים לקריאה לכולם; תרגילי custom נגישים רק לארגון שיצר אותם.
+  - `role='trainer'` → גישה מלאה לקרוא/לערוך את כל המתאמנים, התוכניות והתרגילים (המאמן היחיד = superadmin).
+  - `role='trainee'` → גישה רק לשורות שבהן `trainee_id = auth.uid()`, ורק לתוכניות עם `status='published'`.
+  - טבלת `exercises`: קריאה פתוחה לכל משתמש מחובר (גם מתאמנים, כדי לראות פרטי תרגיל באימון שלהם); כתיבה רק ל-`role='trainer'`.
 - אין הרשאות אדמין/סופר-יוזר בשלב הזה מעבר לתפקיד trainer בארגון שלו.
 
 ---
