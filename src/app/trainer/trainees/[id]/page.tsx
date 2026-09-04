@@ -12,6 +12,7 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { TraineeEditForm } from "./trainee-edit-form";
 import { DeleteTraineeButton } from "./delete-trainee-button";
+import { TraineeWeekSection } from "./trainee-week-section";
 import { cn } from "@/lib/utils";
 
 export default async function TraineeDetailPage({
@@ -90,6 +91,8 @@ export default async function TraineeDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <TraineeWeekSection traineeId={id} />
 
       <Card>
         <CardHeader>

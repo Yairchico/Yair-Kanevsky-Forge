@@ -2,10 +2,24 @@
 
 import { useRef, useState } from "react";
 import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
   addExerciseToDay,
   deleteWorkoutExercise,
   duplicateWorkoutExercise,
-  moveWorkoutExercise,
+  reorderWorkoutExercises,
   type WorkoutExerciseFields,
 } from "./actions";
 import { WorkoutExerciseRow } from "./workout-exercise-row";
@@ -28,34 +42,37 @@ interface Item {
 /**
  * Owns the current day's exercise list as local state and updates it
  * immediately (optimistically) for every structural change — add,
- * delete, duplicate, reorder — instead of calling router.refresh() and
- * waiting on a server round trip + re-render. Individual field edits
- * (sets/reps/...) live inside each WorkoutExerciseRow's own local state
- * and don't need to touch this list at all.
+ * delete, duplicate, drag-reorder — instead of calling router.refresh()
+ * and waiting on a server round trip + re-render. Individual field edits
+ * (sets/reps/...) live inside each WorkoutExerciseRow's own local state.
  *
- * Server actions still run (and revalidatePath keeps the server-rendered
- * truth in sync for the *next* real navigation), just not on the critical
- * path of what the trainer sees right now.
+ * onEdited fires on any change (including a field edit) so the parent can
+ * flip the program's "פורסם" badge to "טיוטה" right away, mirroring the
+ * server auto-reverting a published program to draft on any edit.
  */
 export function DayBuilder({
   traineeId,
   programId,
   programDayId,
-  initialWorkoutId,
   initialItems,
   catalog,
+  onEdited,
 }: {
   traineeId: string;
   programId: string;
   programDayId: string;
-  initialWorkoutId: string | null;
   initialItems: Item[];
   catalog: CatalogExercise[];
+  onEdited?: () => void;
 }) {
-  const [workoutId, setWorkoutId] = useState(initialWorkoutId);
   const [items, setItems] = useState(initialItems);
   const tempCounter = useRef(0);
   const nextTempId = () => `temp-${(tempCounter.current += 1)}`;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
 
   function handleAdd(exerciseId: string) {
     const ex = catalog.find((c) => c.id === exerciseId);
@@ -87,10 +104,10 @@ export function DayBuilder({
         exerciseId,
       );
       if (result.row) {
-        setWorkoutId(result.row.workout_id);
         setItems((prev) =>
           prev.map((it) => (it.id === tempId ? { ...it, id: result.row!.id } : it)),
         );
+        if (result.revertedToDraft) onEdited?.();
       } else {
         setItems((prev) => prev.filter((it) => it.id !== tempId));
       }
@@ -99,7 +116,10 @@ export function DayBuilder({
 
   function handleDelete(id: string) {
     setItems((prev) => prev.filter((it) => it.id !== id));
-    void deleteWorkoutExercise(traineeId, programId, id);
+    void (async () => {
+      const result = await deleteWorkoutExercise(traineeId, programId, id);
+      if (result.revertedToDraft) onEdited?.();
+    })();
   }
 
   function handleDuplicate(id: string) {
@@ -120,24 +140,34 @@ export function DayBuilder({
         setItems((prev) =>
           prev.map((it) => (it.id === tempId ? { ...it, id: result.row!.id } : it)),
         );
+        if (result.revertedToDraft) onEdited?.();
       } else {
         setItems((prev) => prev.filter((it) => it.id !== tempId));
       }
     })();
   }
 
-  function handleMove(id: string, direction: "up" | "down") {
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
     setItems((prev) => {
-      const index = prev.findIndex((it) => it.id === id);
-      const swapWith = direction === "up" ? index - 1 : index + 1;
-      if (index === -1 || swapWith < 0 || swapWith >= prev.length) return prev;
-      const next = [...prev];
-      [next[index], next[swapWith]] = [next[swapWith], next[index]];
+      const oldIndex = prev.findIndex((it) => it.id === active.id);
+      const newIndex = prev.findIndex((it) => it.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const next = arrayMove(prev, oldIndex, newIndex);
+
+      void (async () => {
+        const result = await reorderWorkoutExercises(
+          traineeId,
+          programId,
+          next.map((it) => it.id),
+        );
+        if (result.revertedToDraft) onEdited?.();
+      })();
+
       return next;
     });
-    if (workoutId) {
-      void moveWorkoutExercise(traineeId, programId, workoutId, id, direction);
-    }
   }
 
   return (
@@ -147,24 +177,35 @@ export function DayBuilder({
           אין עדיין תרגילים ליום הזה. הוסף תרגיל מהרשימה למטה.
         </p>
       ) : (
-        <div>
-          {items.map((it, i) => (
-            <WorkoutExerciseRow
-              key={it.id}
-              traineeId={traineeId}
-              programId={programId}
-              id={it.id}
-              index={i}
-              count={items.length}
-              exerciseName={it.exerciseName}
-              muscleGroup={it.muscleGroup}
-              initialFields={it.fields}
-              onMove={(direction) => handleMove(it.id, direction)}
-              onDuplicate={() => handleDuplicate(it.id)}
-              onDelete={() => handleDelete(it.id)}
-            />
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={items.map((it) => it.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div>
+              {items.map((it, i) => (
+                <WorkoutExerciseRow
+                  key={it.id}
+                  traineeId={traineeId}
+                  programId={programId}
+                  id={it.id}
+                  index={i}
+                  count={items.length}
+                  exerciseName={it.exerciseName}
+                  muscleGroup={it.muscleGroup}
+                  initialFields={it.fields}
+                  onDuplicate={() => handleDuplicate(it.id)}
+                  onDelete={() => handleDelete(it.id)}
+                  onEdited={onEdited}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       <AddExercisePicker exercises={catalog} onAdd={handleAdd} />

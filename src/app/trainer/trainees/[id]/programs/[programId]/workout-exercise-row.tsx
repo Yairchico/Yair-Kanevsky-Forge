@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Copy, GripVertical, Trash2 } from "lucide-react";
 import { updateWorkoutExercise, type WorkoutExerciseFields } from "./actions";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -26,14 +28,11 @@ function MiniField({
 
 /**
  * A compact "flow" node: numbered badge + connecting line on the side, a
- * small card with the exercise name and one tight row of fields. Kept
- * deliberately small so a whole day's list stays scannable — this used to
- * be a much taller grid-of-5 card.
- *
- * Field edits save themselves (local state, save on blur — no page
- * refresh). Structural changes (move/duplicate/delete) are reported to
- * the parent DayBuilder via callbacks, which updates its local list
- * immediately instead of waiting on a server round trip.
+ * small card with the exercise name and one tight row of fields, and a
+ * drag handle for real reordering (dnd-kit). Field edits save themselves
+ * (local state, save on blur — no page refresh); onEdited fires so the
+ * parent can flip the program's "פורסם" badge to "טיוטה" immediately,
+ * matching the server-side auto-revert-to-draft.
  */
 export function WorkoutExerciseRow({
   traineeId,
@@ -44,9 +43,9 @@ export function WorkoutExerciseRow({
   exerciseName,
   muscleGroup,
   initialFields,
-  onMove,
   onDuplicate,
   onDelete,
+  onEdited,
 }: {
   traineeId: string;
   programId: string;
@@ -56,22 +55,34 @@ export function WorkoutExerciseRow({
   exerciseName: string;
   muscleGroup: string | null;
   initialFields: WorkoutExerciseFields;
-  onMove: (direction: "up" | "down") => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onEdited?: () => void;
 }) {
   const [fields, setFields] = useState(initialFields);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
 
-  function save(next: WorkoutExerciseFields) {
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  async function save(next: WorkoutExerciseFields) {
     setFields(next);
-    void updateWorkoutExercise(traineeId, programId, id, next);
+    const result = await updateWorkoutExercise(traineeId, programId, id, next);
+    if (result.revertedToDraft) onEdited?.();
   }
 
   const iconBtn =
     "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:pointer-events-none";
 
   return (
-    <div className="flex gap-2">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn("flex gap-2", isDragging && "z-10 opacity-70")}
+    >
       <div className="flex flex-col items-center">
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
           {index + 1}
@@ -82,33 +93,26 @@ export function WorkoutExerciseRow({
       <div className="min-w-0 flex-1 pb-2">
         <div className="rounded-lg border border-border bg-card p-2.5">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium leading-tight">
-                {exerciseName}
-              </p>
-              {muscleGroup && (
-                <p className="text-xs text-muted-foreground">{muscleGroup}</p>
-              )}
+            <div className="flex min-w-0 items-start gap-1.5">
+              <button
+                type="button"
+                {...attributes}
+                {...listeners}
+                className="mt-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+                aria-label="גרור לשינוי סדר"
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium leading-tight">
+                  {exerciseName}
+                </p>
+                {muscleGroup && (
+                  <p className="text-xs text-muted-foreground">{muscleGroup}</p>
+                )}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
-              <button
-                type="button"
-                className={iconBtn}
-                disabled={index === 0}
-                onClick={() => onMove("up")}
-                aria-label="הזז למעלה"
-              >
-                <ChevronUp className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                className={iconBtn}
-                disabled={index === count - 1}
-                onClick={() => onMove("down")}
-                aria-label="הזז למטה"
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
               <button
                 type="button"
                 className={iconBtn}
@@ -141,7 +145,7 @@ export function WorkoutExerciseRow({
                   sets: e.target.value === "" ? null : Number(e.target.value),
                 }))
               }
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
             <MiniField
               label="חזרות"
@@ -149,7 +153,7 @@ export function WorkoutExerciseRow({
               placeholder="8-10"
               value={fields.reps ?? ""}
               onChange={(e) => setFields((f) => ({ ...f, reps: e.target.value }))}
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
             <MiniField
               label="משקל"
@@ -157,7 +161,7 @@ export function WorkoutExerciseRow({
               placeholder='ק"ג'
               value={fields.weight ?? ""}
               onChange={(e) => setFields((f) => ({ ...f, weight: e.target.value }))}
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
             <MiniField
               label="RPE"
@@ -173,7 +177,7 @@ export function WorkoutExerciseRow({
                   rpe: e.target.value === "" ? null : Number(e.target.value),
                 }))
               }
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
             <MiniField
               label="מנוחה (שנ')"
@@ -187,7 +191,7 @@ export function WorkoutExerciseRow({
                   rest_seconds: e.target.value === "" ? null : Number(e.target.value),
                 }))
               }
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
             <MiniField
               label="הערות"
@@ -197,7 +201,7 @@ export function WorkoutExerciseRow({
               onChange={(e) =>
                 setFields((f) => ({ ...f, instructions: e.target.value }))
               }
-              onBlur={() => save(fields)}
+              onBlur={() => void save(fields)}
             />
           </div>
         </div>

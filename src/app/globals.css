@@ -1,27 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  /* Palette sampled from the "Yair Kanevsky" logo (indigo/violet mark on a
-     warm cream ground) + the builder sketch (blue primary actions, amber
-     draft badge, green published/done state). */
-  --background: #fcf5ed;
-  --foreground: #19013d;
+  /* Neutral light-gray ground (the earlier cream/beige read as dated) with
+     the logo's violet as the one accent color. */
+  --background: #f4f5f7;
+  --foreground: #17181c;
 
   --card: #ffffff;
-  --card-foreground: #19013d;
+  --card-foreground: #17181c;
 
-  --border: #ece1d5;
-  --input: #e5d8c9;
+  --border: #e4e5ea;
+  --input: #dcdde3;
   --ring: #511ce0;
 
-  --muted: #f3ece2;
-  --muted-foreground: #7a7189;
+  --muted: #edeef1;
+  --muted-foreground: #6b6f76;
 
   --primary: #511ce0;
   --primary-foreground: #ffffff;
 
-  --secondary: #f3ece2;
-  --secondary-foreground: #19013d;
+  --secondary: #edeef1;
+  --secondary-foreground: #17181c;
 
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
@@ -64,16 +63,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #150f26;
-    --foreground: #f1ece5;
-    --card: #201a35;
-    --card-foreground: #f1ece5;
-    --border: #322a49;
-    --input: #322a49;
-    --muted: #251e3c;
-    --muted-foreground: #a79fc0;
-    --secondary: #251e3c;
-    --secondary-foreground: #f1ece5;
+    --background: #121317;
+    --foreground: #f0f1f3;
+    --card: #1c1d22;
+    --card-foreground: #f0f1f3;
+    --border: #2c2d34;
+    --input: #2c2d34;
+    --muted: #212227;
+    --muted-foreground: #9a9ca3;
+    --secondary: #212227;
+    --secondary-foreground: #f0f1f3;
   }
 }
 

@@ -22,10 +22,36 @@ export interface WorkoutExerciseRow extends WorkoutExerciseFields {
 export interface ActionResult {
   error?: string;
   row?: WorkoutExerciseRow;
+  /** True when this edit just reverted a published program back to draft. */
+  revertedToDraft?: boolean;
 }
 
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
+  revalidatePath(`/trainer/trainees/${traineeId}`);
+}
+
+/**
+ * A published program stays visible to the trainee exactly as last
+ * published — any edit here reverts it to draft so the change doesn't
+ * reach the trainee until the trainer explicitly republishes. Returns
+ * whether that happened, so the client can flip its own "פורסם" badge
+ * without waiting for a full page refresh.
+ */
+async function revertToDraftIfPublished(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  programId: string,
+): Promise<boolean> {
+  const { data: program } = await supabase
+    .from("programs")
+    .select("status")
+    .eq("id", programId)
+    .single();
+
+  if (program?.status !== "published") return false;
+
+  await supabase.from("programs").update({ status: "draft" }).eq("id", programId);
+  return true;
 }
 
 /**
@@ -80,8 +106,9 @@ export async function addExerciseToDay(
     return { error: "שגיאה בהוספת התרגיל" };
   }
 
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return { row };
+  return { row, revertedToDraft };
 }
 
 export async function updateWorkoutExercise(
@@ -100,8 +127,9 @@ export async function updateWorkoutExercise(
     return { error: "שגיאה בשמירה" };
   }
 
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return {};
+  return { revertedToDraft };
 }
 
 export async function deleteWorkoutExercise(
@@ -115,8 +143,9 @@ export async function deleteWorkoutExercise(
     return { error: "שגיאה במחיקה" };
   }
 
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return {};
+  return { revertedToDraft };
 }
 
 export async function duplicateWorkoutExercise(
@@ -149,11 +178,31 @@ export async function duplicateWorkoutExercise(
     return { error: "שגיאה בשכפול" };
   }
 
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return { row };
+  return { row, revertedToDraft };
 }
 
-/** Persists a reorder the client already applied optimistically. */
+/** Persists a reorder the client already applied optimistically (drag or up/down). */
+export async function reorderWorkoutExercises(
+  traineeId: string,
+  programId: string,
+  orderedIds: string[],
+): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase.from("workout_exercises").update({ order_index: index }).eq("id", id),
+    ),
+  );
+
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
+  revalidateBuilder(traineeId, programId);
+  return { revertedToDraft };
+}
+
+/** @deprecated kept for the up/down fallback buttons — use reorderWorkoutExercises for drag. */
 export async function moveWorkoutExercise(
   traineeId: string,
   programId: string,
@@ -190,6 +239,7 @@ export async function moveWorkoutExercise(
       .eq("id", b.id),
   ]);
 
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return {};
+  return { revertedToDraft };
 }

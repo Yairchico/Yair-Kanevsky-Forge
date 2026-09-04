@@ -34,7 +34,8 @@ npm run dev
    1. `supabase/migrations/0002_profiles_email_and_exercise_uniqueness.sql` — מוסיף `email` לפרופילים ומכין את `exercises` לזריעה בטוחה (idempotent).
    2. `supabase/migrations/0003_prevent_role_self_escalation.sql` — תיקון אבטחה (חוסם מתאמן מלשנות role של עצמו).
    3. `supabase/migrations/0004_username_login.sql` — **חשוב**: מוסיף `username` ומעביר את ההתחברות מאימייל לשם משתמש (ראו קופסת האזהרה למטה).
-   4. `supabase/seed.sql` — מכניס ~58 תרגילי בסיס לספרייה (שמות באנגלית, קבוצת שריר בעברית). אפשר להריץ שוב בעתיד בלי סיכון לכפילויות (`ON CONFLICT DO NOTHING`). אם כבר הרצתם גרסה ישנה עם שמות עבריים — יש הערת ניקוי בראש הקובץ.
+   4. `supabase/migrations/0005_exercise_completions.sql` — מוסיף טבלת `workout_exercise_completions` (סימון "בוצע" לכל תרגיל בנפרד, בנוסף להגשת האימון השלם).
+   5. `supabase/seed.sql` — מכניס ~58 תרגילי בסיס לספרייה (שמות באנגלית, קבוצת שריר בעברית). אפשר להריץ שוב בעתיד בלי סיכון לכפילויות (`ON CONFLICT DO NOTHING`). אם כבר הרצתם גרסה ישנה עם שמות עבריים — יש הערת ניקוי בראש הקובץ.
 
    > ⚠️ **אחרי migration 0004 ההתחברות היא לפי שם משתמש, לא אימייל.** המיגרציה מייצרת `username` אוטומטית לכל המשתמשים הקיימים (כולל המאמן) מהחלק הראשון של כתובת האימייל שלהם. כדי לדעת מה שם המשתמש שלך: ב-SQL Editor הריצו `select username from public.profiles where role = 'trainer';`.
 

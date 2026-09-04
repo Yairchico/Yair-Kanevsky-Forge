@@ -1,21 +1,14 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import { cn } from "@/lib/utils";
-import { PublishToggle } from "./publish-toggle";
-import { DayBuilder } from "./day-builder";
+import { ProgramBuilderClient } from "./program-builder-client";
 
 export default async function ProgramBuilderPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string; programId: string }>;
-  searchParams: Promise<{ day?: string }>;
 }) {
   const { id: traineeId, programId } = await params;
-  const { day } = await searchParams;
-  const dayIndex = Number(day ?? "0") || 0;
 
   const supabase = await createClient();
 
@@ -68,84 +61,46 @@ export default async function ProgramBuilderPage({
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
 
-  const currentDay = (days ?? []).find((d) => d.day_index === dayIndex) ?? days?.[0];
-  const currentWorkout = (workouts ?? []).find(
-    (w) => w.program_day_id === currentDay?.id,
-  );
-  const currentItems = (workoutExercises ?? [])
-    .filter((we) => we.workout_id === currentWorkout?.id)
-    .map((we) => {
-      const exercise = exerciseById.get(we.exercise_id);
-      return {
-        id: we.id,
-        exerciseName: exercise?.name ?? "תרגיל לא ידוע",
-        muscleGroup: exercise?.muscle_group ?? null,
-        fields: {
-          sets: we.sets,
-          reps: we.reps,
-          weight: we.weight,
-          rpe: we.rpe,
-          rest_seconds: we.rest_seconds,
-          instructions: we.instructions,
-        },
-      };
-    });
+  const daysData = (days ?? []).map((d) => {
+    const workout = (workouts ?? []).find((w) => w.program_day_id === d.id);
+    const items = (workoutExercises ?? [])
+      .filter((we) => we.workout_id === workout?.id)
+      .map((we) => {
+        const exercise = exerciseById.get(we.exercise_id);
+        return {
+          id: we.id,
+          exerciseName: exercise?.name ?? "תרגיל לא ידוע",
+          muscleGroup: exercise?.muscle_group ?? null,
+          fields: {
+            sets: we.sets,
+            reps: we.reps,
+            weight: we.weight,
+            rpe: we.rpe,
+            rest_seconds: we.rest_seconds,
+            instructions: we.instructions,
+          },
+        };
+      });
 
-  const isPublished = program.status === "published";
+    return {
+      id: d.id,
+      dayIndex: d.day_index,
+      label: d.label ?? "",
+      workoutId: workout?.id ?? null,
+      items,
+    };
+  });
 
   return (
     <AppShell title={program.title} backHref={`/trainer/trainees/${traineeId}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium",
-              isPublished
-                ? "bg-success/15 text-success"
-                : "bg-warning/20 text-warning-foreground",
-            )}
-          >
-            {isPublished ? "פורסם" : "טיוטה"}
-          </span>
-          <span className="text-sm text-muted-foreground">
-            תוכנית עבור {trainee.full_name}
-          </span>
-        </div>
-        <PublishToggle
-          traineeId={traineeId}
-          programId={programId}
-          isPublished={isPublished}
-        />
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {(days ?? []).map((d) => (
-          <Link
-            key={d.id}
-            href={`/trainer/trainees/${traineeId}/programs/${programId}?day=${d.day_index}`}
-            className={cn(
-              "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-              d.day_index === dayIndex
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:bg-muted",
-            )}
-          >
-            {d.label}
-          </Link>
-        ))}
-      </div>
-
-      {currentDay && (
-        <DayBuilder
-          key={currentDay.id}
-          traineeId={traineeId}
-          programId={programId}
-          programDayId={currentDay.id}
-          initialWorkoutId={currentWorkout?.id ?? null}
-          initialItems={currentItems}
-          catalog={exercises ?? []}
-        />
-      )}
+      <ProgramBuilderClient
+        traineeId={traineeId}
+        programId={programId}
+        traineeName={trainee.full_name}
+        initialIsPublished={program.status === "published"}
+        days={daysData}
+        catalog={exercises ?? []}
+      />
     </AppShell>
   );
 }

@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CompleteButton } from "./complete-button";
+import { ExerciseCheckbox, SubmitWorkoutButton } from "./workout-actions";
 
 export default async function TraineeHomePage({
   searchParams,
@@ -79,31 +79,44 @@ export default async function TraineeHomePage({
     .in("program_day_id", dayIds.length ? dayIds : ["00000000-0000-0000-0000-000000000000"]);
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
-  const [{ data: workoutExercises }, { data: exercises }, { data: completions }] =
-    await Promise.all([
-      supabase
-        .from("workout_exercises")
-        .select(
-          "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-        )
-        .in(
-          "workout_id",
-          workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
-        )
-        .order("order_index"),
-      supabase.from("exercises").select("id, name, muscle_group"),
-      supabase
-        .from("workout_completions")
-        .select("workout_id")
-        .eq("trainee_id", user.id)
-        .in(
-          "workout_id",
-          workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
-        ),
-    ]);
+  const [
+    { data: workoutExercises },
+    { data: exercises },
+    { data: workoutCompletions },
+    { data: exerciseCompletions },
+  ] = await Promise.all([
+    supabase
+      .from("workout_exercises")
+      .select(
+        "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
+      )
+      .in(
+        "workout_id",
+        workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
+      )
+      .order("order_index"),
+    supabase.from("exercises").select("id, name, muscle_group"),
+    supabase
+      .from("workout_completions")
+      .select("workout_id")
+      .eq("trainee_id", user.id)
+      .in(
+        "workout_id",
+        workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
+      ),
+    supabase
+      .from("workout_exercise_completions")
+      .select("workout_exercise_id")
+      .eq("trainee_id", user.id),
+  ]);
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
-  const completedWorkoutIds = new Set((completions ?? []).map((c) => c.workout_id));
+  const submittedWorkoutIds = new Set(
+    (workoutCompletions ?? []).map((c) => c.workout_id),
+  );
+  const doneExerciseIds = new Set(
+    (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
+  );
 
   const currentDay = (days ?? []).find((d) => d.day_index === dayIndex) ?? days?.[0];
   const currentWorkout = (workouts ?? []).find(
@@ -118,7 +131,7 @@ export default async function TraineeHomePage({
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(days ?? []).map((d) => {
           const w = (workouts ?? []).find((w) => w.program_day_id === d.id);
-          const done = w ? completedWorkoutIds.has(w.id) : false;
+          const submitted = w ? submittedWorkoutIds.has(w.id) : false;
           return (
             <Link
               key={d.id}
@@ -127,7 +140,7 @@ export default async function TraineeHomePage({
                 "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                 d.day_index === dayIndex
                   ? "bg-primary text-primary-foreground"
-                  : done
+                  : submitted
                     ? "bg-success/15 text-success"
                     : "bg-secondary text-secondary-foreground hover:bg-muted",
               )}
@@ -149,34 +162,40 @@ export default async function TraineeHomePage({
           <div className="space-y-3">
             {currentExercises.map((we) => (
               <Card key={we.id}>
-                <CardContent className="p-4">
-                  <p className="font-medium">{we.exercise?.name}</p>
-                  {we.exercise?.muscle_group && (
-                    <p className="text-xs text-muted-foreground">
-                      {we.exercise.muscle_group}
-                    </p>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                    {we.sets != null && <span>{we.sets} סטים</span>}
-                    {we.reps && <span>{we.reps} חזרות</span>}
-                    {we.weight && <span>{we.weight}</span>}
-                    {we.rpe != null && <span>RPE {we.rpe}</span>}
-                    {we.rest_seconds != null && (
-                      <span>{we.rest_seconds} שנ׳ מנוחה</span>
+                <CardContent className="flex items-start gap-3 p-4">
+                  <ExerciseCheckbox
+                    workoutExerciseId={we.id}
+                    completed={doneExerciseIds.has(we.id)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{we.exercise?.name}</p>
+                    {we.exercise?.muscle_group && (
+                      <p className="text-xs text-muted-foreground">
+                        {we.exercise.muscle_group}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      {we.sets != null && <span>{we.sets} סטים</span>}
+                      {we.reps && <span>{we.reps} חזרות</span>}
+                      {we.weight && <span>{we.weight}</span>}
+                      {we.rpe != null && <span>RPE {we.rpe}</span>}
+                      {we.rest_seconds != null && (
+                        <span>{we.rest_seconds} שנ׳ מנוחה</span>
+                      )}
+                    </div>
+                    {we.instructions && (
+                      <p className="mt-2 text-sm">{we.instructions}</p>
                     )}
                   </div>
-                  {we.instructions && (
-                    <p className="mt-2 text-sm">{we.instructions}</p>
-                  )}
                 </CardContent>
               </Card>
             ))}
           </div>
 
           {currentWorkout && (
-            <CompleteButton
+            <SubmitWorkoutButton
               workoutId={currentWorkout.id}
-              completed={completedWorkoutIds.has(currentWorkout.id)}
+              submitted={submittedWorkoutIds.has(currentWorkout.id)}
             />
           )}
         </>

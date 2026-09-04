@@ -149,6 +149,24 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["workout_completions"]["Row"]>;
         Relationships: [];
       };
+      workout_exercise_completions: {
+        Row: {
+          id: string;
+          workout_exercise_id: string;
+          trainee_id: string;
+          completed_at: string;
+        };
+        Insert: Partial<
+          Database["public"]["Tables"]["workout_exercise_completions"]["Row"]
+        > & {
+          workout_exercise_id: string;
+          trainee_id: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["workout_exercise_completions"]["Row"]
+        >;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
