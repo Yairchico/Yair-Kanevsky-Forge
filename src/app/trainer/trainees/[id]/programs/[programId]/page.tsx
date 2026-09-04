@@ -4,8 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
 import { PublishToggle } from "./publish-toggle";
-import { WorkoutExerciseRow } from "./workout-exercise-row";
-import { AddExercisePicker } from "./add-exercise-picker";
+import { DayBuilder } from "./day-builder";
 
 export default async function ProgramBuilderPage({
   params,
@@ -73,9 +72,24 @@ export default async function ProgramBuilderPage({
   const currentWorkout = (workouts ?? []).find(
     (w) => w.program_day_id === currentDay?.id,
   );
-  const currentExercises = (workoutExercises ?? [])
+  const currentItems = (workoutExercises ?? [])
     .filter((we) => we.workout_id === currentWorkout?.id)
-    .map((we) => ({ ...we, exercise: exerciseById.get(we.exercise_id) }));
+    .map((we) => {
+      const exercise = exerciseById.get(we.exercise_id);
+      return {
+        id: we.id,
+        exerciseName: exercise?.name ?? "תרגיל לא ידוע",
+        muscleGroup: exercise?.muscle_group ?? null,
+        fields: {
+          sets: we.sets,
+          reps: we.reps,
+          weight: we.weight,
+          rpe: we.rpe,
+          rest_seconds: we.rest_seconds,
+          instructions: we.instructions,
+        },
+      };
+    });
 
   const isPublished = program.status === "published";
 
@@ -121,40 +135,15 @@ export default async function ProgramBuilderPage({
         ))}
       </div>
 
-      <div className="space-y-3">
-        {currentExercises.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            אין עדיין תרגילים ליום הזה. הוסף תרגיל מהרשימה למטה.
-          </p>
-        ) : (
-          currentExercises.map((we, i) => (
-            <WorkoutExerciseRow
-              key={we.id}
-              traineeId={traineeId}
-              programId={programId}
-              workoutId={we.workout_id}
-              id={we.id}
-              index={i}
-              count={currentExercises.length}
-              exerciseName={we.exercise?.name ?? "תרגיל לא ידוע"}
-              muscleGroup={we.exercise?.muscle_group ?? null}
-              sets={we.sets}
-              reps={we.reps}
-              weight={we.weight}
-              rpe={we.rpe}
-              restSeconds={we.rest_seconds}
-              instructions={we.instructions}
-            />
-          ))
-        )}
-      </div>
-
       {currentDay && (
-        <AddExercisePicker
+        <DayBuilder
+          key={currentDay.id}
           traineeId={traineeId}
           programId={programId}
           programDayId={currentDay.id}
-          exercises={exercises ?? []}
+          initialWorkoutId={currentWorkout?.id ?? null}
+          initialItems={currentItems}
+          catalog={exercises ?? []}
         />
       )}
     </AppShell>

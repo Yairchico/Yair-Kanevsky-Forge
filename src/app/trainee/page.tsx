@@ -36,6 +36,12 @@ export default async function TraineeHomePage({
     );
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", user.id)
+    .single();
+
   const { data: program } = await supabase
     .from("programs")
     .select("id, title")
@@ -47,7 +53,7 @@ export default async function TraineeHomePage({
 
   if (!program) {
     return (
-      <AppShell title="השבוע שלי" userEmail={user.email}>
+      <AppShell title="השבוע שלי" username={profile?.username}>
         <Card>
           <CardHeader>
             <CardTitle>עדיין אין תוכנית מפורסמת</CardTitle>
@@ -108,7 +114,7 @@ export default async function TraineeHomePage({
     .map((we) => ({ ...we, exercise: exerciseById.get(we.exercise_id) }));
 
   return (
-    <AppShell title={program.title} userEmail={user.email}>
+    <AppShell title={program.title} username={profile?.username}>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(days ?? []).map((d) => {
           const w = (workouts ?? []).find((w) => w.program_day_id === d.id);

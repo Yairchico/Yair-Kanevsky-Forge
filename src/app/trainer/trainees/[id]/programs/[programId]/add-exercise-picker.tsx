@@ -1,12 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { addExerciseToDay } from "./actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 
 interface Exercise {
   id: string;
@@ -15,21 +12,21 @@ interface Exercise {
   equipment: string | null;
 }
 
+/**
+ * Purely local filtering (the whole exercise catalog is already in
+ * memory) and the add itself is just a callback — no server round trip
+ * blocks anything here, so this stays instant regardless of network
+ * latency. No inner scroll container either: it flows with the page like
+ * everything else, so mobile scrolling isn't fighting a nested scroll box.
+ */
 export function AddExercisePicker({
-  traineeId,
-  programId,
-  programDayId,
   exercises,
+  onAdd,
 }: {
-  traineeId: string;
-  programId: string;
-  programDayId: string;
   exercises: Exercise[];
+  onAdd: (exerciseId: string) => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const [q, setQ] = useState("");
-  const [addingId, setAddingId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!q.trim()) return exercises.slice(0, 20);
@@ -43,15 +40,6 @@ export function AddExercisePicker({
       .slice(0, 20);
   }, [q, exercises]);
 
-  function add(exerciseId: string) {
-    setAddingId(exerciseId);
-    startTransition(async () => {
-      await addExerciseToDay(traineeId, programId, programDayId, exerciseId);
-      setAddingId(null);
-      router.refresh();
-    });
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -63,14 +51,16 @@ export function AddExercisePicker({
           onChange={(e) => setQ(e.target.value)}
           placeholder="חיפוש תרגיל…"
         />
-        <div className="max-h-80 space-y-1 overflow-y-auto">
+        <div className="space-y-1">
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground">לא נמצאו תרגילים.</p>
           ) : (
             filtered.map((ex) => (
-              <div
+              <button
+                type="button"
                 key={ex.id}
-                className="flex items-center justify-between gap-2 rounded-md p-2 hover:bg-muted"
+                onClick={() => onAdd(ex.id)}
+                className="flex w-full items-center justify-between gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
               >
                 <div>
                   <p className="text-sm font-medium">{ex.name}</p>
@@ -80,17 +70,8 @@ export function AddExercisePicker({
                     </p>
                   )}
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={pending && addingId === ex.id}
-                  onClick={() => add(ex.id)}
-                  aria-label={`הוסף ${ex.name}`}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
+                <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
             ))
           )}
         </div>

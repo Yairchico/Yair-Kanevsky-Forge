@@ -14,8 +14,12 @@ export default async function TrainerHomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("username").eq("id", user.id).single()
+    : { data: null };
+
   return (
-    <AppShell title="אזור מאמן" userEmail={user?.email}>
+    <AppShell title="אזור מאמן" username={profile?.username}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/trainer/trainees">
           <Card className="h-full transition-colors hover:bg-muted">

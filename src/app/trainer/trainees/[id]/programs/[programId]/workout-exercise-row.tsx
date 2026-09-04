@@ -1,147 +1,137 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
-import {
-  deleteWorkoutExercise,
-  duplicateWorkoutExercise,
-  moveWorkoutExercise,
-  updateWorkoutExercise,
-  type WorkoutExerciseFields,
-} from "./actions";
-import { Card, CardContent } from "@/components/ui/card";
+import { updateWorkoutExercise, type WorkoutExerciseFields } from "./actions";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
+function MiniField({
+  label,
+  className,
+  ...props
+}: {
+  label: string;
+  className?: string;
+} & React.ComponentProps<"input">) {
+  return (
+    <label className={cn("flex flex-col gap-0.5", className)}>
+      <span className="text-[10px] leading-none text-muted-foreground">
+        {label}
+      </span>
+      <Input className="h-8 px-2 text-sm" {...props} />
+    </label>
+  );
+}
+
+/**
+ * A compact "flow" node: numbered badge + connecting line on the side, a
+ * small card with the exercise name and one tight row of fields. Kept
+ * deliberately small so a whole day's list stays scannable — this used to
+ * be a much taller grid-of-5 card.
+ *
+ * Field edits save themselves (local state, save on blur — no page
+ * refresh). Structural changes (move/duplicate/delete) are reported to
+ * the parent DayBuilder via callbacks, which updates its local list
+ * immediately instead of waiting on a server round trip.
+ */
 export function WorkoutExerciseRow({
   traineeId,
   programId,
-  workoutId,
   id,
   index,
   count,
   exerciseName,
   muscleGroup,
-  sets,
-  reps,
-  weight,
-  rpe,
-  restSeconds,
-  instructions,
+  initialFields,
+  onMove,
+  onDuplicate,
+  onDelete,
 }: {
   traineeId: string;
   programId: string;
-  workoutId: string;
   id: string;
   index: number;
   count: number;
   exerciseName: string;
   muscleGroup: string | null;
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
-  restSeconds: number | null;
-  instructions: string | null;
+  initialFields: WorkoutExerciseFields;
+  onMove: (direction: "up" | "down") => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [fields, setFields] = useState<WorkoutExerciseFields>({
-    sets,
-    reps,
-    weight,
-    rpe,
-    rest_seconds: restSeconds,
-    instructions,
-  });
+  const [fields, setFields] = useState(initialFields);
 
   function save(next: WorkoutExerciseFields) {
-    startTransition(async () => {
-      await updateWorkoutExercise(traineeId, programId, id, next);
-      router.refresh();
-    });
+    setFields(next);
+    void updateWorkoutExercise(traineeId, programId, id, next);
   }
 
-  function move(direction: "up" | "down") {
-    startTransition(async () => {
-      await moveWorkoutExercise(traineeId, programId, workoutId, id, direction);
-      router.refresh();
-    });
-  }
-
-  function duplicate() {
-    startTransition(async () => {
-      await duplicateWorkoutExercise(traineeId, programId, id);
-      router.refresh();
-    });
-  }
-
-  function remove() {
-    startTransition(async () => {
-      await deleteWorkoutExercise(traineeId, programId, id);
-      router.refresh();
-    });
-  }
+  const iconBtn =
+    "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:pointer-events-none";
 
   return (
-    <Card className={pending ? "opacity-60" : undefined}>
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="font-medium">{exerciseName}</p>
-            {muscleGroup && (
-              <p className="text-xs text-muted-foreground">{muscleGroup}</p>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={index === 0}
-              onClick={() => move("up")}
-              aria-label="הזז למעלה"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={index === count - 1}
-              onClick={() => move("down")}
-              aria-label="הזז למטה"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={duplicate}
-              aria-label="שכפל"
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={remove}
-              aria-label="מחק"
-              className="text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+    <div className="flex gap-2">
+      <div className="flex flex-col items-center">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+          {index + 1}
         </div>
+        {index < count - 1 && <div className="my-1 w-px flex-1 bg-border" />}
+      </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <div className="space-y-1">
-            <Label className="text-xs">סטים</Label>
-            <Input
+      <div className="min-w-0 flex-1 pb-2">
+        <div className="rounded-lg border border-border bg-card p-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium leading-tight">
+                {exerciseName}
+              </p>
+              {muscleGroup && (
+                <p className="text-xs text-muted-foreground">{muscleGroup}</p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                className={iconBtn}
+                disabled={index === 0}
+                onClick={() => onMove("up")}
+                aria-label="הזז למעלה"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className={iconBtn}
+                disabled={index === count - 1}
+                onClick={() => onMove("down")}
+                aria-label="הזז למטה"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className={iconBtn}
+                onClick={onDuplicate}
+                aria-label="שכפל"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className={cn(iconBtn, "hover:text-destructive")}
+                onClick={onDelete}
+                aria-label="מחק"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <MiniField
+              label="סטים"
+              className="w-14"
               type="number"
               min={0}
               value={fields.sets ?? ""}
@@ -153,28 +143,25 @@ export function WorkoutExerciseRow({
               }
               onBlur={() => save(fields)}
             />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">חזרות</Label>
-            <Input
-              value={fields.reps ?? ""}
+            <MiniField
+              label="חזרות"
+              className="w-16"
               placeholder="8-10"
+              value={fields.reps ?? ""}
               onChange={(e) => setFields((f) => ({ ...f, reps: e.target.value }))}
               onBlur={() => save(fields)}
             />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">משקל</Label>
-            <Input
+            <MiniField
+              label="משקל"
+              className="w-16"
+              placeholder='ק"ג'
               value={fields.weight ?? ""}
-              placeholder='20 ק"ג'
               onChange={(e) => setFields((f) => ({ ...f, weight: e.target.value }))}
               onBlur={() => save(fields)}
             />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">RPE</Label>
-            <Input
+            <MiniField
+              label="RPE"
+              className="w-12"
               type="number"
               min={1}
               max={10}
@@ -188,10 +175,9 @@ export function WorkoutExerciseRow({
               }
               onBlur={() => save(fields)}
             />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">מנוחה (שנ׳)</Label>
-            <Input
+            <MiniField
+              label="מנוחה (שנ')"
+              className="w-16"
               type="number"
               min={0}
               value={fields.rest_seconds ?? ""}
@@ -203,21 +189,19 @@ export function WorkoutExerciseRow({
               }
               onBlur={() => save(fields)}
             />
+            <MiniField
+              label="הערות"
+              className="min-w-24 flex-1"
+              placeholder="הנחיות ביצוע"
+              value={fields.instructions ?? ""}
+              onChange={(e) =>
+                setFields((f) => ({ ...f, instructions: e.target.value }))
+              }
+              onBlur={() => save(fields)}
+            />
           </div>
         </div>
-
-        <div className="space-y-1">
-          <Label className="text-xs">הנחיות</Label>
-          <Input
-            value={fields.instructions ?? ""}
-            placeholder="הערות / הנחיות ביצוע"
-            onChange={(e) =>
-              setFields((f) => ({ ...f, instructions: e.target.value }))
-            }
-            onBlur={() => save(fields)}
-          />
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

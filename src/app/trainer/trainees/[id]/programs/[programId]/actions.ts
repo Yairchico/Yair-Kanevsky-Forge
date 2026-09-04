@@ -3,15 +3,36 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
+export interface WorkoutExerciseFields {
+  sets: number | null;
+  reps: string | null;
+  weight: string | null;
+  rpe: number | null;
+  rest_seconds: number | null;
+  instructions: string | null;
+}
+
+export interface WorkoutExerciseRow extends WorkoutExerciseFields {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  order_index: number;
+}
+
 export interface ActionResult {
   error?: string;
+  row?: WorkoutExerciseRow;
 }
 
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
 }
 
-/** Adds an exercise to a day, lazily creating that day's workout row. */
+/**
+ * Adds an exercise to a day, lazily creating that day's workout row, and
+ * returns the created row so the client can append it to local state
+ * directly instead of refetching the whole page.
+ */
 export async function addExerciseToDay(
   traineeId: string,
   programId: string,
@@ -44,28 +65,23 @@ export async function addExerciseToDay(
     .select("id", { count: "exact", head: true })
     .eq("workout_id", workout.id);
 
-  const { error } = await supabase.from("workout_exercises").insert({
-    workout_id: workout.id,
-    exercise_id: exerciseId,
-    order_index: count ?? 0,
-    sets: 3,
-  });
+  const { data: row, error } = await supabase
+    .from("workout_exercises")
+    .insert({
+      workout_id: workout.id,
+      exercise_id: exerciseId,
+      order_index: count ?? 0,
+      sets: 3,
+    })
+    .select("*")
+    .single();
 
-  if (error) {
+  if (error || !row) {
     return { error: "שגיאה בהוספת התרגיל" };
   }
 
   revalidateBuilder(traineeId, programId);
-  return {};
-}
-
-export interface WorkoutExerciseFields {
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
-  rest_seconds: number | null;
-  instructions: string | null;
+  return { row };
 }
 
 export async function updateWorkoutExercise(
@@ -109,32 +125,35 @@ export async function duplicateWorkoutExercise(
   id: string,
 ): Promise<ActionResult> {
   const supabase = await createClient();
-  const { data: row } = await supabase
+  const { data: original } = await supabase
     .from("workout_exercises")
     .select("*")
     .eq("id", id)
     .single();
-  if (!row) return { error: "התרגיל לא נמצא" };
+  if (!original) return { error: "התרגיל לא נמצא" };
 
   const { count } = await supabase
     .from("workout_exercises")
     .select("id", { count: "exact", head: true })
-    .eq("workout_id", row.workout_id);
+    .eq("workout_id", original.workout_id);
 
-  const { id: _id, ...rest } = row;
+  const { id: _id, ...rest } = original;
   void _id;
-  const { error } = await supabase
+  const { data: row, error } = await supabase
     .from("workout_exercises")
-    .insert({ ...rest, order_index: count ?? 0 });
+    .insert({ ...rest, order_index: count ?? 0 })
+    .select("*")
+    .single();
 
-  if (error) {
+  if (error || !row) {
     return { error: "שגיאה בשכפול" };
   }
 
   revalidateBuilder(traineeId, programId);
-  return {};
+  return { row };
 }
 
+/** Persists a reorder the client already applied optimistically. */
 export async function moveWorkoutExercise(
   traineeId: string,
   programId: string,

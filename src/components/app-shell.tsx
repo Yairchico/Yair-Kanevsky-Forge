@@ -9,13 +9,14 @@ import { APP_NAME } from "@/lib/constants";
 export function AppShell({
   title,
   backHref,
-  userEmail,
+  username,
   children,
 }: {
   title: string;
   /** Shows a back button in the header, linking here, when set. */
   backHref?: string;
-  userEmail?: string | null;
+  /** The signed-in user's own username — never their email. */
+  username?: string | null;
   children: ReactNode;
 }) {
   return (
@@ -39,10 +40,8 @@ export function AppShell({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {userEmail && (
-            <p className="hidden text-xs text-muted-foreground sm:block">
-              {userEmail}
-            </p>
+          {username && (
+            <p className="hidden text-sm font-semibold sm:block">@{username}</p>
           )}
           <SignOutButton />
         </div>
