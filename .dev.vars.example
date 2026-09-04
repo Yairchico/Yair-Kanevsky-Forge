@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `wrangler dev` / `npm run cf:preview` local runs
+# (mirrors .env.example — wrangler doesn't read .env.local).
+
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key

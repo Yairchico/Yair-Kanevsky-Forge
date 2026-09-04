@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "trainer-app",
+	"compatibility_date": "2026-09-04",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference service binding, required for ISR/on-demand revalidation.
+			// See https://opennext.js.org/cloudflare/caching
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "trainer-app"
+		}
+	]
+	// Not yet configured (add when needed):
+	// - r2_buckets: persistent ISR/data cache across deploys (create the bucket first)
+	// - images: Cloudflare Images binding for next/image optimization
+	// See https://opennext.js.org/cloudflare for both.
+}
