@@ -8,8 +8,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { History } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ExerciseCheckbox, SubmitWorkoutButton } from "./workout-actions";
+import {
+  ExerciseCheckbox,
+  PerformanceLogForm,
+  SubmitWorkoutButton,
+} from "./workout-actions";
 
 export default async function TraineeHomePage({
   searchParams,
@@ -128,8 +133,9 @@ export default async function TraineeHomePage({
 
   return (
     <AppShell title={program.title} username={profile?.username}>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {(days ?? []).map((d) => {
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {(days ?? []).map((d) => {
           const w = (workouts ?? []).find((w) => w.program_day_id === d.id);
           const submitted = w ? submittedWorkoutIds.has(w.id) : false;
           return (
@@ -148,7 +154,15 @@ export default async function TraineeHomePage({
               {d.label}
             </Link>
           );
-        })}
+          })}
+        </div>
+        <Link
+          href="/trainee/history"
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <History className="h-4 w-4" />
+          היסטוריה
+        </Link>
       </div>
 
       {currentExercises.length === 0 ? (
@@ -186,6 +200,9 @@ export default async function TraineeHomePage({
                     {we.instructions && (
                       <p className="mt-2 text-sm">{we.instructions}</p>
                     )}
+                    <div className="mt-2">
+                      <PerformanceLogForm workoutExerciseId={we.id} />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
