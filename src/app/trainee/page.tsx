@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { History } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -8,8 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { History } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getWeekStart, toDateKey } from "@/lib/week";
 import {
   ExerciseCheckbox,
   PerformanceLogForm,
@@ -19,10 +20,10 @@ import {
 export default async function TraineeHomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ day?: string }>;
+  searchParams: Promise<{ workout?: string }>;
 }) {
-  const { day } = await searchParams;
-  const dayIndex = Number(day ?? "0") || 0;
+  const { workout: workoutParam } = await searchParams;
+  const activeIndex = Number(workoutParam ?? "0") || 0;
 
   const supabase = await createClient();
   const {
@@ -47,13 +48,14 @@ export default async function TraineeHomePage({
     .eq("id", user.id)
     .single();
 
+  const currentWeekKey = toDateKey(getWeekStart(new Date()));
+
   const { data: program } = await supabase
     .from("programs")
     .select("id, title")
     .eq("trainee_id", user.id)
     .eq("status", "published")
-    .order("published_at", { ascending: false })
-    .limit(1)
+    .eq("week_start_date", currentWeekKey)
     .maybeSingle();
 
   if (!program) {
@@ -61,9 +63,9 @@ export default async function TraineeHomePage({
       <AppShell title="השבוע שלי" username={profile?.username}>
         <Card>
           <CardHeader>
-            <CardTitle>עדיין אין תוכנית מפורסמת</CardTitle>
+            <CardTitle>עדיין אין תוכנית מפורסמת לשבוע הזה</CardTitle>
             <CardDescription>
-              כשהמאמן יפרסם עבורך תוכנית שבועית, היא תופיע כאן.
+              כשהמאמן יפרסם עבורך תוכנית לשבוע הנוכחי, היא תופיע כאן.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -71,17 +73,11 @@ export default async function TraineeHomePage({
     );
   }
 
-  const { data: days } = await supabase
-    .from("program_days")
-    .select("id, day_index, label")
-    .eq("program_id", program.id)
-    .order("day_index");
-
-  const dayIds = (days ?? []).map((d) => d.id);
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, program_day_id")
-    .in("program_day_id", dayIds.length ? dayIds : ["00000000-0000-0000-0000-000000000000"]);
+    .select("id, order_index")
+    .eq("program_id", program.id)
+    .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
   const [
@@ -123,10 +119,7 @@ export default async function TraineeHomePage({
     (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
   );
 
-  const currentDay = (days ?? []).find((d) => d.day_index === dayIndex) ?? days?.[0];
-  const currentWorkout = (workouts ?? []).find(
-    (w) => w.program_day_id === currentDay?.id,
-  );
+  const currentWorkout = (workouts ?? [])[activeIndex] ?? (workouts ?? [])[0];
   const currentExercises = (workoutExercises ?? [])
     .filter((we) => we.workout_id === currentWorkout?.id)
     .map((we) => ({ ...we, exercise: exerciseById.get(we.exercise_id) }));
@@ -135,25 +128,24 @@ export default async function TraineeHomePage({
     <AppShell title={program.title} username={profile?.username}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {(days ?? []).map((d) => {
-          const w = (workouts ?? []).find((w) => w.program_day_id === d.id);
-          const submitted = w ? submittedWorkoutIds.has(w.id) : false;
-          return (
-            <Link
-              key={d.id}
-              href={`/trainee?day=${d.day_index}`}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                d.day_index === dayIndex
-                  ? "bg-primary text-primary-foreground"
-                  : submitted
-                    ? "bg-success/15 text-success"
-                    : "bg-secondary text-secondary-foreground hover:bg-muted",
-              )}
-            >
-              {d.label}
-            </Link>
-          );
+          {(workouts ?? []).map((w, i) => {
+            const submitted = submittedWorkoutIds.has(w.id);
+            return (
+              <Link
+                key={w.id}
+                href={`/trainee?workout=${i}`}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                  w.id === currentWorkout?.id
+                    ? "bg-primary text-primary-foreground"
+                    : submitted
+                      ? "bg-success/15 text-success"
+                      : "bg-secondary text-secondary-foreground hover:bg-muted",
+                )}
+              >
+                אימון {i + 1}
+              </Link>
+            );
           })}
         </div>
         <Link
@@ -168,7 +160,7 @@ export default async function TraineeHomePage({
       {currentExercises.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            אין אימון מתוכנן ליום הזה.
+            אין תרגילים באימון הזה.
           </CardContent>
         </Card>
       ) : (

@@ -59,6 +59,8 @@ export interface Database {
           title: string;
           status: ProgramStatus;
           version: number;
+          /** The Sunday that starts this program's calendar week. */
+          week_start_date: string;
           published_at: string | null;
           created_at: string;
           updated_at: string;
@@ -66,34 +68,22 @@ export interface Database {
         Insert: Partial<Database["public"]["Tables"]["programs"]["Row"]> & {
           trainee_id: string;
           title: string;
+          week_start_date: string;
         };
         Update: Partial<Database["public"]["Tables"]["programs"]["Row"]>;
-        Relationships: [];
-      };
-      program_days: {
-        Row: {
-          id: string;
-          program_id: string;
-          day_index: number;
-          label: string | null;
-        };
-        Insert: Partial<Database["public"]["Tables"]["program_days"]["Row"]> & {
-          program_id: string;
-          day_index: number;
-        };
-        Update: Partial<Database["public"]["Tables"]["program_days"]["Row"]>;
         Relationships: [];
       };
       workouts: {
         Row: {
           id: string;
-          program_day_id: string;
+          program_id: string;
+          /** 0-based; displayed as "אימון {order_index + 1}". */
           order_index: number;
           title: string | null;
           notes: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["workouts"]["Row"]> & {
-          program_day_id: string;
+          program_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workouts"]["Row"]>;
         Relationships: [];

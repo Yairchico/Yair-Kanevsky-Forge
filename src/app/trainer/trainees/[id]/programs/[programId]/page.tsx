@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 import { ProgramBuilderClient } from "./program-builder-client";
 
 export default async function ProgramBuilderPage({
@@ -21,25 +22,18 @@ export default async function ProgramBuilderPage({
       .single(),
     supabase
       .from("programs")
-      .select("id, title, status, trainee_id")
+      .select("id, title, status, trainee_id, week_start_date")
       .eq("id", programId)
       .single(),
   ]);
 
   if (!trainee || !program || program.trainee_id !== traineeId) notFound();
 
-  const { data: days } = await supabase
-    .from("program_days")
-    .select("id, day_index, label")
-    .eq("program_id", programId)
-    .order("day_index");
-
-  const dayIds = (days ?? []).map((d) => d.id);
-
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, program_day_id")
-    .in("program_day_id", dayIds.length ? dayIds : ["00000000-0000-0000-0000-000000000000"]);
+    .select("id, order_index")
+    .eq("program_id", programId)
+    .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
 
@@ -61,10 +55,11 @@ export default async function ProgramBuilderPage({
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
 
-  const daysData = (days ?? []).map((d) => {
-    const workout = (workouts ?? []).find((w) => w.program_day_id === d.id);
-    const items = (workoutExercises ?? [])
-      .filter((we) => we.workout_id === workout?.id)
+  const workoutsData = (workouts ?? []).map((w) => ({
+    id: w.id,
+    orderIndex: w.order_index,
+    items: (workoutExercises ?? [])
+      .filter((we) => we.workout_id === w.id)
       .map((we) => {
         const exercise = exerciseById.get(we.exercise_id);
         return {
@@ -80,25 +75,23 @@ export default async function ProgramBuilderPage({
             instructions: we.instructions,
           },
         };
-      });
+      }),
+  }));
 
-    return {
-      id: d.id,
-      dayIndex: d.day_index,
-      label: d.label ?? "",
-      workoutId: workout?.id ?? null,
-      items,
-    };
-  });
+  const weekStart = parseDateKey(program.week_start_date);
+  const weekLabel = `${formatWeekLabel(weekStart)} · ${formatWeekRange(weekStart)}`;
 
   return (
-    <AppShell title={program.title} backHref={`/trainer/trainees/${traineeId}`}>
+    <AppShell
+      title={`${program.title} — ${weekLabel}`}
+      backHref={`/trainer/trainees/${traineeId}`}
+    >
       <ProgramBuilderClient
         traineeId={traineeId}
         programId={programId}
         traineeName={trainee.full_name}
         initialIsPublished={program.status === "published"}
-        days={daysData}
+        workouts={workoutsData}
         catalog={exercises ?? []}
       />
     </AppShell>

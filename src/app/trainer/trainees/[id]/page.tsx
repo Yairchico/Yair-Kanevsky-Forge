@@ -14,6 +14,7 @@ import { TraineeEditForm } from "./trainee-edit-form";
 import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekSection } from "./trainee-week-section";
 import { cn } from "@/lib/utils";
+import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 
 export default async function TraineeDetailPage({
   params,
@@ -34,9 +35,9 @@ export default async function TraineeDetailPage({
 
   const { data: programs } = await supabase
     .from("programs")
-    .select("id, title, status, updated_at")
+    .select("id, title, status, week_start_date")
     .eq("trainee_id", id)
-    .order("created_at", { ascending: false });
+    .order("week_start_date", { ascending: false });
 
   return (
     <AppShell title={trainee.full_name} backHref="/trainer/trainees">
@@ -68,25 +69,33 @@ export default async function TraineeDetailPage({
             {!programs?.length ? (
               <p className="text-sm text-muted-foreground">עדיין אין תוכניות.</p>
             ) : (
-              programs.map((p) => (
-                <Link
-                  key={p.id}
-                  href={`/trainer/trainees/${id}/programs/${p.id}`}
-                  className="flex items-center justify-between rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted"
-                >
-                  <span className="font-medium">{p.title}</span>
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-medium",
-                      p.status === "published"
-                        ? "bg-success/15 text-success"
-                        : "bg-warning/20 text-warning-foreground",
-                    )}
+              programs.map((p) => {
+                const weekStart = parseDateKey(p.week_start_date);
+                return (
+                  <Link
+                    key={p.id}
+                    href={`/trainer/trainees/${id}/programs/${p.id}`}
+                    className="flex items-center justify-between rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted"
                   >
-                    {p.status === "published" ? "פורסם" : "טיוטה"}
-                  </span>
-                </Link>
-              ))
+                    <div>
+                      <p className="font-medium">{p.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
+                        p.status === "published"
+                          ? "bg-success/15 text-success"
+                          : "bg-warning/20 text-warning-foreground",
+                      )}
+                    >
+                      {p.status === "published" ? "פורסם" : "טיוטה"}
+                    </span>
+                  </Link>
+                );
+              })
             )}
           </CardContent>
         </Card>

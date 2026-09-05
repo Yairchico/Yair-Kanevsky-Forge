@@ -8,48 +8,44 @@ export interface ActionState {
   error?: string;
 }
 
-const DAY_LABELS = [
-  "ראשון",
-  "שני",
-  "שלישי",
-  "רביעי",
-  "חמישי",
-  "שישי",
-  "שבת",
-];
-
 export async function createProgram(
   traineeId: string,
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   const title = String(formData.get("title") ?? "").trim();
+  const weekStartDate = String(formData.get("week_start_date") ?? "").trim();
+
   if (!title) {
     return { error: "נא להזין שם לתוכנית" };
+  }
+  if (!weekStartDate) {
+    return { error: "נא לבחור שבוע" };
   }
 
   const supabase = await createClient();
 
+  // One program per (trainee, week) — see migration 0006. If one already
+  // exists for the chosen week, just go there instead of erroring.
+  const { data: existing } = await supabase
+    .from("programs")
+    .select("id")
+    .eq("trainee_id", traineeId)
+    .eq("week_start_date", weekStartDate)
+    .maybeSingle();
+
+  if (existing) {
+    redirect(`/trainer/trainees/${traineeId}/programs/${existing.id}`);
+  }
+
   const { data: program, error } = await supabase
     .from("programs")
-    .insert({ trainee_id: traineeId, title })
+    .insert({ trainee_id: traineeId, title, week_start_date: weekStartDate })
     .select("id")
     .single();
 
   if (error || !program) {
     return { error: "שגיאה ביצירת התוכנית" };
-  }
-
-  const { error: daysError } = await supabase.from("program_days").insert(
-    DAY_LABELS.map((label, day_index) => ({
-      program_id: program.id,
-      day_index,
-      label,
-    })),
-  );
-
-  if (daysError) {
-    return { error: "התוכנית נוצרה אך שגיאה ביצירת הימים" };
   }
 
   revalidatePath(`/trainer/trainees/${traineeId}`);

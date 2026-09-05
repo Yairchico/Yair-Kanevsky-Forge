@@ -26,6 +26,13 @@ export interface ActionResult {
   revertedToDraft?: boolean;
 }
 
+export interface WorkoutResult {
+  error?: string;
+  workout?: { id: string; order_index: number };
+}
+
+const MAX_WORKOUTS_PER_PROGRAM = 10;
+
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
   revalidatePath(`/trainer/trainees/${traineeId}`);
@@ -54,47 +61,87 @@ async function revertToDraftIfPublished(
   return true;
 }
 
-/**
- * Adds an exercise to a day, lazily creating that day's workout row, and
- * returns the created row so the client can append it to local state
- * directly instead of refetching the whole page.
- */
-export async function addExerciseToDay(
+/** Creates the next numbered workout ("אימון N") directly under the program. */
+export async function createWorkout(
   traineeId: string,
   programId: string,
-  programDayId: string,
+): Promise<WorkoutResult> {
+  const supabase = await createClient();
+
+  const { count } = await supabase
+    .from("workouts")
+    .select("id", { count: "exact", head: true })
+    .eq("program_id", programId);
+
+  if ((count ?? 0) >= MAX_WORKOUTS_PER_PROGRAM) {
+    return { error: `ניתן ליצור עד ${MAX_WORKOUTS_PER_PROGRAM} אימונים בתוכנית` };
+  }
+
+  const { data: workout, error } = await supabase
+    .from("workouts")
+    .insert({ program_id: programId, order_index: count ?? 0 })
+    .select("id, order_index")
+    .single();
+
+  if (error || !workout) {
+    return { error: "שגיאה ביצירת האימון" };
+  }
+
+  revalidateBuilder(traineeId, programId);
+  return { workout };
+}
+
+export async function deleteWorkout(
+  traineeId: string,
+  programId: string,
+  workoutId: string,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("workouts").delete().eq("id", workoutId);
+  if (error) {
+    return { error: "שגיאה במחיקת האימון" };
+  }
+
+  // Renumber remaining workouts so there's no gap in "אימון N".
+  const { data: remaining } = await supabase
+    .from("workouts")
+    .select("id, order_index")
+    .eq("program_id", programId)
+    .order("order_index");
+
+  if (remaining) {
+    await Promise.all(
+      remaining.map((w, index) =>
+        w.order_index === index
+          ? Promise.resolve()
+          : supabase.from("workouts").update({ order_index: index }).eq("id", w.id),
+      ),
+    );
+  }
+
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
+  revalidateBuilder(traineeId, programId);
+  return { revertedToDraft };
+}
+
+/** Adds an exercise to an existing workout, returning the created row. */
+export async function addExerciseToWorkout(
+  traineeId: string,
+  programId: string,
+  workoutId: string,
   exerciseId: string,
 ): Promise<ActionResult> {
   const supabase = await createClient();
 
-  let { data: workout } = await supabase
-    .from("workouts")
-    .select("id")
-    .eq("program_day_id", programDayId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!workout) {
-    const { data: created, error } = await supabase
-      .from("workouts")
-      .insert({ program_day_id: programDayId, order_index: 0 })
-      .select("id")
-      .single();
-    if (error || !created) {
-      return { error: "שגיאה ביצירת האימון" };
-    }
-    workout = created;
-  }
-
   const { count } = await supabase
     .from("workout_exercises")
     .select("id", { count: "exact", head: true })
-    .eq("workout_id", workout.id);
+    .eq("workout_id", workoutId);
 
   const { data: row, error } = await supabase
     .from("workout_exercises")
     .insert({
-      workout_id: workout.id,
+      workout_id: workoutId,
       exercise_id: exerciseId,
       order_index: count ?? 0,
       sets: 3,
@@ -196,48 +243,6 @@ export async function reorderWorkoutExercises(
       supabase.from("workout_exercises").update({ order_index: index }).eq("id", id),
     ),
   );
-
-  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
-  return { revertedToDraft };
-}
-
-/** @deprecated kept for the up/down fallback buttons — use reorderWorkoutExercises for drag. */
-export async function moveWorkoutExercise(
-  traineeId: string,
-  programId: string,
-  workoutId: string,
-  id: string,
-  direction: "up" | "down",
-): Promise<ActionResult> {
-  const supabase = await createClient();
-  const { data: rows } = await supabase
-    .from("workout_exercises")
-    .select("id, order_index")
-    .eq("workout_id", workoutId)
-    .order("order_index");
-
-  if (!rows) return { error: "שגיאה" };
-
-  const index = rows.findIndex((r) => r.id === id);
-  const swapWith = direction === "up" ? index - 1 : index + 1;
-  if (index === -1 || swapWith < 0 || swapWith >= rows.length) {
-    return {};
-  }
-
-  const a = rows[index];
-  const b = rows[swapWith];
-
-  await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .update({ order_index: b.order_index })
-      .eq("id", a.id),
-    supabase
-      .from("workout_exercises")
-      .update({ order_index: a.order_index })
-      .eq("id", b.id),
-  ]);
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);

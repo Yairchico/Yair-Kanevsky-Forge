@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  addExerciseToDay,
+  addExerciseToWorkout,
   deleteWorkoutExercise,
   duplicateWorkoutExercise,
   reorderWorkoutExercises,
@@ -40,7 +40,7 @@ interface Item {
 }
 
 /**
- * Owns the current day's exercise list as local state and updates it
+ * Owns one workout's exercise list as local state and updates it
  * immediately (optimistically) for every structural change — add,
  * delete, duplicate, drag-reorder — instead of calling router.refresh()
  * and waiting on a server round trip + re-render. Individual field edits
@@ -50,17 +50,17 @@ interface Item {
  * flip the program's "פורסם" badge to "טיוטה" right away, mirroring the
  * server auto-reverting a published program to draft on any edit.
  */
-export function DayBuilder({
+export function WorkoutBuilder({
   traineeId,
   programId,
-  programDayId,
+  workoutId,
   initialItems,
   catalog,
   onEdited,
 }: {
   traineeId: string;
   programId: string;
-  programDayId: string;
+  workoutId: string;
   initialItems: Item[];
   catalog: CatalogExercise[];
   onEdited?: () => void;
@@ -97,10 +97,10 @@ export function DayBuilder({
     ]);
 
     void (async () => {
-      const result = await addExerciseToDay(
+      const result = await addExerciseToWorkout(
         traineeId,
         programId,
-        programDayId,
+        workoutId,
         exerciseId,
       );
       if (result.row) {
@@ -174,7 +174,7 @@ export function DayBuilder({
     <div className="space-y-4">
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          אין עדיין תרגילים ליום הזה. הוסף תרגיל מהרשימה למטה.
+          אין עדיין תרגילים באימון הזה. הוסף תרגיל מהרשימה למטה.
         </p>
       ) : (
         <DndContext
