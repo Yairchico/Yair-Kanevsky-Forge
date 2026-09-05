@@ -41,17 +41,43 @@ npm run dev
 
    > ⚠️ **אחרי migration 0004 ההתחברות היא לפי שם משתמש, לא אימייל.** המיגרציה מייצרת `username` אוטומטית לכל המשתמשים הקיימים (כולל המאמן) מהחלק הראשון של כתובת האימייל שלהם. כדי לדעת מה שם המשתמש שלך: ב-SQL Editor הריצו `select username from public.profiles where role = 'trainer';`.
 
-## Deploy ל-Cloudflare (חד פעמי)
+## Deploy ל-Cloudflare
+
+### דרך GitHub Actions (מומלץ — לא דורש טרמינל אחרי ההגדרה החד-פעמית)
+
+`.github/workflows/deploy.yml` בונה ופורס אוטומטית בכל push לענף, ומגדיר
+מחדש את כל ה-secrets ב-Worker (`wrangler secret put`) **בכל פריסה** —
+נוצר בגלל ש-Cloudflare's own "Variables and Secrets" בדשבורד לא תמיד
+מגיע בפועל ל-`env` של ה-Worker בזמן ריצה (`SUPABASE_SERVICE_ROLE_KEY`
+המשיך להיראות "חסר" למרות שהיה מוגדר שם). כשה-workflow הוא מקור האמת,
+אין תלות בניווט בדשבורד.
+
+**הגדרה חד-פעמית** — ב-GitHub, בריפו הזה: Settings → Secrets and
+variables → Actions → New repository secret, עבור כל אחד מאלה:
+- `CLOUDFLARE_API_TOKEN` — מ-dash.cloudflare.com → האייקון של הפרופיל →
+  My Profile → API Tokens → Create Token → תבנית "Edit Cloudflare Workers".
+- `CLOUDFLARE_ACCOUNT_ID` — מופיע בדף הבית של Workers & Pages בדשבורד.
+- `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` — מ-Supabase Project Settings → API.
+
+אם ה-Worker מחובר גם ל-Git דרך "Workers Builds" של Cloudflare עצמה (rebuild
+אוטומטי מהדשבורד) — כדאי לכבות את זה (הדשבורד → ה-Worker → Settings →
+Build) כדי שלא יתחרו שני פריסות אוטומטיות זו בזו.
+
+מכאן, כל push לענף `claude/fitness-app-trainers-gccazz` פורס אוטומטית;
+אפשר גם להריץ ידנית מטאב Actions בגיטהאב ("Run workflow").
+
+### דרך CLI מקומי (אם יש גישה לטרמינל)
 
 1. `npx wrangler login` (מתחבר לחשבון Cloudflare).
-2. עדכנו את `wrangler.jsonc` אם רוצים שם worker אחר מ-`trainer-app`.
+2. עדכנו את `wrangler.jsonc` אם רוצים שם worker אחר מ-`yair-kanevsky-forge`.
 3. **חשוב:** משתני הסביבה (Supabase) חייבים להיות מוגדרים גם כ-secrets בקלאודפלייר, לא רק ב-`.env.local`:
    ```bash
    npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL
    npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
    npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
    ```
-   (או דרך הדשבורד: Settings → Variables and Secrets. `NEXT_PUBLIC_*` צריכים להיות זמינים כבר בזמן ה-**build**, לא רק ב-runtime — Next.js צורב אותם לקוד ה-JS.)
+   (`wrangler secret put` הוא הדרך האמינה — היא מחברת את הערך ישירות ל-Worker בלי תלות בניווט בדשבורד. `NEXT_PUBLIC_*` צריכים להיות זמינים כבר בזמן ה-**build**, לא רק ב-runtime — Next.js צורב אותם לקוד ה-JS.)
 4. בנייה + פריסה:
    ```bash
    npm run cf:deploy

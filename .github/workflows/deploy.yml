@@ -1,0 +1,67 @@
+name: Deploy to Cloudflare Workers
+
+# Deploys straight from code via `wrangler`/`opennextjs-cloudflare`,
+# bypassing Cloudflare's own dashboard "Variables and Secrets" page —
+# SUPABASE_SERVICE_ROLE_KEY kept showing there as configured while never
+# actually reaching the deployed Worker's runtime `env`. This workflow
+# re-applies every secret with `wrangler secret put` on every run, which
+# binds it directly to the Worker named in wrangler.jsonc — no dashboard
+# navigation involved, so there's nothing to get wired to the wrong place.
+#
+# One-time setup (see README's "Deploy" section): add these as GitHub
+# repository secrets under Settings → Secrets and variables → Actions:
+#   CLOUDFLARE_API_TOKEN     (dash.cloudflare.com → My Profile → API
+#                             Tokens → Create Token → "Edit Cloudflare
+#                             Workers" template)
+#   CLOUDFLARE_ACCOUNT_ID    (shown on the Workers & Pages overview page)
+#   SUPABASE_SERVICE_ROLE_KEY
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#
+# If Cloudflare's own git-connected "Workers Builds" auto-deploy is also
+# enabled for this repo, disable it (Cloudflare dashboard → the Worker →
+# Settings → Build) so the two don't race/conflict on every push.
+
+on:
+  push:
+    branches: [claude/fitness-app-trainers-gccazz]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # NEXT_PUBLIC_* must be present at BUILD time — Next.js inlines them
+      # into the compiled JS wherever they're referenced in source.
+      - name: Build
+        run: npm run cf:build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      # Re-applied on every run, non-interactively, straight from GitHub's
+      # encrypted secrets — this is the actual source of truth from now on.
+      - name: Set Worker secrets
+        run: |
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Deploy
+        run: npx opennextjs-cloudflare deploy
