@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, GripVertical, Trash2 } from "lucide-react";
@@ -60,6 +60,8 @@ export function WorkoutExerciseRow({
   onEdited?: () => void;
 }) {
   const [fields, setFields] = useState(initialFields);
+  const [error, setError] = useState<string | null>(null);
+  const lastValid = useRef(initialFields);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
 
@@ -71,6 +73,16 @@ export function WorkoutExerciseRow({
   async function save(next: WorkoutExerciseFields) {
     setFields(next);
     const result = await updateWorkoutExercise(traineeId, programId, id, next);
+    if (result.error) {
+      // Rejected (e.g. missing sets/reps, RPE out of range) — nothing was
+      // persisted, so snap the field back to the last value that did save
+      // rather than leaving the UI showing an invalid state as if it saved.
+      setError(result.error);
+      setFields(lastValid.current);
+      return;
+    }
+    setError(null);
+    lastValid.current = next;
     if (result.revertedToDraft) onEdited?.();
   }
 
@@ -134,10 +146,11 @@ export function WorkoutExerciseRow({
 
           <div className="mt-2 flex flex-wrap gap-1.5">
             <MiniField
-              label="סטים"
+              label="סטים *"
               className="w-14"
               type="number"
-              min={0}
+              required
+              min={1}
               value={fields.sets ?? ""}
               onChange={(e) =>
                 setFields((f) => ({
@@ -148,8 +161,9 @@ export function WorkoutExerciseRow({
               onBlur={() => void save(fields)}
             />
             <MiniField
-              label="חזרות"
+              label="חזרות *"
               className="w-16"
+              required
               placeholder="8-10"
               value={fields.reps ?? ""}
               onChange={(e) => setFields((f) => ({ ...f, reps: e.target.value }))}
@@ -204,6 +218,7 @@ export function WorkoutExerciseRow({
               onBlur={() => void save(fields)}
             />
           </div>
+          {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
         </div>
       </div>
     </div>

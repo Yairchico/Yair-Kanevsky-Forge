@@ -30,11 +30,21 @@ export async function toggleExerciseCompletion(
   }
 
   revalidatePath("/trainee");
+  revalidatePath("/trainer/trainees/[id]", "page");
+}
+
+export interface LoggedPerformance {
+  weight: string | null;
+  reps: string | null;
+  rpe: number | null;
+  notes: string | null;
+  performedAt: string;
 }
 
 export interface LogPerformanceState {
   error?: string;
   success?: boolean;
+  log?: LoggedPerformance;
 }
 
 /**
@@ -59,20 +69,43 @@ export async function logExercisePerformance(
   const rpeRaw = String(formData.get("rpe_actual") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
 
-  const { error } = await supabase.from("workout_logs").insert({
-    workout_exercise_id: workoutExerciseId,
-    trainee_id: user.id,
-    actual_sets: { weight: actualWeight || null, reps: actualReps || null },
-    rpe_actual: rpeRaw ? Number(rpeRaw) : null,
-    notes: notes || null,
-  });
+  // Real validation, not just the input's min/max hints — a value outside
+  // 1-10 must not be allowed to save at all.
+  const rpeActual = rpeRaw ? Number(rpeRaw) : null;
+  if (rpeActual != null && (Number.isNaN(rpeActual) || rpeActual < 1 || rpeActual > 10)) {
+    return { error: "RPE חייב להיות בין 1 ל-10" };
+  }
 
-  if (error) {
+  const { data: log, error } = await supabase
+    .from("workout_logs")
+    .insert({
+      workout_exercise_id: workoutExerciseId,
+      trainee_id: user.id,
+      actual_sets: { weight: actualWeight || null, reps: actualReps || null },
+      rpe_actual: rpeActual,
+      notes: notes || null,
+    })
+    .select("performed_at")
+    .single();
+
+  if (error || !log) {
     return { error: "שגיאה בשמירת הביצוע" };
   }
 
+  // Also surfaced to the trainer's side (trainee-week-view), so this needs
+  // to invalidate that page too, not just the trainee's own.
   revalidatePath("/trainee");
-  return { success: true };
+  revalidatePath("/trainer/trainees/[id]", "page");
+  return {
+    success: true,
+    log: {
+      weight: actualWeight || null,
+      reps: actualReps || null,
+      rpe: rpeActual,
+      notes: notes || null,
+      performedAt: log.performed_at,
+    },
+  };
 }
 
 /** Submits the whole workout — the trainer sees this as "הוגש". */
@@ -99,4 +132,5 @@ export async function submitWorkout(workoutId: string, submitted: boolean) {
   }
 
   revalidatePath("/trainee");
+  revalidatePath("/trainer/trainees/[id]", "page");
 }

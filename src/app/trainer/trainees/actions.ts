@@ -83,11 +83,16 @@ export async function createTrainee(
   });
 
   if (error) {
+    // Logged server-side (Cloudflare logs) for real diagnosis, and also
+    // surfaced to the trainer (this form is trainer-only) — a generic
+    // "something went wrong" was hiding the actual Supabase error every
+    // time this broke, so show it directly instead of guessing at it blind.
+    console.error("createTrainee: admin.createUser failed", error);
     const msg = error.message.toLowerCase();
     return {
       error: msg.includes("already")
         ? "כבר קיים משתמש עם האימייל או שם המשתמש הזה"
-        : "שגיאה ביצירת המתאמן",
+        : `שגיאה ביצירת המתאמן: ${error.message}`,
     };
   }
 

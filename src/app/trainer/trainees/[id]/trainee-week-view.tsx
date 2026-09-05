@@ -6,11 +6,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 
+interface LoggedPerformance {
+  weight: string | null;
+  reps: string | null;
+  rpe: number | null;
+  notes: string | null;
+  performedAt: string;
+}
+
 interface ExerciseStatus {
   id: string;
   name: string;
   muscleGroup: string | null;
   done: boolean;
+  log: LoggedPerformance | null;
 }
 
 interface WorkoutData {
@@ -120,7 +129,7 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
 
               {workout && (
                 <div className="space-y-2">
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2">
                     {workout.submittedAt ? (
                       <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">
                         הוגש · {formatSubmittedAt(workout.submittedAt)}
@@ -128,6 +137,12 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                     ) : (
                       <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
                         טרם הוגש
+                      </span>
+                    )}
+                    {workout.exercises.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {workout.exercises.filter((ex) => ex.done).length}/
+                        {workout.exercises.length} תרגילים בוצעו
                       </span>
                     )}
                   </div>
@@ -139,10 +154,10 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                   ) : (
                     workout.exercises.map((ex) => (
                       <Card key={ex.id}>
-                        <CardContent className="flex items-center gap-3 p-3">
+                        <CardContent className="flex items-start gap-3 p-3">
                           <div
                             className={cn(
-                              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+                              "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
                               ex.done
                                 ? "bg-success text-success-foreground"
                                 : "border-2 border-border",
@@ -150,11 +165,30 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                           >
                             {ex.done && <Check className="h-3.5 w-3.5" />}
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{ex.name}</p>
                             {ex.muscleGroup && (
                               <p className="text-xs text-muted-foreground">
                                 {ex.muscleGroup}
+                              </p>
+                            )}
+                            {ex.log && (
+                              <p className="mt-1 text-xs text-primary">
+                                בפועל:{" "}
+                                {[
+                                  ex.log.reps && `${ex.log.reps} חזרות`,
+                                  ex.log.weight,
+                                  ex.log.rpe != null && `RPE ${ex.log.rpe}`,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") || "נרשם"}
+                                {ex.log.notes && (
+                                  <span className="text-muted-foreground"> — {ex.log.notes}</span>
+                                )}
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  · {formatSubmittedAt(ex.log.performedAt)}
+                                </span>
                               </p>
                             )}
                           </div>

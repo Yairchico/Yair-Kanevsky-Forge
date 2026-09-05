@@ -33,6 +33,26 @@ export interface WorkoutResult {
 
 const MAX_WORKOUTS_PER_PROGRAM = 10;
 
+/**
+ * Real validation, not just the inputs' HTML min/max hints: sets and reps
+ * are required (a row with neither is meaningless), and RPE — when given —
+ * must be within 1-10. Mirrored by DB check constraints (migration 0007)
+ * as a backstop, but rejecting here first means a friendly Hebrew message
+ * instead of a raw Postgres error.
+ */
+function validateWorkoutExerciseFields(fields: WorkoutExerciseFields): string | null {
+  if (fields.sets == null || fields.sets <= 0) {
+    return "יש למלא מספר סטים";
+  }
+  if (!fields.reps || !fields.reps.trim()) {
+    return "יש למלא מספר חזרות";
+  }
+  if (fields.rpe != null && (fields.rpe < 1 || fields.rpe > 10)) {
+    return "RPE חייב להיות בין 1 ל-10";
+  }
+  return null;
+}
+
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
   revalidatePath(`/trainer/trainees/${traineeId}`);
@@ -144,7 +164,11 @@ export async function addExerciseToWorkout(
       workout_id: workoutId,
       exercise_id: exerciseId,
       order_index: count ?? 0,
+      // Sets/reps are required (see validateWorkoutExerciseFields) — a new
+      // row starts with sane, immediately-valid defaults the trainer can
+      // adjust rather than an invalid blank state.
       sets: 3,
+      reps: "8-10",
     })
     .select("*")
     .single();
@@ -162,8 +186,13 @@ export async function updateWorkoutExercise(
   traineeId: string,
   programId: string,
   id: string,
-  fields: Partial<WorkoutExerciseFields>,
+  fields: WorkoutExerciseFields,
 ): Promise<ActionResult> {
+  const validationError = validateWorkoutExerciseFields(fields);
+  if (validationError) {
+    return { error: validationError };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("workout_exercises")

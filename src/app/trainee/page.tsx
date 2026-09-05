@@ -1,30 +1,10 @@
-import Link from "next/link";
-import { History } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getWeekStart, toDateKey } from "@/lib/week";
-import {
-  ExerciseCheckbox,
-  PerformanceLogForm,
-  SubmitWorkoutButton,
-} from "./workout-actions";
+import { TraineeWorkoutTabs } from "./trainee-workout-tabs";
 
-export default async function TraineeHomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ workout?: string }>;
-}) {
-  const { workout: workoutParam } = await searchParams;
-  const activeIndex = Number(workoutParam ?? "0") || 0;
-
+export default async function TraineeHomePage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,21 +22,20 @@ export default async function TraineeHomePage({
     );
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("id", user.id)
-    .single();
-
   const currentWeekKey = toDateKey(getWeekStart(new Date()));
 
-  const { data: program } = await supabase
-    .from("programs")
-    .select("id, title")
-    .eq("trainee_id", user.id)
-    .eq("status", "published")
-    .eq("week_start_date", currentWeekKey)
-    .maybeSingle();
+  // Independent of each other (both only need user.id) — run together
+  // instead of one after another.
+  const [{ data: profile }, { data: program }] = await Promise.all([
+    supabase.from("profiles").select("username").eq("id", user.id).single(),
+    supabase
+      .from("programs")
+      .select("id, title")
+      .eq("trainee_id", user.id)
+      .eq("status", "published")
+      .eq("week_start_date", currentWeekKey)
+      .maybeSingle(),
+  ]);
 
   if (!program) {
     return (
@@ -80,135 +59,95 @@ export default async function TraineeHomePage({
     .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
+
+  // Everything below only depends on workoutIds — fetched together so all
+  // "אימון N" tabs and their exercises are ready in one round trip, which
+  // is what makes switching between them a local state change afterward
+  // instead of a fresh server request per tab (see trainee-workout-tabs.tsx).
   const [
     { data: workoutExercises },
     { data: exercises },
     { data: workoutCompletions },
     { data: exerciseCompletions },
+    { data: recentLogs },
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
       .select(
         "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
       )
-      .in(
-        "workout_id",
-        workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
-      )
+      .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name, muscle_group"),
     supabase
       .from("workout_completions")
-      .select("workout_id")
+      .select("workout_id, completed_at")
       .eq("trainee_id", user.id)
-      .in(
-        "workout_id",
-        workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
-      ),
+      .in("workout_id", workoutIds.length ? workoutIds : noRows),
     supabase
       .from("workout_exercise_completions")
       .select("workout_exercise_id")
       .eq("trainee_id", user.id),
+    supabase
+      .from("workout_logs")
+      .select("workout_exercise_id, performed_at, actual_sets, rpe_actual, notes")
+      .eq("trainee_id", user.id)
+      .order("performed_at", { ascending: false })
+      .limit(200),
   ]);
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
-  const submittedWorkoutIds = new Set(
-    (workoutCompletions ?? []).map((c) => c.workout_id),
+  const submittedAtByWorkoutId = new Map(
+    (workoutCompletions ?? []).map((c) => [c.workout_id, c.completed_at]),
   );
   const doneExerciseIds = new Set(
     (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
   );
+  // recentLogs is already ordered newest-first, so the first one seen per
+  // workout_exercise_id is the latest.
+  const latestLogByWorkoutExerciseId = new Map<
+    string,
+    { weight: string | null; reps: string | null; rpe: number | null; notes: string | null; performedAt: string }
+  >();
+  for (const log of recentLogs ?? []) {
+    if (latestLogByWorkoutExerciseId.has(log.workout_exercise_id)) continue;
+    const sets = log.actual_sets as { weight?: string | null; reps?: string | null } | null;
+    latestLogByWorkoutExerciseId.set(log.workout_exercise_id, {
+      weight: sets?.weight ?? null,
+      reps: sets?.reps ?? null,
+      rpe: log.rpe_actual,
+      notes: log.notes,
+      performedAt: log.performed_at,
+    });
+  }
 
-  const currentWorkout = (workouts ?? [])[activeIndex] ?? (workouts ?? [])[0];
-  const currentExercises = (workoutExercises ?? [])
-    .filter((we) => we.workout_id === currentWorkout?.id)
-    .map((we) => ({ ...we, exercise: exerciseById.get(we.exercise_id) }));
+  const workoutsData = (workouts ?? []).map((w) => ({
+    id: w.id,
+    submitted: submittedAtByWorkoutId.has(w.id),
+    exercises: (workoutExercises ?? [])
+      .filter((we) => we.workout_id === w.id)
+      .map((we) => {
+        const exercise = exerciseById.get(we.exercise_id);
+        return {
+          id: we.id,
+          name: exercise?.name ?? "תרגיל לא ידוע",
+          muscleGroup: exercise?.muscle_group ?? null,
+          sets: we.sets,
+          reps: we.reps,
+          weight: we.weight,
+          rpe: we.rpe,
+          restSeconds: we.rest_seconds,
+          instructions: we.instructions,
+          done: doneExerciseIds.has(we.id),
+          initialLog: latestLogByWorkoutExerciseId.get(we.id) ?? null,
+        };
+      }),
+  }));
 
   return (
     <AppShell title={program.title} username={profile?.username}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {(workouts ?? []).map((w, i) => {
-            const submitted = submittedWorkoutIds.has(w.id);
-            return (
-              <Link
-                key={w.id}
-                href={`/trainee?workout=${i}`}
-                className={cn(
-                  "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                  w.id === currentWorkout?.id
-                    ? "bg-primary text-primary-foreground"
-                    : submitted
-                      ? "bg-success/15 text-success"
-                      : "bg-secondary text-secondary-foreground hover:bg-muted",
-                )}
-              >
-                אימון {i + 1}
-              </Link>
-            );
-          })}
-        </div>
-        <Link
-          href="/trainee/history"
-          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <History className="h-4 w-4" />
-          היסטוריה
-        </Link>
-      </div>
-
-      {currentExercises.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            אין תרגילים באימון הזה.
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <div className="space-y-3">
-            {currentExercises.map((we) => (
-              <Card key={we.id}>
-                <CardContent className="flex items-start gap-3 p-4">
-                  <ExerciseCheckbox
-                    workoutExerciseId={we.id}
-                    completed={doneExerciseIds.has(we.id)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{we.exercise?.name}</p>
-                    {we.exercise?.muscle_group && (
-                      <p className="text-xs text-muted-foreground">
-                        {we.exercise.muscle_group}
-                      </p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      {we.sets != null && <span>{we.sets} סטים</span>}
-                      {we.reps && <span>{we.reps} חזרות</span>}
-                      {we.weight && <span>{we.weight}</span>}
-                      {we.rpe != null && <span>RPE {we.rpe}</span>}
-                      {we.rest_seconds != null && (
-                        <span>{we.rest_seconds} שנ׳ מנוחה</span>
-                      )}
-                    </div>
-                    {we.instructions && (
-                      <p className="mt-2 text-sm">{we.instructions}</p>
-                    )}
-                    <div className="mt-2">
-                      <PerformanceLogForm workoutExerciseId={we.id} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {currentWorkout && (
-            <SubmitWorkoutButton
-              workoutId={currentWorkout.id}
-              submitted={submittedWorkoutIds.has(currentWorkout.id)}
-            />
-          )}
-        </>
-      )}
+      <TraineeWorkoutTabs workouts={workoutsData} />
     </AppShell>
   );
 }
