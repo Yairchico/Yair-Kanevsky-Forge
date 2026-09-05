@@ -27,11 +27,15 @@ export function createAdminClient() {
     // the Cloudflare dashboard showing the variable configured, this shows
     // exactly what name(s) process.env actually received at runtime (a typo,
     // a stray space, or wrong casing in the dashboard's "Variable name"
-    // field all look "configured" there but produce a different key here).
-    const foundSupabaseKeys = Object.keys(process.env).filter((k) => /supabase/i.test(k));
+    // field all look "configured" there but produce a different key here) —
+    // and whether OpenNext's own env-population step (populateProcessEnv,
+    // which always sets OPEN_NEXT_ORIGIN once it runs) ran here at all.
+    const allKeys = Object.keys(process.env);
+    const foundSupabaseKeys = allKeys.filter((k) => /supabase/i.test(k));
     throw new Error(
       `חסר משתנה סביבה בשרת: ${missing}. יש להגדיר אותו כ-secret בקלאודפלייר ולפרוס מחדש. ` +
-        `(משתני סביבה שכן נמצאו בזמן ריצה: ${foundSupabaseKeys.length ? foundSupabaseKeys.join(", ") : "אף אחד"})`,
+        `(משתני סביבה שכן נמצאו בזמן ריצה: ${foundSupabaseKeys.length ? foundSupabaseKeys.join(", ") : "אף אחד"}; ` +
+        `סה"כ ${allKeys.length} משתנים; OPEN_NEXT_ORIGIN קיים: ${allKeys.includes("OPEN_NEXT_ORIGIN") ? "כן" : "לא"})`,
     );
   }
 
