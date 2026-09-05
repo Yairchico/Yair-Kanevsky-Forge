@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import {
   updateTrainee,
   resetTraineePassword,
@@ -20,18 +20,24 @@ export function TraineeEditForm({
     full_name: string;
     username: string;
     phone: string | null;
+    email: string | null;
   };
 }) {
   const updateAction = updateTrainee.bind(null, trainee.id);
-  const resetAction = resetTraineePassword.bind(null, trainee.id);
-
   const [state, formAction, pending] = useActionState(updateAction, initialState);
-  const [resetState, resetFormAction, resetPending] = useActionState(
-    resetAction,
-    initialState,
-  );
-  const [newPassword, setNewPassword] = useState("");
-  const [resetOpen, setResetOpen] = useState(false);
+
+  const [resetState, setResetState] = useState<ActionState>({});
+  const [resetPending, startReset] = useTransition();
+
+  function sendResetEmail() {
+    setResetState({});
+    startReset(async () => {
+      const result = await resetTraineePassword(trainee.id);
+      setResetState(result);
+    });
+  }
+
+  const isPlaceholderEmail = !trainee.email || trainee.email.endsWith("@trainees.local");
 
   return (
     <div className="space-y-6">
@@ -61,6 +67,17 @@ export function TraineeEditForm({
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="email">אימייל</Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            defaultValue={isPlaceholderEmail ? "" : (trainee.email ?? "")}
+            placeholder="נדרש כדי לשלוח מייל איפוס סיסמה"
+          />
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="phone">טלפון</Label>
           <Input
             id="phone"
@@ -80,35 +97,15 @@ export function TraineeEditForm({
         </Button>
       </form>
 
-      <div className="border-t border-border pt-4">
-        {!resetOpen ? (
-          <Button type="button" variant="outline" onClick={() => setResetOpen(true)}>
-            איפוס סיסמה
-          </Button>
-        ) : (
-          <form action={resetFormAction} className="space-y-2">
-            <Label htmlFor="new_password">סיסמה חדשה</Label>
-            <div className="flex gap-2">
-              <Input
-                id="new_password"
-                name="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                minLength={6}
-                required
-                className="flex-1"
-              />
-              <Button type="submit" variant="outline" disabled={resetPending}>
-                {resetPending ? "מאפס…" : "אפס"}
-              </Button>
-            </div>
-            {resetState.error && (
-              <p className="text-sm text-destructive">{resetState.error}</p>
-            )}
-            {resetState.success && (
-              <p className="text-sm text-success">הסיסמה אופסה בהצלחה</p>
-            )}
-          </form>
+      <div className="space-y-2 border-t border-border pt-4">
+        <Button type="button" variant="outline" onClick={sendResetEmail} disabled={resetPending}>
+          {resetPending ? "שולח מייל…" : "שלח מייל איפוס סיסמה"}
+        </Button>
+        {resetState.error && (
+          <p className="text-sm text-destructive">{resetState.error}</p>
+        )}
+        {resetState.success && (
+          <p className="text-sm text-success">מייל איפוס סיסמה נשלח לכתובת {trainee.email}</p>
         )}
       </div>
     </div>

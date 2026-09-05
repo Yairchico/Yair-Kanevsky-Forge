@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -15,6 +16,17 @@ export interface ActionState {
 }
 
 const USERNAME_RE = /^[a-z0-9_.]{3,32}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PLACEHOLDER_EMAIL_SUFFIX = "@trainees.local";
+
+/** Best-effort absolute site origin, for building the password-reset email's link. */
+async function getSiteOrigin() {
+  const h = await headers();
+  const host = h.get("host");
+  if (!host) return undefined;
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  return `${proto}://${host}`;
+}
 
 /**
  * Confirms the signed-in caller is the trainer. RLS already blocks a
@@ -58,6 +70,9 @@ export async function createTrainee(
       error:
         "שם משתמש: 3-32 תווים, אותיות אנגלית קטנות/ספרות/נקודה/קו תחתון בלבד",
     };
+  }
+  if (email && !EMAIL_RE.test(email)) {
+    return { error: "כתובת האימייל אינה תקינה" };
   }
   if (password.length < 6) {
     return { error: "הסיסמה חייבת להכיל לפחות 6 תווים" };
@@ -107,6 +122,7 @@ export async function updateTrainee(
 ): Promise<ActionState> {
   const fullName = String(formData.get("full_name") ?? "").trim();
   const username = String(formData.get("username") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
 
   if (!fullName || !username) {
@@ -118,15 +134,38 @@ export async function updateTrainee(
         "שם משתמש: 3-32 תווים, אותיות אנגלית קטנות/ספרות/נקודה/קו תחתון בלבד",
     };
   }
+  if (email && !EMAIL_RE.test(email)) {
+    return { error: "כתובת האימייל אינה תקינה" };
+  }
 
   const auth = await requireTrainer();
   if (!auth.ok) {
     return { error: "אין הרשאה לבצע פעולה זו" };
   }
 
+  // Auth still needs *an* email under the hood (see createTrainee) — an
+  // emptied field falls back to the placeholder rather than leaving the
+  // real auth user without one.
+  const finalEmail = email || `${username}${PLACEHOLDER_EMAIL_SUFFIX}`;
+
+  const admin = createAdminClient();
+  const { error: authError } = await admin.auth.admin.updateUserById(traineeId, {
+    email: finalEmail,
+    email_confirm: true,
+  });
+  if (authError) {
+    console.error("updateTrainee: admin.updateUserById (email) failed", authError);
+    const msg = authError.message.toLowerCase();
+    return {
+      error: msg.includes("already")
+        ? "כתובת האימייל הזו כבר בשימוש"
+        : `שגיאה בעדכון האימייל: ${authError.message}`,
+    };
+  }
+
   const { error } = await auth.supabase
     .from("profiles")
-    .update({ full_name: fullName, username, phone: phone || null })
+    .update({ full_name: fullName, username, phone: phone || null, email: finalEmail })
     .eq("id", traineeId);
 
   if (error) {
@@ -143,25 +182,38 @@ export async function updateTrainee(
   return { success: true };
 }
 
-export async function resetTraineePassword(
-  traineeId: string,
-  _prevState: ActionState,
-  formData: FormData,
-): Promise<ActionState> {
-  const password = String(formData.get("password") ?? "");
-  if (password.length < 6) {
-    return { error: "הסיסמה חייבת להכיל לפחות 6 תווים" };
-  }
-
+/**
+ * Sends the trainee a real password-reset email instead of the trainer
+ * setting a new password directly. Requires the trainee to have a real
+ * (non-placeholder) email on file, and requires Supabase's email sending
+ * (built-in or custom SMTP) to actually be configured on the project —
+ * otherwise the call succeeds here but no mail arrives.
+ */
+export async function resetTraineePassword(traineeId: string): Promise<ActionState> {
   const auth = await requireTrainer();
   if (!auth.ok) {
     return { error: "אין הרשאה לבצע פעולה זו" };
   }
 
-  const admin = createAdminClient();
-  const { error } = await admin.auth.admin.updateUserById(traineeId, { password });
+  const { data: trainee } = await auth.supabase
+    .from("profiles")
+    .select("email")
+    .eq("id", traineeId)
+    .single();
+
+  const email = trainee?.email;
+  if (!email || email.endsWith(PLACEHOLDER_EMAIL_SUFFIX)) {
+    return { error: "יש להוסיף כתובת אימייל אמיתית למתאמן לפני שליחת איפוס סיסמה" };
+  }
+
+  const origin = await getSiteOrigin();
+  const { error } = await auth.supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: origin ? `${origin}/auth/callback?next=/reset-password` : undefined,
+  });
+
   if (error) {
-    return { error: "שגיאה באיפוס הסיסמה" };
+    console.error("resetTraineePassword: resetPasswordForEmail failed", error);
+    return { error: `שגיאה בשליחת מייל האיפוס: ${error.message}` };
   }
 
   return { success: true };
