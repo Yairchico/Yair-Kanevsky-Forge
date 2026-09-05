@@ -57,12 +57,17 @@ export interface UpdateExerciseImageState {
   success?: boolean;
 }
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 /**
  * The only editable field on an existing (catalog) exercise: its image.
  * Everything else about a base exercise is shared library data — changing
  * a name/muscle-group here would ripple through every program that already
- * references it, which isn't what "edit" is meant to do. An empty value
- * clears the override and falls back to the guessed pose illustration
+ * references it, which isn't what "edit" is meant to do.
+ *
+ * Accepts either an uploaded file (stored in the "exercise-images" Storage
+ * bucket, migration 0008) or a pasted external URL — an uploaded file wins
+ * if both are given. Clearing both falls back to the guessed default photo
  * (see src/lib/exercise-image.ts).
  */
 export async function updateExerciseImage(
@@ -70,13 +75,41 @@ export async function updateExerciseImage(
   _prevState: UpdateExerciseImageState,
   formData: FormData,
 ): Promise<UpdateExerciseImageState> {
-  const mediaUrl = String(formData.get("media_url") ?? "").trim();
+  const urlInput = String(formData.get("media_url") ?? "").trim();
+  const file = formData.get("image_file");
 
   const supabase = await createClient();
+  let mediaUrl: string | null = urlInput || null;
+
+  if (file instanceof File && file.size > 0) {
+    if (!file.type.startsWith("image/")) {
+      return { error: "יש להעלות קובץ תמונה" };
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return { error: "התמונה גדולה מדי (מקסימום 5MB)" };
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const path = `${exerciseId}-${Date.now()}.${ext}`;
+
+    // RLS ("trainer manages exercise-images", migration 0008) restricts
+    // this to role='trainer'.
+    const { error: uploadError } = await supabase.storage
+      .from("exercise-images")
+      .upload(path, file, { upsert: true, contentType: file.type });
+
+    if (uploadError) {
+      console.error("updateExerciseImage: storage upload failed", uploadError);
+      return { error: "שגיאה בהעלאת התמונה" };
+    }
+
+    mediaUrl = supabase.storage.from("exercise-images").getPublicUrl(path).data.publicUrl;
+  }
+
   // RLS ("trainer manages exercises") restricts this to role='trainer'.
   const { error } = await supabase
     .from("exercises")
-    .update({ media_url: mediaUrl || null })
+    .update({ media_url: mediaUrl })
     .eq("id", exerciseId);
 
   if (error) {

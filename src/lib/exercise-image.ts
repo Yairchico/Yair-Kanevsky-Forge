@@ -1,12 +1,82 @@
 /**
- * Every exercise gets a picture — since there's no real photo/video
- * library, this picks a generic pictogram (a stick-figure silhouette,
- * public/exercise-illustrations/*.svg) of someone in roughly the right
- * pose, based on keywords in the exercise's name and falling back to its
- * muscle group. A trainer can override any single exercise with a real
- * image via `exercises.media_url` (see the exercise library's edit
- * action) — that always wins over the guessed pose.
+ * Every exercise gets a picture. There's no real photo library for this
+ * app's own exercises, so the base ~58 seed exercises (supabase/seed.sql)
+ * each get a matching real photo downloaded from free-exercise-db
+ * (public domain / Unlicense — https://github.com/yuhonas/free-exercise-db,
+ * see public/exercises/) — an exact lookup by name, no guessing needed.
+ * Anything else (a custom exercise the trainer adds) falls back to one
+ * representative photo per movement pattern, picked from keywords in the
+ * name and, failing that, the muscle group.
+ *
+ * A trainer can override any single exercise's image via
+ * `exercises.media_url` (see the exercise library's edit action) — that
+ * always wins over both of the above.
  */
+
+// The base seed exercises (supabase/seed.sql) — each has its own photo at
+// public/exercises/exercise-<slug>.jpg. Keep this in sync with the seed:
+// adding a base exercise there without a matching download here just means
+// it falls back to its category photo, which is a harmless default.
+const SEED_EXERCISE_NAMES = new Set([
+  "Bench Press",
+  "Incline Bench Press",
+  "Decline Bench Press",
+  "Dumbbell Bench Press",
+  "Dumbbell Fly",
+  "Cable Fly",
+  "Dips",
+  "Push-Up",
+  "Barbell Row",
+  "Dumbbell Row",
+  "Pull-Up",
+  "Chin-Up",
+  "Lat Pulldown",
+  "Seated Cable Row",
+  "Machine Row",
+  "Back Extension",
+  "Back Squat",
+  "Front Squat",
+  "Deadlift",
+  "Romanian Deadlift",
+  "Leg Press",
+  "Leg Extension",
+  "Lying Leg Curl",
+  "Lunge",
+  "Bulgarian Split Squat",
+  "Calf Raise",
+  "Overhead Press",
+  "Dumbbell Shoulder Press",
+  "Lateral Raise",
+  "Front Raise",
+  "Reverse Fly",
+  "Face Pull",
+  "Shrug",
+  "Barbell Curl",
+  "Dumbbell Curl",
+  "Hammer Curl",
+  "Incline Dumbbell Curl",
+  "Cable Curl",
+  "Triceps Pushdown",
+  "Overhead Triceps Extension",
+  "Skull Crusher",
+  "Bench Dips",
+  "Rope Pushdown",
+  "Crunch",
+  "Plank",
+  "Hanging Leg Raise",
+  "Ab Wheel Rollout",
+  "Russian Twist",
+  "Cable Crunch",
+  "Kettlebell Swing",
+  "Clean and Press",
+  "Burpee",
+  "Battle Ropes",
+  "Box Jump",
+  "Treadmill",
+  "Stationary Bike",
+  "Rowing Machine",
+  "Stair Climber",
+]);
 
 type Pose =
   | "squat"
@@ -53,6 +123,13 @@ const MUSCLE_GROUP_FALLBACK: Record<string, Pose> = {
   "אירובי": "cardio",
 };
 
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function guessPose(name: string, muscleGroup: string | null): Pose {
   for (const rule of NAME_RULES) {
     if (rule.test.test(name)) return rule.pose;
@@ -66,5 +143,9 @@ export function getExerciseImage(exercise: {
   muscle_group: string | null;
   media_url?: string | null;
 }): string {
-  return exercise.media_url || `/exercise-illustrations/${guessPose(exercise.name, exercise.muscle_group)}.svg`;
+  if (exercise.media_url) return exercise.media_url;
+  if (SEED_EXERCISE_NAMES.has(exercise.name)) {
+    return `/exercises/exercise-${slugify(exercise.name)}.jpg`;
+  }
+  return `/exercises/category-${guessPose(exercise.name, exercise.muscle_group)}.jpg`;
 }

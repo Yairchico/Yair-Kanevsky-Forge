@@ -100,6 +100,7 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
   `ArrowLeft`) is the "back" icon since it points backward in RTL.
+- **Exercise images**: every exercise gets a picture — `src/lib/exercise-image.ts` maps the ~58 base seed exercises to real photos (`public/exercises/exercise-<slug>.jpg`, downloaded from the public-domain `free-exercise-db` dataset), and falls back to one representative photo per movement pattern (`category-<pose>.jpg`) for anything else, guessed from keywords in the name. `exercises.media_url` (settable via file upload to the `exercise-images` Storage bucket, or a pasted URL — the exercise library's image editor) always overrides both. An earlier hand-drawn stick-figure-SVG version of this was tried and rejected (too crude) — don't reintroduce it.
 - **`react-hook-form` and `zod` are in `package.json` but unused** — a
   leftover from `PLAN.md`'s original stack choice. The actual convention
   is plain Server Actions + `useActionState`/`FormData`. Don't reach for
@@ -120,6 +121,7 @@ one-time setup walkthrough):
 5. `0005_exercise_completions.sql` — per-exercise "done" checkbox, separate from workout submission.
 6. `0006_calendar_weeks_and_numbered_workouts.sql` — the week/workout restructure described above; drops `program_days`.
 7. `0007_required_fields_and_ranges.sql` — sets/reps NOT NULL, RPE range CHECKs.
+8. `0008_exercise_images_storage.sql` — public Storage bucket `exercise-images` (trainer-write/anyone-read) for uploaded exercise photos.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

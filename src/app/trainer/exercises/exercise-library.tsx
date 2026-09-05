@@ -23,10 +23,11 @@ interface Exercise {
 const initialImageState: UpdateExerciseImageState = {};
 
 /**
- * Every exercise has a picture (a guessed pose illustration by default —
- * see src/lib/exercise-image.ts), and the only thing a trainer can edit on
- * an existing exercise is that image (a URL override). Collapsed behind a
- * small "ערוך תמונה" toggle so the grid stays scannable.
+ * Every exercise has a picture (a real default photo — see
+ * src/lib/exercise-image.ts), and the only thing a trainer can edit on an
+ * existing exercise is that image: upload a file, or paste a URL (the
+ * upload wins if both are given). Collapsed behind a small "ערוך תמונה"
+ * toggle so the grid stays scannable.
  */
 function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
   const [editing, setEditing] = useState(false);
@@ -54,6 +55,13 @@ function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
 
   return (
     <form action={formAction} className="mt-1.5 space-y-1.5">
+      <input
+        type="file"
+        name="image_file"
+        accept="image/*"
+        className="block w-full text-xs text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:text-secondary-foreground"
+      />
+      <p className="text-center text-[10px] text-muted-foreground">או</p>
       <Input
         name="media_url"
         defaultValue={exercise.media_url ?? ""}
