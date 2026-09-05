@@ -9,7 +9,7 @@ export default async function ExercisesPage() {
 
   const { data: exercises } = await supabase
     .from("exercises")
-    .select("id, name, muscle_group, equipment, is_custom")
+    .select("id, name, muscle_group, equipment, is_custom, media_url")
     .order("name");
 
   return (

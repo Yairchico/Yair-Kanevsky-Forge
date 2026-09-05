@@ -4,12 +4,14 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getExerciseImage } from "@/lib/exercise-image";
 
 interface Exercise {
   id: string;
   name: string;
   muscle_group: string | null;
   equipment: string | null;
+  media_url?: string | null;
 }
 
 /**
@@ -60,10 +62,17 @@ export function AddExercisePicker({
                 type="button"
                 key={ex.id}
                 onClick={() => onAdd(ex.id)}
-                className="flex w-full items-center justify-between gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
+                className="flex w-full items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
               >
-                <div>
-                  <p className="text-sm font-medium">{ex.name}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host */}
+                <img
+                  src={getExerciseImage(ex)}
+                  alt=""
+                  loading="lazy"
+                  className="h-9 w-9 shrink-0 rounded-md bg-primary/10 object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{ex.name}</p>
                   {ex.muscle_group && (
                     <p className="text-xs text-muted-foreground">
                       {ex.muscle_group}

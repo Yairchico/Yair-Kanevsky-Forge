@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import { Pencil } from "lucide-react";
 import {
   updateTrainee,
   resetTraineePassword,
@@ -25,6 +26,7 @@ export function TraineeEditForm({
 }) {
   const updateAction = updateTrainee.bind(null, trainee.id);
   const [state, formAction, pending] = useActionState(updateAction, initialState);
+  const [editing, setEditing] = useState(false);
 
   const [resetState, setResetState] = useState<ActionState>({});
   const [resetPending, startReset] = useTransition();
@@ -38,6 +40,46 @@ export function TraineeEditForm({
   }
 
   const isPlaceholderEmail = !trainee.email || trainee.email.endsWith("@trainees.local");
+
+  // Collapse back to the read-only summary once a save succeeds — checked
+  // during render (not an effect) so it happens in the same paint as the
+  // fresh (post-revalidate) `trainee` prop landing.
+  const [prevState, setPrevState] = useState(state);
+  if (state !== prevState) {
+    setPrevState(state);
+    if (state.success && editing) setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="space-y-3">
+        <dl className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">שם מלא</dt>
+            <dd className="font-medium">{trainee.full_name}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">שם משתמש</dt>
+            <dd className="font-medium">@{trainee.username}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">אימייל</dt>
+            <dd className="truncate font-medium">
+              {isPlaceholderEmail ? "לא הוגדר" : trainee.email}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">טלפון</dt>
+            <dd className="font-medium">{trainee.phone || "—"}</dd>
+          </div>
+        </dl>
+        <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+          <Pencil className="h-4 w-4" />
+          ערוך פרטים
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -92,9 +134,14 @@ export function TraineeEditForm({
           <p className="text-sm text-success">הפרטים נשמרו בהצלחה</p>
         )}
 
-        <Button type="submit" disabled={pending}>
-          {pending ? "שומר…" : "שמור שינויים"}
-        </Button>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={pending}>
+            {pending ? "שומר…" : "שמור שינויים"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setEditing(false)}>
+            ביטול
+          </Button>
+        </div>
       </form>
 
       <div className="space-y-2 border-t border-border pt-4">

@@ -6,6 +6,7 @@ import { History } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatWeight } from "@/lib/format";
+import { getExerciseImage } from "@/lib/exercise-image";
 import {
   ExerciseCheckbox,
   PerformanceLogForm,
@@ -17,6 +18,7 @@ interface ExerciseData {
   id: string;
   name: string;
   muscleGroup: string | null;
+  imageUrl: string | null;
   sets: number | null;
   reps: string | null;
   weight: string | null;
@@ -87,6 +89,13 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
             {activeWorkout.exercises.map((ex) => (
               <Card key={ex.id}>
                 <CardContent className="flex items-start gap-3 p-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host */}
+                  <img
+                    src={getExerciseImage({ name: ex.name, muscle_group: ex.muscleGroup, media_url: ex.imageUrl })}
+                    alt=""
+                    loading="lazy"
+                    className="h-12 w-12 shrink-0 rounded-lg bg-primary/10 object-cover"
+                  />
                   <ExerciseCheckbox workoutExerciseId={ex.id} completed={ex.done} />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{ex.name}</p>

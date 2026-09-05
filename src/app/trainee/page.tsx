@@ -79,7 +79,7 @@ export default async function TraineeHomePage() {
       )
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
-    supabase.from("exercises").select("id, name, muscle_group"),
+    supabase.from("exercises").select("id, name, muscle_group, media_url"),
     supabase
       .from("workout_completions")
       .select("workout_id, completed_at")
@@ -133,6 +133,7 @@ export default async function TraineeHomePage() {
           id: we.id,
           name: exercise?.name ?? "תרגיל לא ידוע",
           muscleGroup: exercise?.muscle_group ?? null,
+          imageUrl: exercise?.media_url ?? null,
           sets: we.sets,
           reps: we.reps,
           weight: we.weight,

@@ -26,6 +26,7 @@ interface CatalogExercise {
   name: string;
   muscle_group: string | null;
   equipment: string | null;
+  media_url: string | null;
 }
 
 /**

@@ -51,3 +51,38 @@ export async function createExercise(
   revalidatePath("/trainer/exercises");
   redirect("/trainer/exercises");
 }
+
+export interface UpdateExerciseImageState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * The only editable field on an existing (catalog) exercise: its image.
+ * Everything else about a base exercise is shared library data — changing
+ * a name/muscle-group here would ripple through every program that already
+ * references it, which isn't what "edit" is meant to do. An empty value
+ * clears the override and falls back to the guessed pose illustration
+ * (see src/lib/exercise-image.ts).
+ */
+export async function updateExerciseImage(
+  exerciseId: string,
+  _prevState: UpdateExerciseImageState,
+  formData: FormData,
+): Promise<UpdateExerciseImageState> {
+  const mediaUrl = String(formData.get("media_url") ?? "").trim();
+
+  const supabase = await createClient();
+  // RLS ("trainer manages exercises") restricts this to role='trainer'.
+  const { error } = await supabase
+    .from("exercises")
+    .update({ media_url: mediaUrl || null })
+    .eq("id", exerciseId);
+
+  if (error) {
+    return { error: "שגיאה בשמירת התמונה" };
+  }
+
+  revalidatePath("/trainer/exercises");
+  return { success: true };
+}

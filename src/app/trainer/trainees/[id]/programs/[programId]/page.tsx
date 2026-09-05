@@ -50,7 +50,7 @@ export default async function ProgramBuilderPage({
 
   const { data: exercises } = await supabase
     .from("exercises")
-    .select("id, name, muscle_group, equipment")
+    .select("id, name, muscle_group, equipment, media_url")
     .order("name");
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
