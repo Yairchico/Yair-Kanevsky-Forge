@@ -1,1 +1,208 @@
 @AGENTS.md
+
+# Yair Kanevsky by Forge — project guide
+
+A private fitness-training app for **one strength coach (trainer) and their
+trainees**. Hebrew UI, RTL throughout. No multi-tenant/org model — there is
+exactly one `role='trainer'` profile, acting as superadmin; see `PLAN.md`
+§0 for why that's a deliberate simplification, not a gap. `PLAN.md` is the
+living roadmap/history (stages, decisions, status checkboxes) — read it for
+*why*; this file is for *how to work in this codebase*. `README.md` is
+user-facing setup/deploy instructions.
+
+## Stack
+
+- **Next.js 16** (App Router, Turbopack, React 19) + TypeScript + Tailwind v4.
+- **Supabase**: Postgres + Auth + Row Level Security. Two server-side client
+  factories, not interchangeable:
+  - `src/lib/supabase/server.ts` `createClient()` — cookie-scoped, RLS
+    enforced as the signed-in user. Use this for everything by default.
+  - `src/lib/supabase/admin.ts` `createAdminClient()` — service-role,
+    **bypasses RLS entirely**. Only for privileged auth-user operations the
+    trainer's own session can't do (creating/editing/deleting a trainee's
+    `auth.users` row, sending a password-reset email). Every call site
+    must (a) have already checked the caller is the trainer
+    (`requireTrainer()` in `src/app/trainer/trainees/actions.ts`) and
+    (b) wrap the call in try/catch — it throws *synchronously* if
+    `SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_URL` aren't set,
+    and an uncaught throw here becomes Cloudflare's raw crash page instead
+    of a readable error (see Known Gotchas).
+  - `src/lib/supabase/client.ts` — browser client, rarely needed (almost
+    everything is a Server Action or Server Component).
+- **Cloudflare Workers** via OpenNext (`@opennextjs/cloudflare`). The Worker
+  name is `yair-kanevsky-forge` (`wrangler.jsonc`) — must match whatever
+  deploys it, or the `WORKER_SELF_REFERENCE` service binding breaks.
+- Username-based login (not email) — `email_for_username()` SECURITY
+  DEFINER RPC resolves a username to the (real or placeholder) email
+  Supabase Auth still needs internally. See migration `0004`.
+
+## Directory map
+
+```
+src/app/login/                       login (username+password)
+src/app/reset-password/              where a password-reset email lands
+src/app/auth/callback/route.ts       code-exchange for magic-link/recovery flows (?next= param controls redirect)
+src/app/trainer/                     trainer area
+  trainees/                          list, new, [id] (detail: edit form, programs list, weekly view, delete)
+    [id]/programs/new/               create a program for a calendar week (+ "duplicate week")
+    [id]/programs/[programId]/       the flow-builder (workouts × exercises)
+  exercises/                         shared exercise library (search, add, custom)
+src/app/trainee/                     trainee's own area (weekly workout tabs, history)
+src/components/ui/                   hand-built primitives (NOT shadcn, despite PLAN.md's original wording — Button, Card, Input, Label, Select, Textarea, SearchInput)
+src/components/                      AppShell, BrandMark, SignOutButton
+src/lib/supabase/                    client factories + hand-written Database types
+src/lib/week.ts                      calendar-week helpers (Sunday-start, Israeli convention)
+src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
+src/proxy.ts + src/lib/supabase/middleware.ts   Next 16 "Proxy" (renamed from middleware) — session refresh + role-based routing only, not an authorization boundary
+supabase/migrations/                 numbered, additive SQL migrations (see below)
+supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
+.github/workflows/deploy.yml         the real deploy path (see Deployment)
+```
+
+## Conventions
+
+- **Server Actions, not API routes.** A form's action lives in a sibling
+  `actions.ts` (`"use server"`), returns a small state shape like
+  `{ error?: string; success?: boolean }`, and the client component drives
+  it with `useActionState`. A non-form action (toggle, delete, reorder) is
+  called directly from an event handler via `useTransition`.
+- **Optimistic UI, not `router.refresh()`.** Client components hold the
+  list/row state locally; an action fires in the background and returns
+  the created/updated row so the client can reconcile without a full
+  server round-trip. Temporary optimistic IDs come from a `useRef`
+  counter (`tempCounter.current += 1`), never `Date.now()`/`Math.random()`
+  inline — that trips the `react-hooks/purity` lint rule.
+- **`revalidatePath` after every mutation**, including the *other* side's
+  pages when data crosses trainer/trainee — e.g. a trainee logging a
+  performance or submitting a workout also revalidates
+  `/trainer/trainees/[id]`.
+- **Draft/publish**: editing a published program auto-reverts it to draft
+  (`revertToDraftIfPublished` in the program-builder's `actions.ts`) so a
+  change never silently reaches a trainee who already saw the published
+  version. Returns whether it happened so the client can flip its own
+  "פורסם" badge immediately.
+- **Real validation, not just HTML hints.** `min`/`max`/`required` on an
+  `<input>` is a UX nicety only — every Server Action that writes
+  sets/reps/RPE/etc. re-validates server-side and returns a friendly
+  Hebrew error on rejection (see `validateWorkoutExerciseFields` in the
+  program-builder's `actions.ts`). Matching DB CHECK/NOT NULL constraints
+  (migration `0007`) are the backstop, not the first line of defense.
+- **RLS pattern**: `public.is_trainer()` (SECURITY DEFINER) gates a
+  trainer's "for all" policy per table; a trainee's policy is always
+  scoped to `trainee_id = auth.uid()` and, for anything downstream of a
+  program, `status = 'published'`.
+- **Calendar weeks, not "day of week."** `programs.week_start_date` is the
+  Sunday starting that week (`src/lib/week.ts`'s `getWeekStart`); one
+  program per `(trainee_id, week_start_date)`. Workouts are "אימון 1/2/…"
+  numbered directly under a program (`workouts.program_id`, `order_index`),
+  capped at 10 — checked both in the Server Action and by a DB trigger.
+- **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Rubik font
+  (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
+  `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
+  `ArrowLeft`) is the "back" icon since it points backward in RTL.
+- **`react-hook-form` and `zod` are in `package.json` but unused** — a
+  leftover from `PLAN.md`'s original stack choice. The actual convention
+  is plain Server Actions + `useActionState`/`FormData`. Don't reach for
+  RHF/Zod without a reason to actually change the convention.
+
+## Database migrations
+
+Numbered, additive, and **written to be safely re-runnable** — guard every
+statement with `IF EXISTS`/`IF NOT EXISTS`/`OR REPLACE`/a `DO $$ ... end $$`
+existence check, since a migration can fail partway through and need a
+clean re-run from the top. Current set (run in order — see README for the
+one-time setup walkthrough):
+
+1. `0001_init.sql` — schema, RLS foundation, `is_trainer()`, `handle_new_user()` trigger.
+2. `0002_profiles_email_and_exercise_uniqueness.sql`
+3. `0003_prevent_role_self_escalation.sql` — blocks a trainee from self-promoting `role`.
+4. `0004_username_login.sql` — username-based login, `email_for_username()`.
+5. `0005_exercise_completions.sql` — per-exercise "done" checkbox, separate from workout submission.
+6. `0006_calendar_weeks_and_numbered_workouts.sql` — the week/workout restructure described above; drops `program_days`.
+7. `0007_required_fields_and_ranges.sql` — sets/reps NOT NULL, RPE range CHECKs.
+
+When adding a migration: bump the number, write it idempotently, and add a
+line to README's numbered run-order list under "עדכון סכימה + ספריית
+תרגילים".
+
+## Verification (run before every commit)
+
+```bash
+npx tsc --noEmit
+npx eslint .
+cp .env.example .env.local && npm run build   # placeholder env is enough for a build check
+npm run cf:build                              # OpenNext/Cloudflare-specific build — catches issues `next build` alone won't
+rm .env.local                                 # never commit this
+```
+This sandbox cannot reach the live `*.workers.dev` deployment or a real
+Supabase project — these four commands are the full extent of what can be
+verified here. Live behavior needs the user to check and report back;
+don't claim to have tested something you couldn't have.
+
+Commit messages: never pass one containing backticks/special shell chars
+through `git commit -m "..."` — bash will try to interpret them. Write the
+message to a temp file (in the scratchpad dir) and use `git commit -F`.
+
+## Deployment
+
+**`.github/workflows/deploy.yml` is the real, authoritative deploy path.**
+On push (or manual `workflow_dispatch`) it builds with `npm run cf:build`
+and then re-applies every secret with `wrangler secret put` — piped
+non-interactively from GitHub's encrypted repo secrets — before running
+`opennextjs-cloudflare deploy`. This exists because Cloudflare's own
+dashboard "Variables and Secrets" page repeatedly showed
+`SUPABASE_SERVICE_ROLE_KEY` as configured while the deployed Worker's
+actual runtime `process.env` never had it — see Known Gotchas. Required
+GitHub repo secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+The user has no local terminal — assume every deploy-adjacent task has to
+work through either this workflow (trigger via
+`mcp__github__actions_run_trigger`, method `run_workflow`) or the
+Cloudflare/GitHub web dashboards, never a `wrangler` command run by the
+user themselves.
+
+## Known gotchas
+
+- **`NEXT_PUBLIC_*` vars are inlined at *build* time**, wherever
+  `process.env.NEXT_PUBLIC_X` appears literally in source — they do not
+  depend on the Worker's runtime `env` bindings at all. A server-only var
+  (no `NEXT_PUBLIC_` prefix) genuinely does, via OpenNext's
+  `populateProcessEnv`. This means "the site mostly works" is not evidence
+  that runtime env bindings are configured correctly — it can be entirely
+  explained by build-time inlining. Confirmed the hard way: Cloudflare's
+  dashboard showed `SUPABASE_SERVICE_ROLE_KEY` configured (even as a
+  proper Secret, after a redeploy) while `Object.keys(process.env)`
+  contained zero Supabase-related keys at runtime. Root cause never fully
+  confirmed from inside this sandbox (no dashboard access) — the fix was
+  routing deploys through GitHub Actions instead (see Deployment), which
+  sidesteps the dashboard entirely.
+- `createAdminClient()` throws synchronously (not a `{error}` return) if
+  its env vars are missing. Always wrap its call sites in try/catch —
+  otherwise it's an uncaught exception, which Cloudflare renders as a
+  generic crash page with no useful detail.
+- Next.js 16 renamed `middleware.ts` → `proxy.ts` (export `middleware` →
+  `proxy`). `AGENTS.md` (imported at the top of this file, auto-regenerated
+  by `next dev` — keep it committed) has the pointer to read
+  `node_modules/next/dist/docs/` before assuming anything about Next.js
+  APIs matches training data; this version has real breaking changes.
+- `src/proxy.ts`/`middleware.ts` uses `getSession()` (local cookie decode),
+  not `getUser()` (network round-trip), purely for *routing* — which page
+  shell to render. It is never the authorization boundary; RLS is. Don't
+  "fix" this to `getUser()` for security reasons, it isn't a security gap
+  — every real data query independently goes through RLS.
+- Forwarding user id/email as request headers from the proxy to skip a
+  `getUser()` call downstream was tried and reverted — it didn't reliably
+  survive Server Action requests under OpenNext's experimental Cloudflare
+  "Node.js middleware" runtime (a trainee-creation submit silently bounced
+  to `/login`). Pages/actions call `supabase.auth.getUser()` directly.
+- `src/lib/supabase/types.ts` is hand-written (no live Supabase project to
+  `supabase gen types` against from this sandbox). Every table needs
+  `Relationships: []` and the schema needs `Views`/`Functions` populated
+  (even as `Record<string, never>`) or `@supabase/postgrest-js`'s generic
+  constraints silently degrade column types to `never`.
+- The max-10-workouts-per-program limit is enforced twice on purpose: a
+  friendly check in the Server Action (fast, nice message) and a DB
+  trigger (`enforce_max_workouts_per_program`, migration `0006`) as the
+  real backstop.
