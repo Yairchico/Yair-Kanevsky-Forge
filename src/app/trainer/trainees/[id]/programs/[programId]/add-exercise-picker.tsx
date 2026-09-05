@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { getExerciseImage } from "@/lib/exercise-image";
+import { ExercisePhoto } from "@/components/exercise-photo";
 
 interface Exercise {
   id: string;
@@ -58,19 +59,24 @@ export function AddExercisePicker({
             <p className="text-sm text-muted-foreground">לא נמצאו תרגילים.</p>
           ) : (
             filtered.map((ex) => (
-              <button
-                type="button"
+              // A <div> (not a <button>) since the thumbnail inside is its
+              // own click target (enlarge) — a button can't nest a button.
+              <div
                 key={ex.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onAdd(ex.id)}
-                className="flex w-full items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onAdd(ex.id);
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host */}
-                <img
-                  src={getExerciseImage(ex)}
-                  alt=""
-                  loading="lazy"
-                  className="h-9 w-9 shrink-0 rounded-md bg-primary/10 object-cover"
-                />
+                <span onClick={(e) => e.stopPropagation()}>
+                  <ExercisePhoto
+                    src={getExerciseImage(ex)}
+                    className="h-9 w-9 rounded-md bg-primary/10"
+                  />
+                </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{ex.name}</p>
                   {ex.muscle_group && (
@@ -80,7 +86,7 @@ export function AddExercisePicker({
                   )}
                 </div>
                 <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-              </button>
+              </div>
             ))
           )}
         </div>

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatWeight } from "@/lib/format";
 import { getExerciseImage } from "@/lib/exercise-image";
+import { ExercisePhoto } from "@/components/exercise-photo";
 import {
   ExerciseCheckbox,
   PerformanceLogForm,
@@ -89,12 +90,9 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
             {activeWorkout.exercises.map((ex) => (
               <Card key={ex.id}>
                 <CardContent className="flex items-start gap-3 p-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host */}
-                  <img
+                  <ExercisePhoto
                     src={getExerciseImage({ name: ex.name, muscle_group: ex.muscleGroup, media_url: ex.imageUrl })}
-                    alt=""
-                    loading="lazy"
-                    className="h-12 w-12 shrink-0 rounded-lg bg-primary/10 object-cover"
+                    className="h-12 w-12 rounded-lg bg-primary/10"
                   />
                   <ExerciseCheckbox workoutExerciseId={ex.id} completed={ex.done} />
                   <div className="min-w-0 flex-1">

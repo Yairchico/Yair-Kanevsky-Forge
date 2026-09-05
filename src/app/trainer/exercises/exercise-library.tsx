@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
+import { ExercisePhoto } from "@/components/exercise-photo";
 import { cn } from "@/lib/utils";
 import { updateExerciseImage, type UpdateExerciseImageState } from "./actions";
 
@@ -145,12 +146,9 @@ export function ExerciseLibrary({ exercises }: { exercises: Exercise[] }) {
           {filtered.map((ex) => (
             <Card key={ex.id} className="transition-shadow hover:shadow-sm">
               <CardContent className="flex items-start gap-3 p-4">
-                {/* eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host; no remotePatterns config to opt into next/image */}
-                <img
+                <ExercisePhoto
                   src={getExerciseImage(ex)}
-                  alt=""
-                  loading="lazy"
-                  className="h-14 w-14 shrink-0 rounded-lg bg-primary/10 object-cover"
+                  className="h-14 w-14 rounded-lg bg-primary/10"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
