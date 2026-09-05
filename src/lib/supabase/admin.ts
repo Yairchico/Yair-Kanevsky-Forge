@@ -11,9 +11,24 @@ import type { Database } from "@/lib/supabase/types";
  * responsible for checking the caller is actually the trainer first.
  */
 export function createAdminClient() {
-  return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  // supabase-js throws synchronously (an uncaught exception, not a normal
+  // {error} result) if either is missing/invalid — which previously meant
+  // a raw Cloudflare "server error" crash page instead of a message a
+  // trainer could act on. A clear, named error at least turns that into
+  // something callers can catch and explain (see trainees/actions.ts).
+  if (!url || !key) {
+    const missing = [!url && "NEXT_PUBLIC_SUPABASE_URL", !key && "SUPABASE_SERVICE_ROLE_KEY"]
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(
+      `חסר משתנה סביבה בשרת: ${missing}. יש להגדיר אותו כ-secret בקלאודפלייר ולפרוס מחדש.`,
+    );
+  }
+
+  return createSupabaseClient<Database>(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }

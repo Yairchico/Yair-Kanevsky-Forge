@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { formatWeight } from "@/lib/format";
 
 /** Per-exercise "done" checkbox — optimistic, independent of workout submission. */
 export function ExerciseCheckbox({
@@ -86,15 +87,6 @@ export function SubmitWorkoutButton({
 
 const initialLogState: LogPerformanceState = {};
 
-function formatLoggedAt(iso: string) {
-  return new Date(iso).toLocaleString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 /**
  * Basic performance entry, opt-in per exercise: what was actually done
  * (weight/reps/RPE), separate from the planned values. A small, prominent
@@ -130,11 +122,11 @@ export function PerformanceLogForm({
       <div className="space-y-1">
         {log && (
           <p className="text-xs text-muted-foreground">
-            בפועל: {[log.reps && `${log.reps} חזרות`, log.weight, log.rpe != null && `RPE ${log.rpe}`]
+            בפועל:{" "}
+            {[log.reps && `${log.reps} חזרות`, formatWeight(log.weight), log.rpe != null && `RPE ${log.rpe}`]
               .filter(Boolean)
               .join(" · ") || "נרשם"}
             {log.notes && ` — ${log.notes}`}
-            <span className="opacity-70"> · {formatLoggedAt(log.performedAt)}</span>
           </p>
         )}
         <button
@@ -162,12 +154,12 @@ export function PerformanceLogForm({
     <form action={formAction} className="space-y-2 rounded-lg border border-border bg-muted/40 p-2.5">
       <div className="flex flex-wrap gap-2">
         <div className="w-20 space-y-0.5">
-          <Label className="text-[10px] text-muted-foreground">משקל בפועל</Label>
+          <Label className="text-[10px] text-muted-foreground">משקל בפועל (ק&quot;ג)</Label>
           <Input
             name="actual_weight"
             defaultValue={log?.weight ?? ""}
             className="h-8 px-2 text-sm"
-            placeholder='ק"ג'
+            placeholder="20"
           />
         </div>
         <div className="w-20 space-y-0.5">

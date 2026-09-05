@@ -170,9 +170,9 @@ export function WorkoutExerciseRow({
               onBlur={() => void save(fields)}
             />
             <MiniField
-              label="משקל"
+              label='משקל (ק"ג)'
               className="w-16"
-              placeholder='ק"ג'
+              placeholder="20"
               value={fields.weight ?? ""}
               onChange={(e) => setFields((f) => ({ ...f, weight: e.target.value }))}
               onBlur={() => void save(fields)}

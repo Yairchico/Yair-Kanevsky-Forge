@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatWeight } from "@/lib/format";
 
 /**
  * Shows the last 30 days of logged performance entries (workout_logs) —
@@ -107,7 +108,7 @@ export default async function TraineeHistoryPage() {
                         </p>
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                           {sets?.reps && <span>{sets.reps} חזרות</span>}
-                          {sets?.weight && <span>{sets.weight}</span>}
+                          {sets?.weight && <span>{formatWeight(sets.weight)}</span>}
                           {log.rpe_actual != null && <span>RPE {log.rpe_actual}</span>}
                         </div>
                         {log.notes && <p className="mt-1 text-sm">{log.notes}</p>}

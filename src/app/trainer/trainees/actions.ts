@@ -89,26 +89,31 @@ export async function createTrainee(
   // real one, so email is effectively optional from the UI's perspective.
   const finalEmail = email || `${username}@trainees.local`;
 
-  const admin = createAdminClient();
-  const { error } = await admin.auth.admin.createUser({
-    email: finalEmail,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName, phone: phone || undefined, username },
-  });
+  // Anything in here throwing (a missing env var in createAdminClient, a
+  // network error, ...) used to be an *uncaught* exception — Cloudflare's
+  // own generic "server error" crash page, not this form's error message.
+  // Catching it turns that into something the trainer can actually read.
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.auth.admin.createUser({
+      email: finalEmail,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, phone: phone || undefined, username },
+    });
 
-  if (error) {
-    // Logged server-side (Cloudflare logs) for real diagnosis, and also
-    // surfaced to the trainer (this form is trainer-only) — a generic
-    // "something went wrong" was hiding the actual Supabase error every
-    // time this broke, so show it directly instead of guessing at it blind.
-    console.error("createTrainee: admin.createUser failed", error);
-    const msg = error.message.toLowerCase();
-    return {
-      error: msg.includes("already")
-        ? "כבר קיים משתמש עם האימייל או שם המשתמש הזה"
-        : `שגיאה ביצירת המתאמן: ${error.message}`,
-    };
+    if (error) {
+      console.error("createTrainee: admin.createUser failed", error);
+      const msg = error.message.toLowerCase();
+      return {
+        error: msg.includes("already")
+          ? "כבר קיים משתמש עם האימייל או שם המשתמש הזה"
+          : `שגיאה ביצירת המתאמן: ${error.message}`,
+      };
+    }
+  } catch (e) {
+    console.error("createTrainee: unexpected error", e);
+    return { error: e instanceof Error ? e.message : "שגיאה לא צפויה ביצירת המתאמן" };
   }
 
   revalidatePath("/trainer/trainees");
@@ -148,19 +153,24 @@ export async function updateTrainee(
   // real auth user without one.
   const finalEmail = email || `${username}${PLACEHOLDER_EMAIL_SUFFIX}`;
 
-  const admin = createAdminClient();
-  const { error: authError } = await admin.auth.admin.updateUserById(traineeId, {
-    email: finalEmail,
-    email_confirm: true,
-  });
-  if (authError) {
-    console.error("updateTrainee: admin.updateUserById (email) failed", authError);
-    const msg = authError.message.toLowerCase();
-    return {
-      error: msg.includes("already")
-        ? "כתובת האימייל הזו כבר בשימוש"
-        : `שגיאה בעדכון האימייל: ${authError.message}`,
-    };
+  try {
+    const admin = createAdminClient();
+    const { error: authError } = await admin.auth.admin.updateUserById(traineeId, {
+      email: finalEmail,
+      email_confirm: true,
+    });
+    if (authError) {
+      console.error("updateTrainee: admin.updateUserById (email) failed", authError);
+      const msg = authError.message.toLowerCase();
+      return {
+        error: msg.includes("already")
+          ? "כתובת האימייל הזו כבר בשימוש"
+          : `שגיאה בעדכון האימייל: ${authError.message}`,
+      };
+    }
+  } catch (e) {
+    console.error("updateTrainee: unexpected error", e);
+    return { error: e instanceof Error ? e.message : "שגיאה לא צפויה בעדכון האימייל" };
   }
 
   const { error } = await auth.supabase
@@ -225,11 +235,17 @@ export async function deleteTrainee(traineeId: string): Promise<ActionState> {
     return { error: "אין הרשאה לבצע פעולה זו" };
   }
 
-  const admin = createAdminClient();
-  // Deletes auth.users; profiles row cascades via its FK (on delete cascade).
-  const { error } = await admin.auth.admin.deleteUser(traineeId);
-  if (error) {
-    return { error: "שגיאה במחיקת המתאמן" };
+  try {
+    const admin = createAdminClient();
+    // Deletes auth.users; profiles row cascades via its FK (on delete cascade).
+    const { error } = await admin.auth.admin.deleteUser(traineeId);
+    if (error) {
+      console.error("deleteTrainee: admin.deleteUser failed", error);
+      return { error: `שגיאה במחיקת המתאמן: ${error.message}` };
+    }
+  } catch (e) {
+    console.error("deleteTrainee: unexpected error", e);
+    return { error: e instanceof Error ? e.message : "שגיאה לא צפויה במחיקת המתאמן" };
   }
 
   revalidatePath("/trainer/trainees");

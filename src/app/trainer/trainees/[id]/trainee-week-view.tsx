@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
+import { formatWeight } from "@/lib/format";
 
 interface LoggedPerformance {
   weight: string | null;
@@ -177,7 +178,7 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                                 בפועל:{" "}
                                 {[
                                   ex.log.reps && `${ex.log.reps} חזרות`,
-                                  ex.log.weight,
+                                  formatWeight(ex.log.weight),
                                   ex.log.rpe != null && `RPE ${ex.log.rpe}`,
                                 ]
                                   .filter(Boolean)
@@ -185,10 +186,6 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                                 {ex.log.notes && (
                                   <span className="text-muted-foreground"> — {ex.log.notes}</span>
                                 )}
-                                <span className="text-muted-foreground">
-                                  {" "}
-                                  · {formatSubmittedAt(ex.log.performedAt)}
-                                </span>
                               </p>
                             )}
                           </div>

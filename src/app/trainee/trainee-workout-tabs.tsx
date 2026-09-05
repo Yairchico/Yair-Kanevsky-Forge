@@ -5,6 +5,7 @@ import Link from "next/link";
 import { History } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatWeight } from "@/lib/format";
 import {
   ExerciseCheckbox,
   PerformanceLogForm,
@@ -95,7 +96,7 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                       {ex.sets != null && <span>{ex.sets} סטים</span>}
                       {ex.reps && <span>{ex.reps} חזרות</span>}
-                      {ex.weight && <span>{ex.weight}</span>}
+                      {ex.weight && <span>{formatWeight(ex.weight)}</span>}
                       {ex.rpe != null && <span>RPE {ex.rpe}</span>}
                       {ex.restSeconds != null && <span>{ex.restSeconds} שנ׳ מנוחה</span>}
                     </div>
