@@ -23,8 +23,15 @@ export function createAdminClient() {
     const missing = [!url && "NEXT_PUBLIC_SUPABASE_URL", !key && "SUPABASE_SERVICE_ROLE_KEY"]
       .filter(Boolean)
       .join(", ");
+    // Diagnostic only — names, never values. If this keeps happening despite
+    // the Cloudflare dashboard showing the variable configured, this shows
+    // exactly what name(s) process.env actually received at runtime (a typo,
+    // a stray space, or wrong casing in the dashboard's "Variable name"
+    // field all look "configured" there but produce a different key here).
+    const foundSupabaseKeys = Object.keys(process.env).filter((k) => /supabase/i.test(k));
     throw new Error(
-      `חסר משתנה סביבה בשרת: ${missing}. יש להגדיר אותו כ-secret בקלאודפלייר ולפרוס מחדש.`,
+      `חסר משתנה סביבה בשרת: ${missing}. יש להגדיר אותו כ-secret בקלאודפלייר ולפרוס מחדש. ` +
+        `(משתני סביבה שכן נמצאו בזמן ריצה: ${foundSupabaseKeys.length ? foundSupabaseKeys.join(", ") : "אף אחד"})`,
     );
   }
 
