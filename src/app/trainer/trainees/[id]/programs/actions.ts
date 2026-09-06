@@ -108,12 +108,15 @@ export async function createProgram(
   const supabase = await createClient();
 
   // One program per (trainee, week) — see migration 0006. If one already
-  // exists for the chosen week, just go there instead of erroring.
+  // exists for the chosen week, just go there instead of erroring. A
+  // soft-deleted program (migration 0010) doesn't count — that week is
+  // free again.
   const { data: existing } = await supabase
     .from("programs")
     .select("id")
     .eq("trainee_id", traineeId)
     .eq("week_start_date", weekStartDate)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (existing) {
@@ -148,17 +151,36 @@ export async function createProgram(
   redirect(`/trainer/trainees/${traineeId}/programs/${program.id}`);
 }
 
+/**
+ * Soft-delete (migration 0010): a hard DELETE here would cascade all the
+ * way down (workouts -> workout_exercises -> workout_logs /
+ * workout_completions, "on delete cascade" per migration 0001) and
+ * destroy the trainee's actual training history along with whatever the
+ * trainer meant to clean up. Setting deleted_at instead just hides the
+ * program — from every listing query and, via RLS, from the trainee too —
+ * while the row and everything under it (including real submitted
+ * history) stays intact. Also reverts status to draft as a defense-in-depth
+ * belt-and-suspenders: any code path that forgot the deleted_at filter
+ * would still see it as unpublished, not live.
+ */
 export async function deleteProgram(
   traineeId: string,
   programId: string,
 ): Promise<ActionState> {
   const supabase = await createClient();
-  const { error } = await supabase.from("programs").delete().eq("id", programId);
+  const { error } = await supabase
+    .from("programs")
+    .update({ deleted_at: new Date().toISOString(), status: "draft" })
+    .eq("id", programId);
   if (error) {
-    return { error: "שגיאה במחיקת התוכנית" };
+    return { error: "שגיאה בהסרת התוכנית" };
   }
 
+  // A trainee could have this exact program open right now (see the
+  // concurrency discussion this fixes part of) — invalidate their side too.
   revalidatePath(`/trainer/trainees/${traineeId}`);
+  revalidatePath("/trainer");
+  revalidatePath("/trainee");
   redirect(`/trainer/trainees/${traineeId}`);
 }
 

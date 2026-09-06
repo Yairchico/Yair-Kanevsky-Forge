@@ -29,7 +29,8 @@ export default async function TrainerHomePage() {
     supabase
       .from("programs")
       .select("trainee_id, status")
-      .eq("week_start_date", currentWeekKey),
+      .eq("week_start_date", currentWeekKey)
+      .is("deleted_at", null),
     supabase
       .from("workout_completions")
       .select("workout_id, trainee_id, completed_at")

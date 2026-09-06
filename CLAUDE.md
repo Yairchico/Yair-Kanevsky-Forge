@@ -151,6 +151,7 @@ one-time setup walkthrough):
 7. `0007_required_fields_and_ranges.sql` — sets/reps NOT NULL, RPE range CHECKs.
 8. `0008_exercise_images_storage.sql` — public Storage bucket `exercise-images` (trainer-write/anyone-read) for uploaded exercise photos.
 9. `0009_workout_days.sql` — workouts belong to a day of week (`day_of_week`, 0=Sunday..6=Saturday) with up to 2/day, replacing the old flat max-10/program rule.
+10. `0010_soft_delete_programs.sql` — `programs.deleted_at`; deleting a program now sets this instead of a hard DELETE, so the `on delete cascade` chain down to `workout_logs`/`workout_completions` (migration 0001) never fires and a trainee's actual training history survives. Replaces the old `programs_trainee_week_key` unique constraint with a partial unique index (`where deleted_at is null`) so a soft-deleted week's slot is free again; RLS's trainee-facing SELECT policies on `programs`/`workouts`/`workout_exercises` also gained `deleted_at is null`.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

@@ -38,6 +38,7 @@ export default async function TraineeDetailPage({
       .from("programs")
       .select("id, title, status, week_start_date")
       .eq("trainee_id", id)
+      .is("deleted_at", null)
       .order("week_start_date", { ascending: false }),
   ]);
 

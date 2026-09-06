@@ -35,6 +35,7 @@ export default async function NewProgramPage({
     .eq("trainee_id", id)
     .gte("week_start_date", monthAgoKey)
     .lt("week_start_date", currentWeekKey)
+    .is("deleted_at", null)
     .order("week_start_date", { ascending: false });
 
   const pastProgramIds = (pastPrograms ?? []).map((p) => p.id);

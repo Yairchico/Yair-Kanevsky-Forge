@@ -64,6 +64,8 @@ export interface Database {
           published_at: string | null;
           created_at: string;
           updated_at: string;
+          /** Soft-delete marker (migration 0010) — set instead of a hard DELETE, so history under it survives. */
+          deleted_at: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["programs"]["Row"]> & {
           trainee_id: string;

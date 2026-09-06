@@ -34,6 +34,7 @@ export default async function TraineeHomePage() {
       .eq("trainee_id", user.id)
       .eq("status", "published")
       .eq("week_start_date", currentWeekKey)
+      .is("deleted_at", null)
       .maybeSingle(),
   ]);
 

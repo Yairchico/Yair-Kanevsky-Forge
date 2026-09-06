@@ -22,12 +22,12 @@ export default async function ProgramBuilderPage({
       .single(),
     supabase
       .from("programs")
-      .select("id, title, status, trainee_id, week_start_date")
+      .select("id, title, status, trainee_id, week_start_date, deleted_at")
       .eq("id", programId)
       .single(),
   ]);
 
-  if (!trainee || !program || program.trainee_id !== traineeId) notFound();
+  if (!trainee || !program || program.trainee_id !== traineeId || program.deleted_at) notFound();
 
   const { data: workouts } = await supabase
     .from("workouts")
