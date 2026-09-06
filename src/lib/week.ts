@@ -54,3 +54,10 @@ export function formatWeekLabel(weekStart: Date, today: Date = new Date()): stri
   if (diffWeeks < -1) return `לפני ${Math.abs(diffWeeks)} שבועות`;
   return `בעוד ${diffWeeks} שבועות`;
 }
+
+/** 0 (Sunday) through 6 (Saturday) — matches `workouts.day_of_week`. */
+export const DAY_NAMES = ["יום א׳", "יום ב׳", "יום ג׳", "יום ד׳", "יום ה׳", "יום ו׳", "שבת"];
+
+export function dayName(dayOfWeek: number): string {
+  return DAY_NAMES[dayOfWeek] ?? "יום לא ידוע";
+}

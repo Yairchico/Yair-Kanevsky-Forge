@@ -2,12 +2,13 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, Eye } from "lucide-react";
 import { createProgram, type ActionState } from "../actions";
 import { AppShell } from "@/components/app-shell";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/modal";
 import {
   Card,
   CardContent,
@@ -15,7 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { addDays, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionState = {};
@@ -44,6 +45,8 @@ interface DuplicateExercise {
 
 interface DuplicateWorkout {
   id: string;
+  dayOfWeek: number;
+  orderIndex: number;
   exercises: DuplicateExercise[];
 }
 
@@ -55,6 +58,105 @@ interface DuplicateCandidate {
   workouts: DuplicateWorkout[];
 }
 
+/**
+ * The preview a trainer must step through before duplicating a week: a
+ * centered popup (not an inline accordion) showing one workout at a time,
+ * with arrows on the sides to flip between the week's workouts. Confirming
+ * here is the only way to actually select a candidate — closing/cancelling
+ * leaves the previous selection untouched.
+ */
+function PreviewModal({
+  candidate,
+  onConfirm,
+  onClose,
+}: {
+  candidate: DuplicateCandidate | null;
+  onConfirm: (programId: string) => void;
+  onClose: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+
+  if (!candidate) return null;
+  const workout = candidate.workouts[index];
+  const weekStart = parseDateKey(candidate.weekStartDate);
+
+  function go(delta: number) {
+    if (!candidate) return;
+    setIndex((i) => Math.max(0, Math.min(candidate.workouts.length - 1, i + delta)));
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`תצוגה מקדימה — ${candidate.title}`}
+      className="max-w-lg"
+    >
+      <p className="mb-3 text-xs text-muted-foreground">
+        {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)}
+      </p>
+
+      {candidate.workouts.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">אין אימונים בשבוע זה.</p>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => go(-1)}
+            disabled={index === 0}
+            aria-label="האימון הקודם"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+
+          <div className="min-w-0 flex-1 rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">{dayName(workout.dayOfWeek)}</p>
+              <p className="text-xs text-muted-foreground">
+                אימון {index + 1} מתוך {candidate.workouts.length}
+              </p>
+            </div>
+            {workout.exercises.length === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">אין תרגילים.</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {workout.exercises.map((ex) => (
+                  <li key={ex.id}>
+                    <span className="text-foreground">{ex.name}</span> — {ex.sets}×{ex.reps}
+                    {ex.weight ? ` · ${ex.weight}` : ""}
+                    {ex.rpe != null ? ` · RPE ${ex.rpe}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => go(1)}
+            disabled={index === candidate.workouts.length - 1}
+            aria-label="האימון הבא"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <Button type="button" onClick={() => onConfirm(candidate.programId)} className="flex-1">
+          <Check className="h-4 w-4" />
+          אשר ובחר שבוע זה
+        </Button>
+        <Button type="button" variant="outline" onClick={onClose}>
+          ביטול
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 function DuplicateWeekPicker({
   candidates,
   selectedId,
@@ -64,7 +166,7 @@ function DuplicateWeekPicker({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [previewCandidate, setPreviewCandidate] = useState<DuplicateCandidate | null>(null);
 
   if (!candidates.length) {
     return (
@@ -79,81 +181,44 @@ function DuplicateWeekPicker({
       {candidates.map((c) => {
         const weekStart = parseDateKey(c.weekStartDate);
         const isSelected = selectedId === c.programId;
-        const isExpanded = expandedId === c.programId;
         const totalExercises = c.workouts.reduce((n, w) => n + w.exercises.length, 0);
 
         return (
-          <div
+          <button
             key={c.programId}
+            type="button"
+            onClick={() => setPreviewCandidate(c)}
             className={cn(
-              "rounded-lg border p-3 transition-colors",
-              isSelected ? "border-primary bg-primary/5" : "border-border",
+              "flex w-full items-start justify-between gap-2 rounded-lg border p-3 text-start transition-colors",
+              isSelected ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
             )}
           >
-            <button
-              type="button"
-              onClick={() => onSelect(c.programId)}
-              className="flex w-full items-start justify-between gap-2 text-start"
-            >
-              <div>
-                <p className="text-sm font-medium">{c.title}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)} ·{" "}
-                  {c.status === "published" ? "פורסם" : "טיוטה"}
-                </p>
-              </div>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {c.workouts.length} אימונים · {totalExercises} תרגילים
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setExpandedId(isExpanded ? null : c.programId)}
-              className="mt-1.5 flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              {isExpanded ? (
-                <>
-                  <ChevronUp className="h-3 w-3" />
-                  הסתר תצוגה מקדימה
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3" />
-                  תצוגה מקדימה
-                </>
-              )}
-            </button>
-
-            {isExpanded && (
-              <div className="mt-2 space-y-2 border-t border-border pt-2">
-                {c.workouts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">אין אימונים בשבוע זה.</p>
-                ) : (
-                  c.workouts.map((w, i) => (
-                    <div key={w.id}>
-                      <p className="text-xs font-semibold">אימון {i + 1}</p>
-                      {w.exercises.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">אין תרגילים.</p>
-                      ) : (
-                        <ul className="ms-4 list-disc space-y-0.5 text-xs text-muted-foreground">
-                          {w.exercises.map((ex) => (
-                            <li key={ex.id}>
-                              {ex.name} — {ex.sets}×{ex.reps}
-                              {ex.weight ? ` · ${ex.weight}` : ""}
-                              {ex.rpe != null ? ` · RPE ${ex.rpe}` : ""}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                {c.title}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)} ·{" "}
+                {c.status === "published" ? "פורסם" : "טיוטה"}
+              </p>
+            </div>
+            <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
+              <Eye className="h-3.5 w-3.5" />
+              {c.workouts.length} אימונים · {totalExercises} תרגילים
+            </span>
+          </button>
         );
       })}
+
+      <PreviewModal
+        candidate={previewCandidate}
+        onClose={() => setPreviewCandidate(null)}
+        onConfirm={(programId) => {
+          onSelect(programId);
+          setPreviewCandidate(null);
+        }}
+      />
     </div>
   );
 }
@@ -237,6 +302,11 @@ export function NewProgramForm({
                   <Copy className="h-3.5 w-3.5" />
                   שכפול שבוע — העתק את כל האימונים והתרגילים משבוע קודם
                 </label>
+                {duplicateEnabled && (
+                  <p className="text-xs text-muted-foreground">
+                    לחץ על שבוע כדי לצפות בתצוגה מקדימה ולבחור אותו.
+                  </p>
+                )}
 
                 {duplicateEnabled && (
                   <DuplicateWeekPicker

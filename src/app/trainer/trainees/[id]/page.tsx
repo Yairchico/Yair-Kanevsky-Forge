@@ -13,8 +13,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { TraineeEditForm } from "./trainee-edit-form";
 import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekView } from "./trainee-week-view";
+import { ProgramRow } from "./program-row";
 import { cn } from "@/lib/utils";
-import { addDays, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey } from "@/lib/week";
 
 export default async function TraineeDetailPage({
   params,
@@ -53,8 +54,9 @@ export default async function TraineeDetailPage({
 
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, program_id, order_index")
+    .select("id, program_id, day_of_week, order_index")
     .in("program_id", programIds.length ? programIds : noRows)
+    .order("day_of_week")
     .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
@@ -68,7 +70,7 @@ export default async function TraineeDetailPage({
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index")
+      .select("id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name, muscle_group"),
@@ -121,6 +123,8 @@ export default async function TraineeDetailPage({
       .filter((w) => w.program_id === program.id)
       .map((w) => ({
         id: w.id,
+        dayOfWeek: w.day_of_week,
+        orderIndex: w.order_index,
         submittedAt: submissionByWorkoutId.get(w.id) ?? null,
         exercises: (workoutExercises ?? [])
           .filter((we) => we.workout_id === w.id)
@@ -130,6 +134,13 @@ export default async function TraineeDetailPage({
               id: we.id,
               name: exercise?.name ?? "תרגיל לא ידוע",
               muscleGroup: exercise?.muscle_group ?? null,
+              planned: {
+                sets: we.sets,
+                reps: we.reps,
+                weight: we.weight,
+                rpe: we.rpe,
+                restSeconds: we.rest_seconds,
+              },
               done: doneExerciseIds.has(we.id),
               log: latestLogByWorkoutExerciseId.get(we.id) ?? null,
             };
@@ -167,33 +178,9 @@ export default async function TraineeDetailPage({
             {!allPrograms.length ? (
               <p className="text-sm text-muted-foreground">עדיין אין תוכניות.</p>
             ) : (
-              allPrograms.map((p) => {
-                const weekStart = parseDateKey(p.week_start_date);
-                return (
-                  <Link
-                    key={p.id}
-                    href={`/trainer/trainees/${id}/programs/${p.id}`}
-                    className="flex items-center justify-between rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted"
-                  >
-                    <div>
-                      <p className="font-medium">{p.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        p.status === "published"
-                          ? "bg-success/15 text-success"
-                          : "bg-warning/20 text-warning-foreground",
-                      )}
-                    >
-                      {p.status === "published" ? "פורסם" : "טיוטה"}
-                    </span>
-                  </Link>
-                );
-              })
+              allPrograms.map((p) => (
+                <ProgramRow key={p.id} traineeId={id} program={p} />
+              ))
             )}
           </CardContent>
         </Card>

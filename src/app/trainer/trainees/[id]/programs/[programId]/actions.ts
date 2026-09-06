@@ -28,10 +28,10 @@ export interface ActionResult {
 
 export interface WorkoutResult {
   error?: string;
-  workout?: { id: string; order_index: number };
+  workout?: { id: string; order_index: number; day_of_week: number };
 }
 
-const MAX_WORKOUTS_PER_PROGRAM = 10;
+const MAX_WORKOUTS_PER_DAY = 2;
 
 /**
  * Real validation, not just the inputs' HTML min/max hints: sets and reps
@@ -81,26 +81,34 @@ async function revertToDraftIfPublished(
   return true;
 }
 
-/** Creates the next numbered workout ("אימון N") directly under the program. */
+/**
+ * Creates a workout on the given day (0=Sunday..6=Saturday) — the trainer
+ * picks the day first (see the builder's day-picker). Global "אימון N"
+ * numbering isn't stored; it's derived by sorting (day_of_week,
+ * order_index) at display time, so deleting a workout never needs to
+ * renumber anything.
+ */
 export async function createWorkout(
   traineeId: string,
   programId: string,
+  dayOfWeek: number,
 ): Promise<WorkoutResult> {
   const supabase = await createClient();
 
   const { count } = await supabase
     .from("workouts")
     .select("id", { count: "exact", head: true })
-    .eq("program_id", programId);
+    .eq("program_id", programId)
+    .eq("day_of_week", dayOfWeek);
 
-  if ((count ?? 0) >= MAX_WORKOUTS_PER_PROGRAM) {
-    return { error: `ניתן ליצור עד ${MAX_WORKOUTS_PER_PROGRAM} אימונים בתוכנית` };
+  if ((count ?? 0) >= MAX_WORKOUTS_PER_DAY) {
+    return { error: `ניתן ליצור עד ${MAX_WORKOUTS_PER_DAY} אימונים ביום` };
   }
 
   const { data: workout, error } = await supabase
     .from("workouts")
-    .insert({ program_id: programId, order_index: count ?? 0 })
-    .select("id, order_index")
+    .insert({ program_id: programId, day_of_week: dayOfWeek, order_index: count ?? 0 })
+    .select("id, order_index, day_of_week")
     .single();
 
   if (error || !workout) {
@@ -120,23 +128,6 @@ export async function deleteWorkout(
   const { error } = await supabase.from("workouts").delete().eq("id", workoutId);
   if (error) {
     return { error: "שגיאה במחיקת האימון" };
-  }
-
-  // Renumber remaining workouts so there's no gap in "אימון N".
-  const { data: remaining } = await supabase
-    .from("workouts")
-    .select("id, order_index")
-    .eq("program_id", programId)
-    .order("order_index");
-
-  if (remaining) {
-    await Promise.all(
-      remaining.map((w, index) =>
-        w.order_index === index
-          ? Promise.resolve()
-          : supabase.from("workouts").update({ order_index: index }).eq("id", w.id),
-      ),
-    );
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { formatWeight } from "@/lib/format";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { ExercisePhoto } from "@/components/exercise-photo";
+import { dayName } from "@/lib/week";
 import {
   ExerciseCheckbox,
   PerformanceLogForm,
@@ -32,6 +33,8 @@ interface ExerciseData {
 
 interface WorkoutData {
   id: string;
+  dayOfWeek: number;
+  orderIndex: number;
   submitted: boolean;
   exercises: ExerciseData[];
 }
@@ -51,23 +54,30 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {workouts.map((w, i) => (
-            <button
-              key={w.id}
-              type="button"
-              onClick={() => setActiveId(w.id)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                w.id === activeWorkout?.id
-                  ? "bg-primary text-primary-foreground"
-                  : w.submitted
-                    ? "bg-success/15 text-success"
-                    : "bg-secondary text-secondary-foreground hover:bg-muted",
-              )}
-            >
-              אימון {i + 1}
-            </button>
-          ))}
+          {workouts.map((w) => {
+            const sameDayCount = workouts.filter((x) => x.dayOfWeek === w.dayOfWeek).length;
+            const label =
+              sameDayCount > 1
+                ? `${dayName(w.dayOfWeek)} · אימון ${w.orderIndex + 1}`
+                : dayName(w.dayOfWeek);
+            return (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => setActiveId(w.id)}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                  w.id === activeWorkout?.id
+                    ? "bg-primary text-primary-foreground"
+                    : w.submitted
+                      ? "bg-success/15 text-success"
+                      : "bg-secondary text-secondary-foreground hover:bg-muted",
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
         <Link
           href="/trainee/history"

@@ -41,8 +41,9 @@ export default async function NewProgramPage({
 
   const { data: pastWorkouts } = await supabase
     .from("workouts")
-    .select("id, program_id, order_index")
+    .select("id, program_id, day_of_week, order_index")
     .in("program_id", pastProgramIds.length ? pastProgramIds : noRows)
+    .order("day_of_week")
     .order("order_index");
 
   const pastWorkoutIds = (pastWorkouts ?? []).map((w) => w.id);
@@ -69,6 +70,8 @@ export default async function NewProgramPage({
       .filter((w) => w.program_id === program.id)
       .map((w) => ({
         id: w.id,
+        dayOfWeek: w.day_of_week,
+        orderIndex: w.order_index,
         exercises: (pastExercises ?? [])
           .filter((we) => we.workout_id === w.id)
           .map((we) => ({

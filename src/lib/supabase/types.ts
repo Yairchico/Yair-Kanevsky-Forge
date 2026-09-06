@@ -77,13 +77,16 @@ export interface Database {
         Row: {
           id: string;
           program_id: string;
-          /** 0-based; displayed as "אימון {order_index + 1}". */
+          /** 0 (Sunday) - 6 (Saturday) — see src/lib/week.ts. Up to 2 workouts/day. */
+          day_of_week: number;
+          /** 0-based order *within that day* (0 or 1) — not a global position. */
           order_index: number;
           title: string | null;
           notes: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["workouts"]["Row"]> & {
           program_id: string;
+          day_of_week: number;
         };
         Update: Partial<Database["public"]["Tables"]["workouts"]["Row"]>;
         Relationships: [];

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
+import { dayName, formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 import { formatWeight } from "@/lib/format";
 
 interface LoggedPerformance {
@@ -15,16 +15,27 @@ interface LoggedPerformance {
   performedAt: string;
 }
 
+interface PlannedFields {
+  sets: number | null;
+  reps: string | null;
+  weight: string | null;
+  rpe: number | null;
+  restSeconds: number | null;
+}
+
 interface ExerciseStatus {
   id: string;
   name: string;
   muscleGroup: string | null;
+  planned: PlannedFields;
   done: boolean;
   log: LoggedPerformance | null;
 }
 
 interface WorkoutData {
   id: string;
+  dayOfWeek: number;
+  orderIndex: number;
   submittedAt: string | null;
   exercises: ExerciseStatus[];
 }
@@ -109,23 +120,32 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
           ) : (
             <>
               <div className="flex flex-wrap gap-2">
-                {week.workouts.map((w, i) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => setActiveWorkoutIndex(i)}
-                    className={cn(
-                      "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                      i === activeWorkoutIndex
-                        ? "bg-primary text-primary-foreground"
-                        : w.submittedAt
-                          ? "bg-success/15 text-success"
-                          : "bg-secondary text-secondary-foreground hover:bg-muted",
-                    )}
-                  >
-                    אימון {i + 1}
-                  </button>
-                ))}
+                {week.workouts.map((w, i) => {
+                  const sameDayCount = week.workouts.filter(
+                    (x) => x.dayOfWeek === w.dayOfWeek,
+                  ).length;
+                  const label =
+                    sameDayCount > 1
+                      ? `${dayName(w.dayOfWeek)} · אימון ${w.orderIndex + 1}`
+                      : dayName(w.dayOfWeek);
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => setActiveWorkoutIndex(i)}
+                      className={cn(
+                        "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                        i === activeWorkoutIndex
+                          ? "bg-primary text-primary-foreground"
+                          : w.submittedAt
+                            ? "bg-success/15 text-success"
+                            : "bg-secondary text-secondary-foreground hover:bg-muted",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
 
               {workout && (
@@ -173,9 +193,20 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                                 {ex.muscleGroup}
                               </p>
                             )}
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              מתוכנן:{" "}
+                              {[
+                                ex.planned.sets != null && `${ex.planned.sets} סטים`,
+                                ex.planned.reps && `${ex.planned.reps} חזרות`,
+                                formatWeight(ex.planned.weight),
+                                ex.planned.rpe != null && `RPE ${ex.planned.rpe}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ") || "—"}
+                            </p>
                             {ex.log && (
-                              <p className="mt-1 text-xs text-primary">
-                                בפועל:{" "}
+                              <p className="mt-0.5 text-xs text-primary">
+                                בפועל (בהגשה):{" "}
                                 {[
                                   ex.log.reps && `${ex.log.reps} חזרות`,
                                   formatWeight(ex.log.weight),

@@ -24,8 +24,9 @@ async function duplicateProgramContents(
 ): Promise<string | null> {
   const { data: sourceWorkouts } = await supabase
     .from("workouts")
-    .select("id, order_index")
+    .select("id, day_of_week, order_index")
     .eq("program_id", fromProgramId)
+    .order("day_of_week")
     .order("order_index");
 
   if (!sourceWorkouts?.length) return null;
@@ -33,19 +34,28 @@ async function duplicateProgramContents(
   const { data: newWorkouts, error: workoutsError } = await supabase
     .from("workouts")
     .insert(
-      sourceWorkouts.map((w) => ({ program_id: toProgramId, order_index: w.order_index })),
+      sourceWorkouts.map((w) => ({
+        program_id: toProgramId,
+        day_of_week: w.day_of_week,
+        order_index: w.order_index,
+      })),
     )
-    .select("id, order_index");
+    .select("id, day_of_week, order_index");
 
   if (workoutsError || !newWorkouts) {
     return "שגיאה בשכפול האימונים";
   }
 
-  // order_index is unique per program, so it's a safe key to map old -> new
-  // workout ids by, regardless of the order rows come back in.
-  const newWorkoutIdByOrderIndex = new Map(newWorkouts.map((w) => [w.order_index, w.id]));
+  // (day_of_week, order_index) is unique per program (at most 2/day), so
+  // it's a safe composite key to map old -> new workout ids by, regardless
+  // of the order rows come back in. order_index alone is NOT unique per
+  // program anymore — up to 2 workouts share it (one per day).
+  const key = (dayOfWeek: number, orderIndex: number) => `${dayOfWeek}:${orderIndex}`;
+  const newWorkoutIdByKey = new Map(
+    newWorkouts.map((w) => [key(w.day_of_week, w.order_index), w.id]),
+  );
   const oldToNewWorkoutId = new Map(
-    sourceWorkouts.map((w) => [w.id, newWorkoutIdByOrderIndex.get(w.order_index)]),
+    sourceWorkouts.map((w) => [w.id, newWorkoutIdByKey.get(key(w.day_of_week, w.order_index))]),
   );
 
   const { data: sourceExercises } = await supabase

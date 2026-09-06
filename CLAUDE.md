@@ -91,11 +91,16 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   trainer's "for all" policy per table; a trainee's policy is always
   scoped to `trainee_id = auth.uid()` and, for anything downstream of a
   program, `status = 'published'`.
-- **Calendar weeks, not "day of week."** `programs.week_start_date` is the
-  Sunday starting that week (`src/lib/week.ts`'s `getWeekStart`); one
-  program per `(trainee_id, week_start_date)`. Workouts are "אימון 1/2/…"
-  numbered directly under a program (`workouts.program_id`, `order_index`),
-  capped at 10 — checked both in the Server Action and by a DB trigger.
+- **Calendar weeks.** `programs.week_start_date` is the Sunday starting
+  that week (`src/lib/week.ts`'s `getWeekStart`); one program per
+  `(trainee_id, week_start_date)`. Each `workouts` row belongs to a
+  `day_of_week` (0=Sunday..6=Saturday, `src/lib/week.ts`'s `dayName()`) —
+  up to 2 per day, checked both in the Server Action and by a DB trigger
+  (migration `0009`). The trainer picks the day when creating a workout
+  (a day-picker `Modal`, `src/components/ui/modal.tsx`). There's no stored
+  global "אימון N" numbering — it's derived at display time by sorting
+  `(day_of_week, order_index)`, so `order_index` only means "1st or 2nd
+  that day," not a program-wide position.
 - **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Rubik font
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
@@ -122,6 +127,7 @@ one-time setup walkthrough):
 6. `0006_calendar_weeks_and_numbered_workouts.sql` — the week/workout restructure described above; drops `program_days`.
 7. `0007_required_fields_and_ranges.sql` — sets/reps NOT NULL, RPE range CHECKs.
 8. `0008_exercise_images_storage.sql` — public Storage bucket `exercise-images` (trainer-write/anyone-read) for uploaded exercise photos.
+9. `0009_workout_days.sql` — workouts belong to a day of week (`day_of_week`, 0=Sunday..6=Saturday) with up to 2/day, replacing the old flat max-10/program rule.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית
@@ -217,7 +223,7 @@ dashboards, never a `wrangler` command run by the user themselves.
   `Relationships: []` and the schema needs `Views`/`Functions` populated
   (even as `Record<string, never>`) or `@supabase/postgrest-js`'s generic
   constraints silently degrade column types to `never`.
-- The max-10-workouts-per-program limit is enforced twice on purpose: a
+- The max-2-workouts-per-day limit is enforced twice on purpose: a
   friendly check in the Server Action (fast, nice message) and a DB
-  trigger (`enforce_max_workouts_per_program`, migration `0006`) as the
-  real backstop.
+  trigger (`enforce_max_workouts_per_day`, migration `0009`, superseding
+  migration `0006`'s flat max-10-per-program version) as the real backstop.
