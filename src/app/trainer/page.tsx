@@ -22,7 +22,7 @@ export default async function TrainerHomePage() {
     { data: recentCompletions },
   ] = await Promise.all([
     user
-      ? supabase.from("profiles").select("username").eq("id", user.id).single()
+      ? supabase.from("profiles").select("username, is_superadmin").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
     supabase.from("profiles").select("id, full_name").eq("role", "trainee"),
     supabase.from("exercises").select("id", { count: "exact", head: true }),
@@ -60,7 +60,7 @@ export default async function TrainerHomePage() {
   const dayOfWeekByWorkoutId = new Map((completionWorkouts ?? []).map((w) => [w.id, w.day_of_week]));
 
   return (
-    <AppShell title="אזור מאמן" username={profile?.username}>
+    <AppShell title="אזור מאמן" username={profile?.username} readOnly={profile?.is_superadmin === true}>
       <div className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">

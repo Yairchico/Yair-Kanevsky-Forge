@@ -26,6 +26,8 @@ export interface Database {
           avatar_url: string | null;
           status: "active" | "archived";
           created_at: string;
+          /** Read-only oversight account (migration 0011) — grants SELECT everywhere, never write. */
+          is_superadmin: boolean;
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & {
           id: string;

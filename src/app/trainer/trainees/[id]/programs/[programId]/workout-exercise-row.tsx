@@ -224,3 +224,62 @@ export function WorkoutExerciseRow({
     </div>
   );
 }
+
+function MiniValue({ label, value }: { label: string; value: string | number | null }) {
+  if (value == null || value === "") return null;
+  return (
+    <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
+      <span className="text-muted-foreground">{label}: </span>
+      {value}
+    </span>
+  );
+}
+
+/**
+ * The read-only superadmin's version of the row above — same numbered
+ * "flow" shape, but no drag handle (useSortable requires a DndContext,
+ * which the read-only list doesn't render at all — no reordering to wire
+ * up), no duplicate/delete, and fields as plain text instead of inputs.
+ */
+export function WorkoutExerciseRowReadOnly({
+  index,
+  count,
+  exerciseName,
+  muscleGroup,
+  fields,
+}: {
+  index: number;
+  count: number;
+  exerciseName: string;
+  muscleGroup: string | null;
+  fields: WorkoutExerciseFields;
+}) {
+  return (
+    <div className="flex gap-2">
+      <div className="flex flex-col items-center">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+          {index + 1}
+        </div>
+        {index < count - 1 && <div className="my-1 w-px flex-1 bg-border" />}
+      </div>
+
+      <div className="min-w-0 flex-1 pb-2">
+        <div className="rounded-lg border border-border bg-card p-2.5">
+          <p className="truncate text-sm font-medium leading-tight">{exerciseName}</p>
+          {muscleGroup && <p className="text-xs text-muted-foreground">{muscleGroup}</p>}
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <MiniValue label="סטים" value={fields.sets} />
+            <MiniValue label="חזרות" value={fields.reps} />
+            <MiniValue label='משקל' value={fields.weight} />
+            <MiniValue label="RPE" value={fields.rpe} />
+            <MiniValue label="מנוחה" value={fields.rest_seconds} />
+            {fields.instructions && (
+              <p className="w-full text-xs text-muted-foreground">{fields.instructions}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

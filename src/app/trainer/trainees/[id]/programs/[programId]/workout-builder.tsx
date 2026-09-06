@@ -22,7 +22,7 @@ import {
   reorderWorkoutExercises,
   type WorkoutExerciseFields,
 } from "./actions";
-import { WorkoutExerciseRow } from "./workout-exercise-row";
+import { WorkoutExerciseRow, WorkoutExerciseRowReadOnly } from "./workout-exercise-row";
 import { AddExercisePicker } from "./add-exercise-picker";
 
 interface CatalogExercise {
@@ -59,6 +59,7 @@ export function WorkoutBuilder({
   catalog,
   onNewExercise,
   onEdited,
+  readOnly = false,
 }: {
   traineeId: string;
   programId: string;
@@ -67,6 +68,8 @@ export function WorkoutBuilder({
   catalog: CatalogExercise[];
   onNewExercise?: (exercise: CatalogExercise) => void;
   onEdited?: () => void;
+  /** The read-only superadmin viewer (migration 0011) — hides every mutation control, disables drag-reorder. */
+  readOnly?: boolean;
 }) {
   const [items, setItems] = useState(initialItems);
   const tempCounter = useRef(0);
@@ -181,8 +184,23 @@ export function WorkoutBuilder({
     <div className="space-y-4">
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          אין עדיין תרגילים באימון הזה. הוסף תרגיל מהרשימה למטה.
+          {readOnly ? "אין תרגילים באימון הזה." : "אין עדיין תרגילים באימון הזה. הוסף תרגיל מהרשימה למטה."}
         </p>
+      ) : readOnly ? (
+        // No DndContext at all — nothing to reorder, and useSortable
+        // requires one, so this renders the plain read-only row instead.
+        <div>
+          {items.map((it, i) => (
+            <WorkoutExerciseRowReadOnly
+              key={it.id}
+              index={i}
+              count={items.length}
+              exerciseName={it.exerciseName}
+              muscleGroup={it.muscleGroup}
+              fields={it.fields}
+            />
+          ))}
+        </div>
       ) : (
         <DndContext
           sensors={sensors}
@@ -215,7 +233,7 @@ export function WorkoutBuilder({
         </DndContext>
       )}
 
-      <AddExercisePicker exercises={catalog} onAdd={handleAdd} />
+      {!readOnly && <AddExercisePicker exercises={catalog} onAdd={handleAdd} />}
     </div>
   );
 }

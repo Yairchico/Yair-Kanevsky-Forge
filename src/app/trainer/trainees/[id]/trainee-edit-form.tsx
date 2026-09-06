@@ -15,6 +15,7 @@ const initialState: ActionState = {};
 
 export function TraineeEditForm({
   trainee,
+  readOnly = false,
 }: {
   trainee: {
     id: string;
@@ -23,6 +24,8 @@ export function TraineeEditForm({
     phone: string | null;
     email: string | null;
   };
+  /** The read-only superadmin viewer (migration 0011) sees the same summary, minus the edit/reset-password controls. */
+  readOnly?: boolean;
 }) {
   const updateAction = updateTrainee.bind(null, trainee.id);
   const [state, formAction, pending] = useActionState(updateAction, initialState);
@@ -50,7 +53,7 @@ export function TraineeEditForm({
     if (state.success && editing) setEditing(false);
   }
 
-  if (!editing) {
+  if (!editing || readOnly) {
     return (
       <div className="space-y-3">
         <dl className="space-y-2 text-sm">
@@ -73,10 +76,12 @@ export function TraineeEditForm({
             <dd className="font-medium">{trainee.phone || "—"}</dd>
           </div>
         </dl>
-        <Button type="button" variant="outline" onClick={() => setEditing(true)}>
-          <Pencil className="h-4 w-4" />
-          ערוך פרטים
-        </Button>
+        {!readOnly && (
+          <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="h-4 w-4" />
+            ערוך פרטים
+          </Button>
+        )}
       </div>
     );
   }

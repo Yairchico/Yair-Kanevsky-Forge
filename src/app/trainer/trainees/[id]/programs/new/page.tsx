@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isReadOnlyViewer } from "@/lib/viewer";
 import { addDays, getWeekStart, toDateKey } from "@/lib/week";
 import { NewProgramForm } from "./new-program-form";
 
@@ -10,6 +11,15 @@ export default async function NewProgramPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  // Creating a program is a pure mutation with no read-only equivalent —
+  // redirects a superadmin away entirely rather than rendering a whole
+  // flow (including "שכפול שבוע") that would just fail on submit.
+  if (user && (await isReadOnlyViewer(supabase, user.id))) {
+    redirect(`/trainer/trainees/${id}`);
+  }
 
   const { data: trainee } = await supabase
     .from("profiles")

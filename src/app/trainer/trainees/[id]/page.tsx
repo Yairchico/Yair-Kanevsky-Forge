@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { isReadOnlyViewer } from "@/lib/viewer";
 import { TraineeEditForm } from "./trainee-edit-form";
 import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekView } from "./trainee-week-view";
@@ -24,6 +25,10 @@ export default async function TraineeDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
 
   // Independent of each other — fetched together instead of one after
   // another, which used to add up (this page was reported as slow to open).
@@ -150,7 +155,7 @@ export default async function TraineeDetailPage({
   }));
 
   return (
-    <AppShell title={trainee.full_name} backHref="/trainer/trainees">
+    <AppShell title={trainee.full_name} backHref="/trainer/trainees" readOnly={readOnly}>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -158,7 +163,7 @@ export default async function TraineeDetailPage({
             <CardDescription>עריכה ואיפוס סיסמה</CardDescription>
           </CardHeader>
           <CardContent>
-            <TraineeEditForm trainee={trainee} />
+            <TraineeEditForm trainee={trainee} readOnly={readOnly} />
           </CardContent>
         </Card>
 
@@ -168,19 +173,21 @@ export default async function TraineeDetailPage({
               <CardTitle>תוכניות אימון</CardTitle>
               <CardDescription>תוכניות שבועיות עבור {trainee.full_name}</CardDescription>
             </div>
-            <Link
-              href={`/trainer/trainees/${id}/programs/new`}
-              className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
-            >
-              + תוכנית חדשה
-            </Link>
+            {!readOnly && (
+              <Link
+                href={`/trainer/trainees/${id}/programs/new`}
+                className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
+              >
+                + תוכנית חדשה
+              </Link>
+            )}
           </CardHeader>
           <CardContent className="space-y-2">
             {!allPrograms.length ? (
               <p className="text-sm text-muted-foreground">עדיין אין תוכניות.</p>
             ) : (
               allPrograms.map((p) => (
-                <ProgramRow key={p.id} traineeId={id} program={p} />
+                <ProgramRow key={p.id} traineeId={id} program={p} readOnly={readOnly} />
               ))
             )}
           </CardContent>
@@ -201,14 +208,16 @@ export default async function TraineeDetailPage({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base text-destructive">אזור מסוכן</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DeleteTraineeButton traineeId={id} traineeName={trainee.full_name} />
-        </CardContent>
-      </Card>
+      {!readOnly && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-destructive">אזור מסוכן</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DeleteTraineeButton traineeId={id} traineeName={trainee.full_name} />
+          </CardContent>
+        </Card>
+      )}
     </AppShell>
   );
 }

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/auth"];
 const ROLE_COOKIE = "app_role";
+const SUPERADMIN_COOKIE = "app_superadmin";
 
 /**
  * Refreshes the Supabase auth session on every request and enforces
@@ -25,12 +26,16 @@ const ROLE_COOKIE = "app_role";
  *   ever produce an empty/broken page shell, never real data. getSession()
  *   decodes the cookie locally (refreshing it transparently if the access
  *   token expired) with no network round trip in the common case.
- * - Caches `role` in its own plain cookie (set at login, see
- *   src/app/login/actions.ts) instead of querying `profiles` on every
- *   request. Same reasoning: this is a routing convenience, not the
- *   authorization boundary (RLS is), so a stale/tampered value only
+ * - Caches `role` and `is_superadmin` in their own plain cookies (set at
+ *   login, see src/app/login/actions.ts) instead of querying `profiles`
+ *   on every request. Same reasoning: this is a routing convenience, not
+ *   the authorization boundary (RLS is), so a stale/tampered value only
  *   misroutes to a page shell that then renders empty via RLS. Missing
  *   cookie (older session) falls back to a real query and re-seeds it.
+ * - A superadmin (migration 0011, profiles.is_superadmin) is routed into
+ *   /trainer alongside the real trainer — same screens, read-only — even
+ *   though their own `role` stays 'trainee' (so RLS's is_trainer()-gated
+ *   write policies never grant them anything).
  *
  * NOTE: an earlier version also forwarded the user id/email as request
  * headers so pages could skip their own getUser() call. That's removed —
@@ -88,35 +93,44 @@ export async function updateSession(request: NextRequest) {
 
     if (needsRoleGate) {
       let role = request.cookies.get(ROLE_COOKIE)?.value;
+      let superadminCookie = request.cookies.get(SUPERADMIN_COOKIE)?.value;
 
-      if (role !== "trainer" && role !== "trainee") {
+      if ((role !== "trainer" && role !== "trainee") || superadminCookie === undefined) {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, is_superadmin")
           .eq("id", user.id)
           .single();
         role = profile?.role === "trainer" ? "trainer" : "trainee";
-        supabaseResponse.cookies.set(ROLE_COOKIE, role, {
+        superadminCookie = profile?.is_superadmin ? "1" : "0";
+        const cookieOptions = {
           httpOnly: true,
-          sameSite: "lax",
+          sameSite: "lax" as const,
           secure: true,
           path: "/",
           maxAge: 60 * 60 * 24 * 30,
-        });
+        };
+        supabaseResponse.cookies.set(ROLE_COOKIE, role, cookieOptions);
+        supabaseResponse.cookies.set(SUPERADMIN_COOKIE, superadminCookie, cookieOptions);
       }
 
       const isTrainer = role === "trainer";
+      // A superadmin (read-only oversight account, migration 0011) shares
+      // the trainer's screens rather than getting its own — role itself
+      // stays 'trainee' for them (so RLS's is_trainer()-gated write
+      // policies never apply), but routing treats them like a trainer.
+      const canAccessTrainerArea = isTrainer || superadminCookie === "1";
 
       if (pathname === "/login" || pathname === "/") {
         const url = request.nextUrl.clone();
-        url.pathname = isTrainer ? "/trainer" : "/trainee";
+        url.pathname = canAccessTrainerArea ? "/trainer" : "/trainee";
         return NextResponse.redirect(url);
       }
 
       const wantsTrainerArea = pathname.startsWith("/trainer");
-      if (wantsTrainerArea !== isTrainer) {
+      if (wantsTrainerArea !== canAccessTrainerArea) {
         const url = request.nextUrl.clone();
-        url.pathname = isTrainer ? "/trainer" : "/trainee";
+        url.pathname = canAccessTrainerArea ? "/trainer" : "/trainee";
         return NextResponse.redirect(url);
       }
     }

@@ -2,10 +2,15 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
+import { isReadOnlyViewer } from "@/lib/viewer";
 import { TraineeList } from "./trainee-list";
 
 export default async function TraineesPage() {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
 
   // Independent of each other — run together instead of one after another.
   const [{ data: trainees }, { data: completions }] = await Promise.all([
@@ -38,12 +43,14 @@ export default async function TraineesPage() {
   }));
 
   return (
-    <AppShell title="מתאמנים" backHref="/trainer">
-      <div className="flex justify-end">
-        <Link href="/trainer/trainees/new" className={buttonVariants({})}>
-          + מתאמן חדש
-        </Link>
-      </div>
+    <AppShell title="מתאמנים" backHref="/trainer" readOnly={readOnly}>
+      {!readOnly && (
+        <div className="flex justify-end">
+          <Link href="/trainer/trainees/new" className={buttonVariants({})}>
+            + מתאמן חדש
+          </Link>
+        </div>
+      )}
       <TraineeList trainees={traineesData} />
     </AppShell>
   );

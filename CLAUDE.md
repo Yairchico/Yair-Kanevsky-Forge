@@ -4,10 +4,13 @@
 
 A private fitness-training app for **one strength coach (trainer) and their
 trainees**. Hebrew UI, RTL throughout. No multi-tenant/org model — there is
-exactly one `role='trainer'` profile, acting as superadmin; see `PLAN.md`
-§0 for why that's a deliberate simplification, not a gap. `PLAN.md` is the
-living roadmap/history (stages, decisions, status checkboxes) — read it for
-*why*; this file is for *how to work in this codebase*. `README.md` is
+exactly one `role='trainer'` profile with full read/write access to
+everything; see `PLAN.md` §0 for why that's a deliberate simplification,
+not a gap. (There's also an optional, separate read-only "superadmin"
+oversight account — see "Superadmin (read-only oversight)" below; it's not
+a second trainer.) `PLAN.md` is the living roadmap/history (stages,
+decisions, status checkboxes) — read it for *why*; this file is for *how
+to work in this codebase*. `README.md` is
 user-facing setup/deploy instructions.
 
 ## Stack
@@ -134,6 +137,43 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   is plain Server Actions + `useActionState`/`FormData`. Don't reach for
   RHF/Zod without a reason to actually change the convention.
 
+## Superadmin (read-only oversight)
+
+`profiles.is_superadmin` (migration 0011) is a second, orthogonal account
+type — not a third `role` enum value. It's for a person who should see
+everything (every trainee, every program regardless of status, all
+workout history) without ever being able to change anything, including by
+mistake. Deliberately separate from `role='trainer'`: a superadmin's own
+`role` stays `'trainee'`, so `is_trainer()` is false for them and every
+existing "for all" (read/write) RLS policy denies them — the *only* thing
+that grants them anything is a handful of SELECT-only policies added
+specifically for `is_superadmin()`. That absence of any INSERT/UPDATE/
+DELETE policy is the actual enforcement; everything else below is just
+about not showing a button that would fail.
+
+- **Routing**: a superadmin lands on `/trainer` (same screens as the real
+  trainer) via `src/lib/supabase/middleware.ts` + `src/app/login/actions.ts`,
+  both of which cache `is_superadmin` in its own cookie (`app_superadmin`)
+  alongside the existing `app_role` cookie, same reasoning as that one
+  (routing convenience, not the authorization boundary).
+- **UI gating**: `src/lib/viewer.ts`'s `isReadOnlyViewer(supabase, userId)`
+  is the one helper every trainer Server Component calls to get a
+  `readOnly` boolean, threaded down as a prop to whatever renders a
+  mutation control (add/edit/delete/publish/reorder/drag-handle) so it's
+  hidden instead of rendered-then-failing. `AppShell`'s `readOnly` prop
+  shows a small "צפייה בלבד" badge. A screen that's a pure mutation with
+  no read-only equivalent (creating a trainee, an exercise, or a program)
+  redirects a superadmin away entirely rather than rendering a form.
+- **When adding a new trainer-side mutation control**: thread `readOnly`
+  to it too, the same way. There is no single central switch — missing one
+  spot doesn't grant real access (RLS still blocks the write), but it does
+  show a control that silently does nothing for that account, which is a
+  worse experience than just not rendering it.
+- **Creating the account**: no in-app "invite" flow, same as the sole
+  trainer account today — done manually against Supabase (create an
+  `auth.users` row how you'd create any account, then `update public.
+  profiles set is_superadmin = true where id = '<their-uuid>'`).
+
 ## Database migrations
 
 Numbered, additive, and **written to be safely re-runnable** — guard every
@@ -152,6 +192,7 @@ one-time setup walkthrough):
 8. `0008_exercise_images_storage.sql` — public Storage bucket `exercise-images` (trainer-write/anyone-read) for uploaded exercise photos.
 9. `0009_workout_days.sql` — workouts belong to a day of week (`day_of_week`, 0=Sunday..6=Saturday) with up to 2/day, replacing the old flat max-10/program rule.
 10. `0010_soft_delete_programs.sql` — `programs.deleted_at`; deleting a program now sets this instead of a hard DELETE, so the `on delete cascade` chain down to `workout_logs`/`workout_completions` (migration 0001) never fires and a trainee's actual training history survives. Replaces the old `programs_trainee_week_key` unique constraint with a partial unique index (`where deleted_at is null`) so a soft-deleted week's slot is free again; RLS's trainee-facing SELECT policies on `programs`/`workouts`/`workout_exercises` also gained `deleted_at is null`.
+11. `0011_superadmin_readonly.sql` — `profiles.is_superadmin` (boolean, default false) + `is_superadmin()` helper + SELECT-only RLS policies on `profiles`/`programs`/`workouts`/`workout_exercises`/`workout_logs`/`workout_completions`. A read-only oversight account, orthogonal to `role` (stays `'trainee'` for this account, so `is_trainer()`'s write policies never apply) — see "Superadmin (read-only oversight)" below.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

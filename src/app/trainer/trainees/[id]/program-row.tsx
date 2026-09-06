@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
+import { Eye, Pencil, Trash2 } from "lucide-react";
 import { deleteProgram } from "./programs/actions";
 import { cn } from "@/lib/utils";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
@@ -27,7 +27,16 @@ interface Program {
  * The confirm step says so explicitly, since "מחק לצמיתות" (permanently
  * delete) used to be literally true here and no longer is.
  */
-export function ProgramRow({ traineeId, program }: { traineeId: string; program: Program }) {
+export function ProgramRow({
+  traineeId,
+  program,
+  readOnly = false,
+}: {
+  traineeId: string;
+  program: Program;
+  /** The read-only superadmin viewer (migration 0011) can still open the builder to look, just not delete. */
+  readOnly?: boolean;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const weekStart = parseDateKey(program.week_start_date);
@@ -61,11 +70,15 @@ export function ProgramRow({ traineeId, program }: { traineeId: string; program:
           >
             {program.status === "published" ? "פורסם" : "טיוטה"}
           </span>
-          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+          {readOnly ? (
+            <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+          ) : (
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
         </div>
       </Link>
 
-      {confirming ? (
+      {readOnly ? null : confirming ? (
         <div className="flex shrink-0 flex-col items-end gap-1 py-2 pe-2">
           <p className="max-w-40 text-end text-[11px] leading-snug text-muted-foreground">
             התוכנית תוסר מהרשימה. היסטוריית האימונים וההגשות שנשמרה תישאר

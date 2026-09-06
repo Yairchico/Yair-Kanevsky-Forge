@@ -144,7 +144,13 @@ function DeleteExerciseButton({ exercise }: { exercise: Exercise }) {
  * latency. This replaced a version that filtered via ?q=/?group= URL
  * params (a full server re-render per interaction, which felt slow).
  */
-export function ExerciseLibrary({ exercises }: { exercises: Exercise[] }) {
+export function ExerciseLibrary({
+  exercises,
+  readOnly = false,
+}: {
+  exercises: Exercise[];
+  readOnly?: boolean;
+}) {
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string | null>(null);
 
@@ -216,10 +222,12 @@ export function ExerciseLibrary({ exercises }: { exercises: Exercise[] }) {
                   <p className="text-sm text-muted-foreground">
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <ExerciseImageEditor exercise={ex} />
-                    <DeleteExerciseButton exercise={ex} />
-                  </div>
+                  {!readOnly && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <ExerciseImageEditor exercise={ex} />
+                      <DeleteExerciseButton exercise={ex} />
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

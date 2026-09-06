@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
+import { isReadOnlyViewer } from "@/lib/viewer";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 import { ProgramBuilderClient } from "./program-builder-client";
 
@@ -12,6 +13,10 @@ export default async function ProgramBuilderPage({
   const { id: traineeId, programId } = await params;
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
 
   const [{ data: trainee }, { data: program }] = await Promise.all([
     supabase
@@ -87,6 +92,7 @@ export default async function ProgramBuilderPage({
     <AppShell
       title={`${program.title} — ${weekLabel}`}
       backHref={`/trainer/trainees/${traineeId}`}
+      readOnly={readOnly}
     >
       <ProgramBuilderClient
         traineeId={traineeId}
@@ -95,6 +101,7 @@ export default async function ProgramBuilderPage({
         initialIsPublished={program.status === "published"}
         workouts={workoutsData}
         catalog={exercises ?? []}
+        readOnly={readOnly}
       />
     </AppShell>
   );

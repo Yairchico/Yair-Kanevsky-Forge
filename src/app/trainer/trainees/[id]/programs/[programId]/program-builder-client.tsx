@@ -51,6 +51,7 @@ export function ProgramBuilderClient({
   initialIsPublished,
   workouts,
   catalog,
+  readOnly = false,
 }: {
   traineeId: string;
   programId: string;
@@ -58,6 +59,8 @@ export function ProgramBuilderClient({
   initialIsPublished: boolean;
   workouts: WorkoutData[];
   catalog: CatalogExercise[];
+  /** The read-only superadmin viewer (migration 0011) — hides every mutation control. */
+  readOnly?: boolean;
 }) {
   const [isPublished, setIsPublished] = useState(initialIsPublished);
   const [workoutList, setWorkoutList] = useState(workouts);
@@ -148,12 +151,14 @@ export function ProgramBuilderClient({
             תוכנית עבור {traineeName}
           </span>
         </div>
-        <PublishToggle
-          traineeId={traineeId}
-          programId={programId}
-          isPublished={isPublished}
-          onChange={setIsPublished}
-        />
+        {!readOnly && (
+          <PublishToggle
+            traineeId={traineeId}
+            programId={programId}
+            isPublished={isPublished}
+            onChange={setIsPublished}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -174,24 +179,26 @@ export function ProgramBuilderClient({
               <button type="button" onClick={() => setActiveId(w.id)}>
                 {label}
               </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteWorkout(w.id)}
-                aria-label={`מחק ${label}`}
-                className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
-                  w.id === activeId
-                    ? "hover:bg-primary-foreground/20"
-                    : "hover:bg-foreground/10",
-                )}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteWorkout(w.id)}
+                  aria-label={`מחק ${label}`}
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
+                    w.id === activeId
+                      ? "hover:bg-primary-foreground/20"
+                      : "hover:bg-foreground/10",
+                  )}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
             </div>
           );
         })}
 
-        {!allDaysFull && (
+        {!readOnly && !allDaysFull && (
           <button
             type="button"
             onClick={() => setDayPickerOpen(true)}
@@ -204,33 +211,35 @@ export function ProgramBuilderClient({
         )}
       </div>
 
-      <Modal open={dayPickerOpen} onClose={() => setDayPickerOpen(false)} title="בחר יום לאימון החדש">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {DAYS.map((day) => {
-            const count = countOnDay(day);
-            const full = count >= MAX_WORKOUTS_PER_DAY;
-            return (
-              <button
-                key={day}
-                type="button"
-                disabled={full}
-                onClick={() => handleAddWorkout(day)}
-                className={cn(
-                  "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
-                  full
-                    ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                    : "border-border hover:border-primary hover:text-primary",
-                )}
-              >
-                {dayName(day)}
-                <span className="text-xs font-normal text-muted-foreground">
-                  {count}/{MAX_WORKOUTS_PER_DAY}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </Modal>
+      {!readOnly && (
+        <Modal open={dayPickerOpen} onClose={() => setDayPickerOpen(false)} title="בחר יום לאימון החדש">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {DAYS.map((day) => {
+              const count = countOnDay(day);
+              const full = count >= MAX_WORKOUTS_PER_DAY;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={full}
+                  onClick={() => handleAddWorkout(day)}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
+                    full
+                      ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
+                      : "border-border hover:border-primary hover:text-primary",
+                  )}
+                >
+                  {dayName(day)}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {count}/{MAX_WORKOUTS_PER_DAY}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
 
       {!activeWorkout ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -246,6 +255,7 @@ export function ProgramBuilderClient({
           catalog={catalogList}
           onNewExercise={handleNewExercise}
           onEdited={handleEdited}
+          readOnly={readOnly}
         />
       )}
     </div>

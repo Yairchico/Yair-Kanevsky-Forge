@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Eye } from "lucide-react";
 import { SignOutButton } from "@/components/sign-out-button";
 import { BrandMark } from "@/components/brand";
 import { APP_NAME } from "@/lib/constants";
@@ -10,6 +10,7 @@ export function AppShell({
   title,
   backHref,
   username,
+  readOnly,
   children,
 }: {
   title: string;
@@ -17,6 +18,8 @@ export function AppShell({
   backHref?: string;
   /** The signed-in user's own username — never their email. */
   username?: string | null;
+  /** True for the read-only superadmin oversight account (migration 0011) — shows a "צפייה בלבד" badge so it's never ambiguous why a button is missing. */
+  readOnly?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -40,6 +43,12 @@ export function AppShell({
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {readOnly && (
+            <span className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+              <Eye className="h-3.5 w-3.5" />
+              צפייה בלבד
+            </span>
+          )}
           {username && (
             <p className="hidden text-sm font-semibold sm:block">@{username}</p>
           )}
