@@ -52,11 +52,18 @@ npm run dev
 מקדימה). מאז שהאתר ה-production בשימוש בפועל, כל push **לא** נוגע בו יותר
 — רק ב-staging:
 
-- `.github/workflows/deploy.yml` — רץ **אוטומטית בכל push**, בונה ופורס
-  ל-**staging בלבד** (`--env staging`). זה המקום לבדוק שינוי חדש.
+- `.github/workflows/deploy.yml` — רץ **אוטומטית בכל push לענף `testing`**,
+  בונה ופורס ל-**staging בלבד** (`--env staging`). זה המקום לבדוק שינוי חדש.
 - `.github/workflows/deploy-production.yml` — **ידני בלבד** (אף פעם לא
   רץ לבד על push). מריצים אותו במכוון כדי "לקדם" גרסה שנבדקה ל-production
   — מטאב Actions בגיטהאב ("Run workflow"), או שמבקשים ממני.
+
+> ⚠️ **גילינו ב-2026-09-06 שהענף `claude/fitness-app-trainers-gccazz` היה
+> מחובר ב-Cloudflare עצמה ("Workers Builds") ישירות ל-Worker של
+> **production** — כל push אליו עלה לאתר האמיתי מיד, בלי שום הרצה של
+> `deploy-production.yml` (0 הרצות בהיסטוריה, לגמרי בלתי-נראה מצד
+> GitHub). בגלל זה הפיתוח עבר לענף `testing` נפרד — אל תדחפו יותר ל-`claude/fitness-app-trainers-gccazz` אלא אם בדקתם בדשבורד (Workers & Pages
+> → `yair-kanevsky-forge` → Settings → Build) שהחיבור הזה נותק.
 
 שני ה-workflows מגדירים מחדש את כל ה-secrets ב-Worker המתאים
 (`wrangler secret put`) **בכל פריסה** — נוצר בגלל ש-Cloudflare's own
@@ -74,9 +81,10 @@ variables → Actions → New repository secret, עבור כל אחד מאלה (
 - `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` — מ-Supabase Project Settings → API.
 
-אם ה-Worker מחובר גם ל-Git דרך "Workers Builds" של Cloudflare עצמה (rebuild
-אוטומטי מהדשבורד) — כדאי לכבות את זה (הדשבורד → ה-Worker → Settings →
-Build) כדי שלא יתחרו שני פריסות אוטומטיות זו בזו.
+**כאמור, זה כבר קרה בפועל** (ראו האזהרה למעלה) — כדי לוודא שזה מנוטרל:
+בדשבורד → ה-Worker `yair-kanevsky-forge` → Settings → Build, ולנתק כל
+חיבור Git אוטומטי משם (staging, ה-Worker `yair-kanevsky-forge-staging`,
+יכול להישאר מחובר בבטחה אם רוצים — הוא לא הבעיה).
 
 כתובת ה-staging: `yair-kanevsky-forge-staging.<אותו subdomain של ה-production>.workers.dev`.
 

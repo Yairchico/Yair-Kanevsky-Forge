@@ -179,17 +179,34 @@ message to a temp file (in the scratchpad dir) and use `git commit -F`.
 **Two Workers, two workflows — production is now live/in-use, so it is
 never touched by an automatic push.**
 
-- `.github/workflows/deploy.yml` — runs on **every push**, builds with
-  `npm run cf:build`, and deploys to the **staging** Worker
+- `.github/workflows/deploy.yml` — runs on **every push to `testing`**,
+  builds with `npm run cf:build`, and deploys to the **staging** Worker
   (`yair-kanevsky-forge-staging`, `wrangler.jsonc`'s `env.staging`) via
   `opennextjs-cloudflare deploy --env staging`. This is where every change
-  becomes visible for review.
+  becomes visible for review. **Develop and push on `testing`** — not
+  `claude/fitness-app-trainers-gccazz` (see the branch warning below).
 - `.github/workflows/deploy-production.yml` — **`workflow_dispatch` only,
-  never on push.** Deploys the current branch head to the real
+  never on push.** Deploys the given branch/ref to the real
   `yair-kanevsky-forge` Worker. Trigger it explicitly (via
   `mcp__github__actions_run_trigger`, method `run_workflow`, workflow
-  `deploy-production.yml`) only when the user asks to promote/go live —
-  never on your own initiative after an ordinary code change.
+  `deploy-production.yml`, with `ref` set to the branch that was reviewed —
+  don't rely on the default-branch fallback) only when the user asks to
+  promote/go live — never on your own initiative after an ordinary code
+  change.
+
+**⚠️ `claude/fitness-app-trainers-gccazz` is wired to auto-deploy straight
+to PRODUCTION, outside our workflows entirely.** Discovered 2026-09-06:
+Cloudflare's own git-connected "Workers Builds" turned out to already be
+connected to that branch for the `yair-kanevsky-forge` (production) Worker
+— so every push to it went live on the real site immediately, with **no
+GitHub Actions run at all** (`deploy-production.yml`'s run history stayed
+at zero the whole time — this is invisible from GitHub's side). That's why
+development moved to a separate `testing` branch instead. Do **not** push
+to `claude/fitness-app-trainers-gccazz` again unless a human has confirmed
+in the Cloudflare dashboard (Workers & Pages → `yair-kanevsky-forge` →
+Settings → Build) that this git integration has been disconnected — check
+before assuming otherwise, since neither `git log` nor GitHub Actions can
+reveal whether it's still connected.
 
 Both workflows re-apply every secret with `wrangler secret put` (staging
 adds `--env staging`) — piped non-interactively from GitHub's encrypted

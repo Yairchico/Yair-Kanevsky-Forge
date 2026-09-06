@@ -181,6 +181,7 @@ workout_completions       -- סימון "בוצע" ברמת האימון השל�
   - [x] סריקת קוד לרספונסיביות/מובייל (grid breakpoints, אין `overflow-y-auto` מקונן, אין רוחבי פיקסלים קשיחים/`<table>`) — לא נמצאו בעיות.
   - [x] דפי `error.tsx` / `not-found.tsx` / `loading.tsx` ממותגים בעברית (במקום דפי ברירת מחדל של Next) — ישירות קשור לדיווחים על "Internal Server Error" גולמי.
   - [ ] QA חי בפועל מול המאמן (מובייל אמיתי, שני חשבונות מתאמן אמיתיים לבדיקת בידוד) — לא ניתן לבצע מהסביבה הזו (אין גישה ל-workers.dev/לפרויקט Supabase החי).
+  - [x] **[2026-09-06] תגלית תשתית קריטית**: הענף `claude/fitness-app-trainers-gccazz` היה מחובר ב-Cloudflare עצמה ("Workers Builds") ישירות ל-Worker של **production** — כל push אליו עלה לאתר האמיתי מיד, במקביל ומבלי קשר ל-`deploy.yml`/`deploy-production.yml` שלנו (שנשארו ב-0 הרצות ל-production לאורך כל הזמן — בלתי נראה מצד GitHub לגמרי). התגלה כשהמשתמש ראה שינויים טריים בקישור ה-production. תוקן ע"י מעבר לענף פיתוח נפרד, `testing`, ועדכון `deploy.yml` לפרוס ממנו. **`claude/fitness-app-trainers-gccazz` אסור לקבל push נוסף** עד שמישהו יאמת בדשבורד Cloudflare שהחיבור נותק (Workers & Pages → `yair-kanevsky-forge` → Settings → Build). ראו CLAUDE.md's "Deployment" section לפרטים.
 
 ---
 

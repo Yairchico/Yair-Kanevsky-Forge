@@ -1,9 +1,22 @@
 name: Deploy to Cloudflare Workers (staging)
 
-# Auto-deploys every push to the STAGING Worker (yair-kanevsky-forge-staging)
-# so changes are visible somewhere without ever touching the production
-# Worker (yair-kanevsky-forge) that's now in real use. Promoting a change to
-# production is a separate, manual-only step — see deploy-production.yml.
+# Auto-deploys every push to the `testing` branch to the STAGING Worker
+# (yair-kanevsky-forge-staging) so changes are visible somewhere without
+# ever touching the production Worker (yair-kanevsky-forge) that's now in
+# real use. Promoting a change to production is a separate, manual-only
+# step — see deploy-production.yml.
+#
+# IMPORTANT — why `testing` and not `claude/fitness-app-trainers-gccazz`:
+# Cloudflare's own git-connected "Workers Builds" turned out to already be
+# wired to `claude/fitness-app-trainers-gccazz` for the PRODUCTION Worker,
+# deploying it straight to production on every push to that branch — fully
+# independently of this workflow, with nothing showing up in GitHub Actions
+# (discovered 2026-09-06 when a routine push appeared live on the real
+# production URL with no deploy-production.yml run ever having fired). So:
+# development now happens on `testing`; `claude/fitness-app-trainers-gccazz`
+# must NOT receive pushes again unless a Cloudflare dashboard check
+# (Workers & Pages → yair-kanevsky-forge → Settings → Build) confirms that
+# git integration has been disconnected first.
 #
 # Re-applies every secret with `wrangler secret put --env staging` on every
 # run, which binds it directly to the staging Worker — no dashboard
@@ -19,14 +32,10 @@ name: Deploy to Cloudflare Workers (staging)
 #   SUPABASE_SERVICE_ROLE_KEY
 #   NEXT_PUBLIC_SUPABASE_URL
 #   NEXT_PUBLIC_SUPABASE_ANON_KEY
-#
-# If Cloudflare's own git-connected "Workers Builds" auto-deploy is also
-# enabled for this repo, disable it (Cloudflare dashboard → the Worker →
-# Settings → Build) so the two don't race/conflict on every push.
 
 on:
   push:
-    branches: [claude/fitness-app-trainers-gccazz]
+    branches: [testing]
   workflow_dispatch:
 
 jobs:
