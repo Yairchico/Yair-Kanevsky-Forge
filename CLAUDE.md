@@ -76,6 +76,15 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   pages when data crosses trainer/trainee — e.g. a trainee logging a
   performance or submitting a workout also revalidates
   `/trainer/trainees/[id]`.
+- **Batch-on-submit + localStorage draft** (the trainee's per-exercise
+  performance entry, `src/lib/workout-draft.ts`): fields with no
+  per-field save button hold their value in local React state that's
+  mirrored into `localStorage` (keyed per `workoutId`) on every change, so
+  it survives a closed tab; nothing reaches the server until one bulk
+  action fires at the end (`submitWorkout` in `src/app/trainee/actions.ts`
+  turns the whole draft into one `workout_logs` insert). Reach for this
+  pattern — not a save button per row — wherever a trainee fills in
+  several small fields before one real "done" action.
 - **Draft/publish**: editing a published program auto-reverts it to draft
   (`revertToDraftIfPublished` in the program-builder's `actions.ts`) so a
   change never silently reaches a trainee who already saw the published

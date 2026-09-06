@@ -1,19 +1,17 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
-import { Check, ClipboardPlus, Pencil } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Check } from "lucide-react";
 import {
-  logExercisePerformance,
   submitWorkout,
   toggleExerciseCompletion,
-  type LoggedPerformance,
-  type LogPerformanceState,
+  type PerformanceEntry,
 } from "./actions";
+import type { WorkoutExerciseDraft } from "@/lib/workout-draft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { formatWeight } from "@/lib/format";
 
 /** Per-exercise "done" checkbox — optimistic, independent of workout submission. */
 export function ExerciseCheckbox({
@@ -52,121 +50,37 @@ export function ExerciseCheckbox({
   );
 }
 
-/** Submits the whole workout — optimistic. The trainer then sees it as "הוגש". */
-export function SubmitWorkoutButton({
-  workoutId,
-  submitted: initialSubmitted,
-}: {
-  workoutId: string;
-  submitted: boolean;
-}) {
-  const [submitted, setSubmitted] = useState(initialSubmitted);
-  const [pending, startTransition] = useTransition();
-
-  function toggle() {
-    const next = !submitted;
-    setSubmitted(next);
-    startTransition(() => {
-      void submitWorkout(workoutId, next);
-    });
-  }
-
-  return (
-    <Button
-      type="button"
-      variant={submitted ? "outline" : "default"}
-      onClick={toggle}
-      disabled={pending}
-      className="w-full"
-    >
-      <Check className="h-4 w-4" />
-      {submitted ? "האימון הוגש ✓ (לחץ לביטול)" : "הגש אימון"}
-    </Button>
-  );
-}
-
-const initialLogState: LogPerformanceState = {};
-
 /**
- * Basic performance entry, opt-in per exercise: what was actually done
- * (weight/reps/RPE), separate from the planned values. A small, prominent
- * purple button — not a muted text link — since this is the whole point of
- * the trainee's screen. Once something is logged, the exercise's own card
- * shows a compact summary here and the button switches to "edit" instead
- * of a blank "enter" prompt.
+ * Always-visible entry fields for one exercise — no per-exercise save
+ * button. Whatever's typed here lives in the parent's draft state (and,
+ * from there, localStorage — see src/lib/workout-draft.ts) until the whole
+ * workout is submitted via SubmitWorkoutButton below.
  */
-export function PerformanceLogForm({
-  workoutExerciseId,
-  initialLog,
+export function PerformanceEntryFields({
+  value,
+  onChange,
 }: {
-  workoutExerciseId: string;
-  initialLog: LoggedPerformance | null;
+  value: WorkoutExerciseDraft;
+  onChange: (next: WorkoutExerciseDraft) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const action = logExercisePerformance.bind(null, workoutExerciseId);
-  const [state, formAction, pending] = useActionState(action, initialLogState);
-
-  const log = state.log ?? initialLog;
-
-  // Close the form the moment a submission succeeds — adjusted during
-  // render (React's documented pattern for this) rather than in an effect,
-  // which would cause an extra cascading render for the same result.
-  const [prevState, setPrevState] = useState(state);
-  if (state !== prevState) {
-    setPrevState(state);
-    if (state.success && open) setOpen(false);
-  }
-
-  if (!open) {
-    return (
-      <div className="space-y-1">
-        {log && (
-          <p className="text-xs text-muted-foreground">
-            בפועל:{" "}
-            {[log.reps && `${log.reps} חזרות`, formatWeight(log.weight), log.rpe != null && `RPE ${log.rpe}`]
-              .filter(Boolean)
-              .join(" · ") || "נרשם"}
-            {log.notes && ` — ${log.notes}`}
-          </p>
-        )}
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          {log ? (
-            <>
-              <Pencil className="h-3 w-3" />
-              ערוך ביצוע
-            </>
-          ) : (
-            <>
-              <ClipboardPlus className="h-3.5 w-3.5" />
-              הזן ביצוע בפועל
-            </>
-          )}
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <form action={formAction} className="space-y-2 rounded-lg border border-border bg-muted/40 p-2.5">
+    <div className="mt-2 space-y-1.5 rounded-lg border border-dashed border-border bg-muted/30 p-2.5">
+      <p className="text-[10px] text-muted-foreground">בפועל (יישמר בהגשת האימון)</p>
       <div className="flex flex-wrap gap-2">
         <div className="w-20 space-y-0.5">
-          <Label className="text-[10px] text-muted-foreground">משקל בפועל (ק&quot;ג)</Label>
+          <Label className="text-[10px] text-muted-foreground">משקל (ק&quot;ג)</Label>
           <Input
-            name="actual_weight"
-            defaultValue={log?.weight ?? ""}
+            value={value.weight}
+            onChange={(e) => onChange({ ...value, weight: e.target.value })}
             className="h-8 px-2 text-sm"
             placeholder="20"
           />
         </div>
         <div className="w-20 space-y-0.5">
-          <Label className="text-[10px] text-muted-foreground">חזרות בפועל</Label>
+          <Label className="text-[10px] text-muted-foreground">חזרות</Label>
           <Input
-            name="actual_reps"
-            defaultValue={log?.reps ?? ""}
+            value={value.reps}
+            onChange={(e) => onChange({ ...value, reps: e.target.value })}
             className="h-8 px-2 text-sm"
             placeholder="10"
           />
@@ -174,31 +88,70 @@ export function PerformanceLogForm({
         <div className="w-16 space-y-0.5">
           <Label className="text-[10px] text-muted-foreground">RPE</Label>
           <Input
-            name="rpe_actual"
             type="number"
             min={1}
             max={10}
             step={0.5}
-            defaultValue={log?.rpe ?? ""}
+            value={value.rpe}
+            onChange={(e) => onChange({ ...value, rpe: e.target.value })}
             className="h-8 px-2 text-sm"
           />
         </div>
       </div>
       <Input
-        name="notes"
-        defaultValue={log?.notes ?? ""}
+        value={value.notes}
+        onChange={(e) => onChange({ ...value, notes: e.target.value })}
         className="h-8 px-2 text-sm"
         placeholder="הערה (אופציונלי)"
       />
-      {state.error && <p className="text-xs text-destructive">{state.error}</p>}
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "שומר…" : "שמור"}
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)}>
-          ביטול
-        </Button>
-      </div>
-    </form>
+    </div>
+  );
+}
+
+/**
+ * Submits the whole workout — optimistic. Reads entries() at click time
+ * (a getter, not a prop value) so it always sees the latest draft even
+ * though this button itself doesn't re-render on every keystroke.
+ */
+export function SubmitWorkoutButton({
+  workoutId,
+  submitted: initialSubmitted,
+  getEntries,
+}: {
+  workoutId: string;
+  submitted: boolean;
+  getEntries: () => PerformanceEntry[];
+}) {
+  const [submitted, setSubmitted] = useState(initialSubmitted);
+  const [error, setError] = useState<string | undefined>();
+  const [pending, startTransition] = useTransition();
+
+  function toggle() {
+    const next = !submitted;
+    setSubmitted(next);
+    setError(undefined);
+    startTransition(async () => {
+      const result = await submitWorkout(workoutId, next, next ? getEntries() : []);
+      if (result.error) {
+        setSubmitted(!next);
+        setError(result.error);
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <Button
+        type="button"
+        variant={submitted ? "outline" : "default"}
+        onClick={toggle}
+        disabled={pending}
+        className="w-full"
+      >
+        <Check className="h-4 w-4" />
+        {submitted ? "האימון הוגש ✓ (לחץ לביטול)" : "הגש אימון"}
+      </Button>
+    </div>
   );
 }

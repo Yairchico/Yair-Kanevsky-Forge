@@ -11,10 +11,17 @@ import { ExercisePhoto } from "@/components/exercise-photo";
 import { dayName } from "@/lib/week";
 import {
   ExerciseCheckbox,
-  PerformanceLogForm,
+  PerformanceEntryFields,
   SubmitWorkoutButton,
 } from "./workout-actions";
-import type { LoggedPerformance } from "./actions";
+import type { LoggedPerformance, PerformanceEntry } from "./actions";
+import {
+  loadWorkoutDraft,
+  saveWorkoutDraft,
+  EMPTY_DRAFT_ENTRY,
+  type WorkoutDraft,
+  type WorkoutExerciseDraft,
+} from "@/lib/workout-draft";
 
 interface ExerciseData {
   id: string;
@@ -95,41 +102,99 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
           </CardContent>
         </Card>
       ) : (
-        <>
-          <div className="space-y-3">
-            {activeWorkout.exercises.map((ex) => (
-              <Card key={ex.id}>
-                <CardContent className="flex items-start gap-3 p-4">
-                  <ExercisePhoto
-                    src={getExerciseImage({ name: ex.name, muscle_group: ex.muscleGroup, media_url: ex.imageUrl })}
-                    className="h-12 w-12 rounded-lg bg-primary/10"
-                  />
-                  <ExerciseCheckbox workoutExerciseId={ex.id} completed={ex.done} />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{ex.name}</p>
-                    {ex.muscleGroup && (
-                      <p className="text-xs text-muted-foreground">{ex.muscleGroup}</p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      {ex.sets != null && <span>{ex.sets} סטים</span>}
-                      {ex.reps && <span>{ex.reps} חזרות</span>}
-                      {ex.weight && <span>{formatWeight(ex.weight)}</span>}
-                      {ex.rpe != null && <span>RPE {ex.rpe}</span>}
-                      {ex.restSeconds != null && <span>{ex.restSeconds} שנ׳ מנוחה</span>}
-                    </div>
-                    {ex.instructions && <p className="mt-2 text-sm">{ex.instructions}</p>}
-                    <div className="mt-2">
-                      <PerformanceLogForm workoutExerciseId={ex.id} initialLog={ex.initialLog} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <SubmitWorkoutButton workoutId={activeWorkout.id} submitted={activeWorkout.submitted} />
-        </>
+        // Keyed by workout id so switching tabs remounts this panel — its
+        // draft state is reloaded fresh from localStorage for whichever
+        // workout is now active, rather than one panel juggling every
+        // workout's draft at once.
+        <WorkoutPanel key={activeWorkout.id} workout={activeWorkout} />
       )}
     </div>
+  );
+}
+
+/**
+ * Owns one workout's performance-entry draft: initialized from
+ * localStorage (falling back to the trainee's last logged values per
+ * exercise), updated on every keystroke, and persisted right back to
+ * localStorage so it survives a closed tab. There's no per-exercise save
+ * anymore — SubmitWorkoutButton reads the whole draft at submit time and
+ * writes it to the server in one batch.
+ */
+function WorkoutPanel({ workout }: { workout: WorkoutData }) {
+  const [draft, setDraft] = useState<WorkoutDraft>(() => {
+    const stored = loadWorkoutDraft(workout.id);
+    const initial: WorkoutDraft = {};
+    for (const ex of workout.exercises) {
+      initial[ex.id] = stored[ex.id] ?? {
+        weight: ex.initialLog?.weight ?? "",
+        reps: ex.initialLog?.reps ?? "",
+        rpe: ex.initialLog?.rpe != null ? String(ex.initialLog.rpe) : "",
+        notes: ex.initialLog?.notes ?? "",
+      };
+    }
+    return initial;
+  });
+
+  function updateEntry(exerciseId: string, next: WorkoutExerciseDraft) {
+    setDraft((prev) => {
+      const updated = { ...prev, [exerciseId]: next };
+      saveWorkoutDraft(workout.id, updated);
+      return updated;
+    });
+  }
+
+  function getEntries(): PerformanceEntry[] {
+    return workout.exercises.map((ex) => {
+      const d = draft[ex.id] ?? EMPTY_DRAFT_ENTRY;
+      return {
+        workoutExerciseId: ex.id,
+        weight: d.weight.trim() || null,
+        reps: d.reps.trim() || null,
+        rpe: d.rpe.trim() ? Number(d.rpe) : null,
+        notes: d.notes.trim() || null,
+      };
+    });
+  }
+
+  return (
+    <>
+      <div className="space-y-3">
+        {workout.exercises.map((ex) => (
+          <Card key={ex.id}>
+            <CardContent className="flex items-start gap-3 p-4">
+              <ExercisePhoto
+                src={getExerciseImage({ name: ex.name, muscle_group: ex.muscleGroup, media_url: ex.imageUrl })}
+                className="h-12 w-12 rounded-lg bg-primary/10"
+              />
+              <ExerciseCheckbox workoutExerciseId={ex.id} completed={ex.done} />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{ex.name}</p>
+                {ex.muscleGroup && (
+                  <p className="text-xs text-muted-foreground">{ex.muscleGroup}</p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  {ex.sets != null && <span>{ex.sets} סטים</span>}
+                  {ex.reps && <span>{ex.reps} חזרות</span>}
+                  {ex.weight && <span>{formatWeight(ex.weight)}</span>}
+                  {ex.rpe != null && <span>RPE {ex.rpe}</span>}
+                  {ex.restSeconds != null && <span>{ex.restSeconds} שנ׳ מנוחה</span>}
+                </div>
+                {ex.instructions && <p className="mt-2 text-sm">{ex.instructions}</p>}
+                <PerformanceEntryFields
+                  value={draft[ex.id] ?? EMPTY_DRAFT_ENTRY}
+                  onChange={(next) => updateEntry(ex.id, next)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <SubmitWorkoutButton
+        workoutId={workout.id}
+        submitted={workout.submitted}
+        getEntries={getEntries}
+      />
+    </>
   );
 }

@@ -41,88 +41,75 @@ export interface LoggedPerformance {
   performedAt: string;
 }
 
-export interface LogPerformanceState {
+/** One exercise's typed-but-unsaved entry, held client-side until the whole workout is submitted. */
+export interface PerformanceEntry {
+  workoutExerciseId: string;
+  weight: string | null;
+  reps: string | null;
+  rpe: number | null;
+  notes: string | null;
+}
+
+export interface SubmitWorkoutState {
   error?: string;
-  success?: boolean;
-  log?: LoggedPerformance;
+}
+
+function hasAnyValue(entry: PerformanceEntry): boolean {
+  return Boolean(entry.weight || entry.reps || entry.rpe != null || entry.notes);
 }
 
 /**
- * Basic performance entry: what the trainee actually did, vs. what the
- * exercise called for. Always inserts a new row (not an upsert) — unlike
- * the completion checkbox, this is meant to build up history over time as
- * the same exercise recurs week to week.
+ * Submits the whole workout at once — there's no more per-exercise "save":
+ * whatever the trainee typed into each exercise's fields (held client-side
+ * as a draft, see src/lib/workout-draft.ts, so it survives a closed tab)
+ * becomes one workout_logs row per exercise that has anything in it, in a
+ * single insert. Un-submitting (to fix a mistake) just removes the
+ * workout_completions row — it doesn't touch already-written logs, same as
+ * before; the batch insert only runs on the false→true transition, so
+ * toggling submit off and back on without changing anything logs again
+ * (consistent with logs always being new rows, building history over time
+ * rather than being edited in place).
  */
-export async function logExercisePerformance(
-  workoutExerciseId: string,
-  _prevState: LogPerformanceState,
-  formData: FormData,
-): Promise<LogPerformanceState> {
+export async function submitWorkout(
+  workoutId: string,
+  submitted: boolean,
+  entries: PerformanceEntry[] = [],
+): Promise<SubmitWorkoutState> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "שגיאת התחברות" };
 
-  const actualWeight = String(formData.get("actual_weight") ?? "").trim();
-  const actualReps = String(formData.get("actual_reps") ?? "").trim();
-  const rpeRaw = String(formData.get("rpe_actual") ?? "").trim();
-  const notes = String(formData.get("notes") ?? "").trim();
-
-  // Real validation, not just the input's min/max hints — a value outside
-  // 1-10 must not be allowed to save at all.
-  const rpeActual = rpeRaw ? Number(rpeRaw) : null;
-  if (rpeActual != null && (Number.isNaN(rpeActual) || rpeActual < 1 || rpeActual > 10)) {
-    return { error: "RPE חייב להיות בין 1 ל-10" };
-  }
-
-  const { data: log, error } = await supabase
-    .from("workout_logs")
-    .insert({
-      workout_exercise_id: workoutExerciseId,
-      trainee_id: user.id,
-      actual_sets: { weight: actualWeight || null, reps: actualReps || null },
-      rpe_actual: rpeActual,
-      notes: notes || null,
-    })
-    .select("performed_at")
-    .single();
-
-  if (error || !log) {
-    return { error: "שגיאה בשמירת הביצוע" };
-  }
-
-  // Also surfaced to the trainer's side (trainee-week-view), so this needs
-  // to invalidate that page too, not just the trainee's own.
-  revalidatePath("/trainee");
-  revalidatePath("/trainer/trainees/[id]", "page");
-  return {
-    success: true,
-    log: {
-      weight: actualWeight || null,
-      reps: actualReps || null,
-      rpe: rpeActual,
-      notes: notes || null,
-      performedAt: log.performed_at,
-    },
-  };
-}
-
-/** Submits the whole workout — the trainer sees this as "הוגש". */
-export async function submitWorkout(workoutId: string, submitted: boolean) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-
   if (submitted) {
-    await supabase
+    // Real validation, not just the input's min/max hint — a value outside
+    // 1-10 must not be allowed to save at all.
+    for (const entry of entries) {
+      if (entry.rpe != null && (Number.isNaN(entry.rpe) || entry.rpe < 1 || entry.rpe > 10)) {
+        return { error: "RPE חייב להיות בין 1 ל-10" };
+      }
+    }
+
+    const rows = entries.filter(hasAnyValue).map((entry) => ({
+      workout_exercise_id: entry.workoutExerciseId,
+      trainee_id: user.id,
+      actual_sets: { weight: entry.weight, reps: entry.reps },
+      rpe_actual: entry.rpe,
+      notes: entry.notes,
+    }));
+
+    if (rows.length > 0) {
+      const { error } = await supabase.from("workout_logs").insert(rows);
+      if (error) return { error: "שגיאה בשמירת הביצוע" };
+    }
+
+    const { error: completionError } = await supabase
       .from("workout_completions")
       .upsert(
         { workout_id: workoutId, trainee_id: user.id },
         { onConflict: "workout_id,trainee_id" },
       );
+    if (completionError) return { error: "שגיאה בהגשת האימון" };
   } else {
     await supabase
       .from("workout_completions")
@@ -133,4 +120,5 @@ export async function submitWorkout(workoutId: string, submitted: boolean) {
 
   revalidatePath("/trainee");
   revalidatePath("/trainer/trainees/[id]", "page");
+  return {};
 }
