@@ -58,6 +58,17 @@ function hasAnyValue(entry: PerformanceEntry): boolean {
   return Boolean(entry.weight || entry.reps || entry.rpe != null || entry.notes);
 }
 
+// If the trainer removes this exact workout/exercise from a published
+// program at the exact moment a trainee submits it, the insert/upsert
+// below fails on the foreign key (the row it points to is gone) — code
+// 23503, same as the FK-restrict case in exercises' deleteExercise. The
+// trainee's typed values are never actually lost either way: they're
+// already sitting in localStorage (src/lib/workout-draft.ts) regardless
+// of whether this submit succeeds, so this only needs an honest message,
+// not any data-recovery logic.
+const STALE_WORKOUT_ERROR =
+  "האימון עודכן על ידי המאמן בינתיים — רענן/י את הדף ונסה/י שוב";
+
 /**
  * Submits the whole workout at once — there's no more per-exercise "save":
  * whatever the trainee typed into each exercise's fields (held client-side
@@ -100,7 +111,9 @@ export async function submitWorkout(
 
     if (rows.length > 0) {
       const { error } = await supabase.from("workout_logs").insert(rows);
-      if (error) return { error: "שגיאה בשמירת הביצוע" };
+      if (error) {
+        return { error: error.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הביצוע" };
+      }
     }
 
     const { error: completionError } = await supabase
@@ -109,7 +122,11 @@ export async function submitWorkout(
         { workout_id: workoutId, trainee_id: user.id },
         { onConflict: "workout_id,trainee_id" },
       );
-    if (completionError) return { error: "שגיאה בהגשת האימון" };
+    if (completionError) {
+      return {
+        error: completionError.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בהגשת האימון",
+      };
+    }
   } else {
     await supabase
       .from("workout_completions")
