@@ -49,21 +49,27 @@ npm run dev
 
 **שני Workers נפרדים, בכוונה:** `yair-kanevsky-forge` (production — האתר
 האמיתי שבשימוש) ו-`yair-kanevsky-forge-staging` (עותק זהה, לבדיקה/תצוגה
-מקדימה). מאז שהאתר ה-production בשימוש בפועל, כל push **לא** נוגע בו יותר
-— רק ב-staging:
+מקדימה). זו הכוונה — בפועל, כרגע, יש חריגה ידועה ומקובלת מזה (ראו אזהרה
+למטה) לפני שמניחים שpush מסוים "בטוח":
 
-- `.github/workflows/deploy.yml` — רץ **אוטומטית בכל push לענף `testing`**,
-  בונה ופורס ל-**staging בלבד** (`--env staging`). זה המקום לבדוק שינוי חדש.
+- `.github/workflows/deploy.yml` — רץ **אוטומטית בכל push לענף
+  `claude/fitness-app-trainers-gccazz`**, בונה ופורס ל-**staging בלבד**
+  (`--env staging`).
 - `.github/workflows/deploy-production.yml` — **ידני בלבד** (אף פעם לא
   רץ לבד על push). מריצים אותו במכוון כדי "לקדם" גרסה שנבדקה ל-production
   — מטאב Actions בגיטהאב ("Run workflow"), או שמבקשים ממני.
 
-> ⚠️ **גילינו ב-2026-09-06 שהענף `claude/fitness-app-trainers-gccazz` היה
-> מחובר ב-Cloudflare עצמה ("Workers Builds") ישירות ל-Worker של
-> **production** — כל push אליו עלה לאתר האמיתי מיד, בלי שום הרצה של
+> ⚠️ **סיכון ידוע ומקובל — כל push לענף הזה יכול גם לעלות ישירות
+> ל-production**, בלי קשר ל-workflows שלנו. גילינו ב-2026-09-06 שהענף
+> `claude/fitness-app-trainers-gccazz` מחובר ב-Cloudflare עצמה
+> ("Workers Builds") ישירות ל-Worker של **production** — בלי שום הרצה של
 > `deploy-production.yml` (0 הרצות בהיסטוריה, לגמרי בלתי-נראה מצד
-> GitHub). בגלל זה הפיתוח עבר לענף `testing` נפרד — אל תדחפו יותר ל-`claude/fitness-app-trainers-gccazz` אלא אם בדקתם בדשבורד (Workers & Pages
-> → `yair-kanevsky-forge` → Settings → Build) שהחיבור הזה נותק.
+> GitHub). ניסינו לעבור לענף `testing` נפרד כפתרון — **וזה לא עבד**: אושר
+> בדשבורד של Cloudflare (טאב Deployments) שה-build הופעל גם על push
+> ל-`testing`, כלומר החיבור לא מוגבל לענף מסוים בכלל. המשתמש בחר להמשיך
+> ולקבל את הסיכון הזה בינתיים ("תדחוף למיין וזהו, נטפל בזה אחר כך") במקום
+> לחסום את העבודה השוטפת. התיקון האמיתי — ניתוק החיבור בדשבורד Cloudflare
+> — עדיין **לא בוצע**.
 
 שני ה-workflows מגדירים מחדש את כל ה-secrets ב-Worker המתאים
 (`wrangler secret put`) **בכל פריסה** — נוצר בגלל ש-Cloudflare's own
