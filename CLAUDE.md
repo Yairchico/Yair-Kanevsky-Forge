@@ -147,23 +147,36 @@ message to a temp file (in the scratchpad dir) and use `git commit -F`.
 
 ## Deployment
 
-**`.github/workflows/deploy.yml` is the real, authoritative deploy path.**
-On push (or manual `workflow_dispatch`) it builds with `npm run cf:build`
-and then re-applies every secret with `wrangler secret put` — piped
-non-interactively from GitHub's encrypted repo secrets — before running
-`opennextjs-cloudflare deploy`. This exists because Cloudflare's own
+**Two Workers, two workflows — production is now live/in-use, so it is
+never touched by an automatic push.**
+
+- `.github/workflows/deploy.yml` — runs on **every push**, builds with
+  `npm run cf:build`, and deploys to the **staging** Worker
+  (`yair-kanevsky-forge-staging`, `wrangler.jsonc`'s `env.staging`) via
+  `opennextjs-cloudflare deploy --env staging`. This is where every change
+  becomes visible for review.
+- `.github/workflows/deploy-production.yml` — **`workflow_dispatch` only,
+  never on push.** Deploys the current branch head to the real
+  `yair-kanevsky-forge` Worker. Trigger it explicitly (via
+  `mcp__github__actions_run_trigger`, method `run_workflow`, workflow
+  `deploy-production.yml`) only when the user asks to promote/go live —
+  never on your own initiative after an ordinary code change.
+
+Both workflows re-apply every secret with `wrangler secret put` (staging
+adds `--env staging`) — piped non-interactively from GitHub's encrypted
+repo secrets — before deploying. This exists because Cloudflare's own
 dashboard "Variables and Secrets" page repeatedly showed
 `SUPABASE_SERVICE_ROLE_KEY` as configured while the deployed Worker's
 actual runtime `process.env` never had it — see Known Gotchas. Required
-GitHub repo secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+GitHub repo secrets (shared by both workflows — staging and production use
+the same Supabase project, only the deployed code differs):
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
 `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
 The user has no local terminal — assume every deploy-adjacent task has to
-work through either this workflow (trigger via
-`mcp__github__actions_run_trigger`, method `run_workflow`) or the
-Cloudflare/GitHub web dashboards, never a `wrangler` command run by the
-user themselves.
+work through one of these two workflows or the Cloudflare/GitHub web
+dashboards, never a `wrangler` command run by the user themselves.
 
 ## Known gotchas
 

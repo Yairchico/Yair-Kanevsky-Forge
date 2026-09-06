@@ -1,0 +1,48 @@
+name: Deploy to Cloudflare Workers (production)
+
+# Manual-only: this NEVER runs on push. Production (yair-kanevsky-forge) is
+# now in real use, so it only updates when explicitly triggered — from the
+# GitHub Actions tab ("Run workflow") or via the API/MCP
+# (mcp__github__actions_run_trigger, method run_workflow). Every push still
+# auto-deploys to staging via deploy.yml; this promotes the current branch
+# head to production once it's been reviewed there.
+#
+# Requires the same repository secrets as deploy.yml (see its comments).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run cf:build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Set production Worker secrets
+        run: |
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Deploy to production
+        run: npx opennextjs-cloudflare deploy

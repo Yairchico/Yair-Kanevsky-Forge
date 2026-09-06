@@ -46,15 +46,27 @@ npm run dev
 
 ### דרך GitHub Actions (מומלץ — לא דורש טרמינל אחרי ההגדרה החד-פעמית)
 
-`.github/workflows/deploy.yml` בונה ופורס אוטומטית בכל push לענף, ומגדיר
-מחדש את כל ה-secrets ב-Worker (`wrangler secret put`) **בכל פריסה** —
-נוצר בגלל ש-Cloudflare's own "Variables and Secrets" בדשבורד לא תמיד
-מגיע בפועל ל-`env` של ה-Worker בזמן ריצה (`SUPABASE_SERVICE_ROLE_KEY`
-המשיך להיראות "חסר" למרות שהיה מוגדר שם). כשה-workflow הוא מקור האמת,
-אין תלות בניווט בדשבורד.
+**שני Workers נפרדים, בכוונה:** `yair-kanevsky-forge` (production — האתר
+האמיתי שבשימוש) ו-`yair-kanevsky-forge-staging` (עותק זהה, לבדיקה/תצוגה
+מקדימה). מאז שהאתר ה-production בשימוש בפועל, כל push **לא** נוגע בו יותר
+— רק ב-staging:
+
+- `.github/workflows/deploy.yml` — רץ **אוטומטית בכל push**, בונה ופורס
+  ל-**staging בלבד** (`--env staging`). זה המקום לבדוק שינוי חדש.
+- `.github/workflows/deploy-production.yml` — **ידני בלבד** (אף פעם לא
+  רץ לבד על push). מריצים אותו במכוון כדי "לקדם" גרסה שנבדקה ל-production
+  — מטאב Actions בגיטהאב ("Run workflow"), או שמבקשים ממני.
+
+שני ה-workflows מגדירים מחדש את כל ה-secrets ב-Worker המתאים
+(`wrangler secret put`) **בכל פריסה** — נוצר בגלל ש-Cloudflare's own
+"Variables and Secrets" בדשבורד לא תמיד מגיע בפועל ל-`env` של ה-Worker
+בזמן ריצה (`SUPABASE_SERVICE_ROLE_KEY` המשיך להיראות "חסר" למרות שהיה
+מוגדר שם). כשה-workflow הוא מקור האמת, אין תלות בניווט בדשבורד.
 
 **הגדרה חד-פעמית** — ב-GitHub, בריפו הזה: Settings → Secrets and
-variables → Actions → New repository secret, עבור כל אחד מאלה:
+variables → Actions → New repository secret, עבור כל אחד מאלה (משותפים
+לשני ה-workflows, אותם ערכים בדיוק — staging ו-production חולקים את אותו
+פרויקט Supabase, רק קוד שונה):
 - `CLOUDFLARE_API_TOKEN` — מ-dash.cloudflare.com → האייקון של הפרופיל →
   My Profile → API Tokens → Create Token → תבנית "Edit Cloudflare Workers".
 - `CLOUDFLARE_ACCOUNT_ID` — מופיע בדף הבית של Workers & Pages בדשבורד.
@@ -65,8 +77,7 @@ variables → Actions → New repository secret, עבור כל אחד מאלה:
 אוטומטי מהדשבורד) — כדאי לכבות את זה (הדשבורד → ה-Worker → Settings →
 Build) כדי שלא יתחרו שני פריסות אוטומטיות זו בזו.
 
-מכאן, כל push לענף `claude/fitness-app-trainers-gccazz` פורס אוטומטית;
-אפשר גם להריץ ידנית מטאב Actions בגיטהאב ("Run workflow").
+כתובת ה-staging: `yair-kanevsky-forge-staging.<אותו subdomain של ה-production>.workers.dev`.
 
 ### דרך CLI מקומי (אם יש גישה לטרמינל)
 

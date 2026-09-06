@@ -15,7 +15,24 @@
 			"binding": "WORKER_SELF_REFERENCE",
 			"service": "yair-kanevsky-forge"
 		}
-	]
+	],
+	// `production` is this same, unnamed default environment (no --env flag) —
+	// the real, in-use site. `staging` is a second, separate Worker that
+	// every push deploys to automatically (.github/workflows/deploy.yml) so
+	// changes are visible somewhere without touching production; promoting
+	// to production is a manual, explicit step
+	// (.github/workflows/deploy-production.yml).
+	"env": {
+		"staging": {
+			"name": "yair-kanevsky-forge-staging",
+			"services": [
+				{
+					"binding": "WORKER_SELF_REFERENCE",
+					"service": "yair-kanevsky-forge-staging"
+				}
+			]
+		}
+	}
 	// Not yet configured (add when needed):
 	// - r2_buckets: persistent ISR/data cache across deploys (create the bucket first)
 	// - images: Cloudflare Images binding for next/image optimization

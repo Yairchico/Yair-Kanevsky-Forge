@@ -1,12 +1,14 @@
-name: Deploy to Cloudflare Workers
+name: Deploy to Cloudflare Workers (staging)
 
-# Deploys straight from code via `wrangler`/`opennextjs-cloudflare`,
-# bypassing Cloudflare's own dashboard "Variables and Secrets" page —
-# SUPABASE_SERVICE_ROLE_KEY kept showing there as configured while never
-# actually reaching the deployed Worker's runtime `env`. This workflow
-# re-applies every secret with `wrangler secret put` on every run, which
-# binds it directly to the Worker named in wrangler.jsonc — no dashboard
-# navigation involved, so there's nothing to get wired to the wrong place.
+# Auto-deploys every push to the STAGING Worker (yair-kanevsky-forge-staging)
+# so changes are visible somewhere without ever touching the production
+# Worker (yair-kanevsky-forge) that's now in real use. Promoting a change to
+# production is a separate, manual-only step — see deploy-production.yml.
+#
+# Re-applies every secret with `wrangler secret put --env staging` on every
+# run, which binds it directly to the staging Worker — no dashboard
+# navigation involved, so there's nothing to get wired to the wrong place
+# (see CLAUDE.md's Known Gotchas for why that matters here).
 #
 # One-time setup (see README's "Deploy" section): add these as GitHub
 # repository secrets under Settings → Secrets and variables → Actions:
@@ -53,15 +55,15 @@ jobs:
 
       # Re-applied on every run, non-interactively, straight from GitHub's
       # encrypted secrets — this is the actual source of truth from now on.
-      - name: Set Worker secrets
+      - name: Set staging Worker secrets
         run: |
-          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-          printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL
-          printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env staging
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL --env staging
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --env staging
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
-      - name: Deploy
-        run: npx opennextjs-cloudflare deploy
+      - name: Deploy to staging
+        run: npx opennextjs-cloudflare deploy --env staging
