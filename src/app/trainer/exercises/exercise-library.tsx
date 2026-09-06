@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
-import { Pencil, SearchX } from "lucide-react";
+import { useActionState, useMemo, useState, useTransition } from "react";
+import { Pencil, SearchX, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { ExercisePhoto } from "@/components/exercise-photo";
 import { cn } from "@/lib/utils";
-import { updateExerciseImage, type UpdateExerciseImageState } from "./actions";
+import { deleteExercise, updateExerciseImage, type UpdateExerciseImageState } from "./actions";
 
 interface Exercise {
   id: string;
@@ -66,7 +66,7 @@ function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
       <Input
         name="media_url"
         defaultValue={exercise.media_url ?? ""}
-        placeholder="קישור לתמונה (ריק = תמונת ברירת מחדל)"
+        placeholder="קישור לתמונה (ניתן להשאיר ריק)"
         className="h-8 text-xs"
       />
       {state.error && <p className="text-xs text-destructive">{state.error}</p>}
@@ -79,6 +79,60 @@ function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/** Inline confirm, not a full dialog — deleting one exercise from a list is routine. */
+function DeleteExerciseButton({ exercise }: { exercise: Exercise }) {
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [pending, startTransition] = useTransition();
+
+  function handleDelete() {
+    startTransition(async () => {
+      const result = await deleteExercise(exercise.id);
+      if (result.error) {
+        setError(result.error);
+        setConfirming(false);
+      }
+    });
+  }
+
+  if (confirming) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+        <span className="text-muted-foreground">למחוק?</span>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={pending}
+          className="font-medium text-destructive hover:underline"
+        >
+          {pending ? "מוחק…" : "כן"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="text-muted-foreground hover:underline"
+        >
+          לא
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+      >
+        <Trash2 className="h-3 w-3" />
+        מחק תרגיל
+      </button>
+      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+    </>
   );
 }
 
@@ -162,7 +216,10 @@ export function ExerciseLibrary({ exercises }: { exercises: Exercise[] }) {
                   <p className="text-sm text-muted-foreground">
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
-                  <ExerciseImageEditor exercise={ex} />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ExerciseImageEditor exercise={ex} />
+                    <DeleteExerciseButton exercise={ex} />
+                  </div>
                 </div>
               </CardContent>
             </Card>

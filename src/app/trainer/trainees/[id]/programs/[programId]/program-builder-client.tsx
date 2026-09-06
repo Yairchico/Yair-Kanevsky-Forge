@@ -61,6 +61,7 @@ export function ProgramBuilderClient({
 }) {
   const [isPublished, setIsPublished] = useState(initialIsPublished);
   const [workoutList, setWorkoutList] = useState(workouts);
+  const [catalogList, setCatalogList] = useState(catalog);
   const [activeId, setActiveId] = useState(workoutList[0]?.id ?? null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -71,6 +72,14 @@ export function ProgramBuilderClient({
 
   function handleEdited() {
     if (isPublished) setIsPublished(false);
+  }
+
+  // A trainer creating a new exercise from inside one workout's picker
+  // (add-exercise-picker.tsx's inline creation) should be able to find it
+  // again from another workout's tab too, since WorkoutBuilder remounts
+  // (key={activeWorkout.id}) with a fresh copy of catalog on every switch.
+  function handleNewExercise(exercise: CatalogExercise) {
+    setCatalogList((prev) => (prev.some((e) => e.id === exercise.id) ? prev : [...prev, exercise]));
   }
 
   function countOnDay(day: number) {
@@ -234,7 +243,8 @@ export function ProgramBuilderClient({
           programId={programId}
           workoutId={activeWorkout.id}
           initialItems={activeWorkout.items}
-          catalog={catalog}
+          catalog={catalogList}
+          onNewExercise={handleNewExercise}
           onEdited={handleEdited}
         />
       )}

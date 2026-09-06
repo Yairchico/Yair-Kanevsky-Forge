@@ -105,7 +105,21 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
   `ArrowLeft`) is the "back" icon since it points backward in RTL.
-- **Exercise images**: every exercise gets a picture — `src/lib/exercise-image.ts` maps the ~58 base seed exercises to real photos (`public/exercises/exercise-<slug>.jpg`, downloaded from the public-domain `free-exercise-db` dataset), and falls back to one representative photo per movement pattern (`category-<pose>.jpg`) for anything else, guessed from keywords in the name. `exercises.media_url` (settable via file upload to the `exercise-images` Storage bucket, or a pasted URL — the exercise library's image editor) always overrides both. An earlier hand-drawn stick-figure-SVG version of this was tried and rejected (too crude) — don't reintroduce it.
+- **Exercise images**: `src/lib/exercise-image.ts` maps the ~58 base seed
+  exercises to real photos (`public/exercises/exercise-<slug>.jpg`,
+  downloaded from the public-domain `free-exercise-db` dataset) by exact
+  name — no guessing. `exercises.media_url` (settable via file upload to
+  the `exercise-images` Storage bucket, or a pasted URL — the exercise
+  library's image editor, or at creation time from the program builder's
+  "הוספת תרגיל" inline picker) always overrides that. Anything else — a
+  trainer's custom exercise with no `media_url` set — gets **no image**
+  (`getExerciseImage` returns `null`, `ExercisePhoto` renders a neutral
+  `Dumbbell`-icon placeholder): a new exercise is created with
+  `media_url: null` on purpose, an image is only ever added proactively,
+  never guessed. Two earlier fallback approaches were tried and rejected:
+  a hand-drawn stick-figure SVG (too crude) and a movement-pattern photo
+  guessed from keywords in the name (not what the trainer meant by "add
+  images") — don't reintroduce either.
 - **`react-hook-form` and `zod` are in `package.json` but unused** — a
   leftover from `PLAN.md`'s original stack choice. The actual convention
   is plain Server Actions + `useActionState`/`FormData`. Don't reach for

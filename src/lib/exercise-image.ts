@@ -1,22 +1,20 @@
 /**
- * Every exercise gets a picture. There's no real photo library for this
- * app's own exercises, so the base ~58 seed exercises (supabase/seed.sql)
- * each get a matching real photo downloaded from free-exercise-db
- * (public domain / Unlicense — https://github.com/yuhonas/free-exercise-db,
- * see public/exercises/) — an exact lookup by name, no guessing needed.
- * Anything else (a custom exercise the trainer adds) falls back to one
- * representative photo per movement pattern, picked from keywords in the
- * name and, failing that, the muscle group.
+ * The image to show for an exercise: `exercises.media_url` (set via file
+ * upload or a pasted URL — the exercise library's image editor, or at
+ * creation time) always wins. Failing that, each of the ~58 base seed
+ * exercises (supabase/seed.sql) has its own real photo, downloaded from
+ * the public-domain `free-exercise-db` dataset, at
+ * public/exercises/exercise-<slug>.jpg — an exact lookup by name, no
+ * guessing.
  *
- * A trainer can override any single exercise's image via
- * `exercises.media_url` (see the exercise library's edit action) — that
- * always wins over both of the above.
+ * Anything else (a trainer's custom exercise) gets no image at all unless
+ * one is explicitly set — a guessed placeholder was tried and rejected as
+ * "not what I meant."
  */
 
-// The base seed exercises (supabase/seed.sql) — each has its own photo at
-// public/exercises/exercise-<slug>.jpg. Keep this in sync with the seed:
-// adding a base exercise there without a matching download here just means
-// it falls back to its category photo, which is a harmless default.
+// The base seed exercises — each has its own photo. Keep in sync with
+// supabase/seed.sql; a base exercise added there without a matching
+// download here just falls back to no image, which is a harmless default.
 const SEED_EXERCISE_NAMES = new Set([
   "Bench Press",
   "Incline Bench Press",
@@ -78,51 +76,6 @@ const SEED_EXERCISE_NAMES = new Set([
   "Stair Climber",
 ]);
 
-type Pose =
-  | "squat"
-  | "deadlift"
-  | "push"
-  | "pull"
-  | "overhead-press"
-  | "lateral-raise"
-  | "curl"
-  | "triceps"
-  | "core"
-  | "full-body"
-  | "cardio"
-  | "generic";
-
-// Order matters: checked top to bottom, first match wins. Cardio machines
-// and "leg curl" are checked before the generic /row/ and /curl/ rules
-// they'd otherwise collide with ("Rowing Machine", "Lying Leg Curl").
-const NAME_RULES: { test: RegExp; pose: Pose }[] = [
-  { test: /treadmill|stationary bike|rowing machine|stair climber|\brunning\b/i, pose: "cardio" },
-  { test: /squat/i, pose: "squat" },
-  { test: /deadlift|back extension/i, pose: "deadlift" },
-  { test: /leg curl|leg extension|leg press|calf raise|lunge|split squat/i, pose: "squat" },
-  { test: /plank|crunch|ab wheel|russian twist|hanging leg raise/i, pose: "core" },
-  { test: /pull-?up|chin-?up|pulldown/i, pose: "pull" },
-  { test: /\brow\b|face pull|reverse fly/i, pose: "pull" },
-  { test: /bench|\bfly\b|dips?\b|push-?up/i, pose: "push" },
-  { test: /overhead press|shoulder press|push press|clean and press/i, pose: "overhead-press" },
-  { test: /lateral raise|front raise|shrug/i, pose: "lateral-raise" },
-  { test: /\bcurl\b/i, pose: "curl" },
-  { test: /triceps|skull crusher|pushdown/i, pose: "triceps" },
-  { test: /kettlebell|burpee|battle rope|box jump/i, pose: "full-body" },
-];
-
-const MUSCLE_GROUP_FALLBACK: Record<string, Pose> = {
-  "חזה": "push",
-  "גב": "pull",
-  "רגליים": "squat",
-  "כתפיים": "overhead-press",
-  "יד קדמית": "curl",
-  "יד אחורית": "triceps",
-  "בטן / core": "core",
-  "גוף מלא": "full-body",
-  "אירובי": "cardio",
-};
-
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -130,22 +83,15 @@ function slugify(s: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function guessPose(name: string, muscleGroup: string | null): Pose {
-  for (const rule of NAME_RULES) {
-    if (rule.test.test(name)) return rule.pose;
-  }
-  return (muscleGroup && MUSCLE_GROUP_FALLBACK[muscleGroup]) || "generic";
-}
-
-/** The image src to actually render for an exercise. */
+/** The image src to render for an exercise, or null for "no image." */
 export function getExerciseImage(exercise: {
   name: string;
   muscle_group: string | null;
   media_url?: string | null;
-}): string {
+}): string | null {
   if (exercise.media_url) return exercise.media_url;
   if (SEED_EXERCISE_NAMES.has(exercise.name)) {
     return `/exercises/exercise-${slugify(exercise.name)}.jpg`;
   }
-  return `/exercises/category-${guessPose(exercise.name, exercise.muscle_group)}.jpg`;
+  return null;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Dumbbell, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,13 +10,16 @@ import { cn } from "@/lib/utils";
  * being able to blow one up matters more here than for most images in
  * the app. Self-contained (owns its own open state), so it drops into any
  * card without the parent needing to know about it.
+ *
+ * `src: null` (a custom exercise with no photo set) renders a plain,
+ * non-interactive placeholder instead — nothing to enlarge.
  */
 export function ExercisePhoto({
   src,
   alt = "",
   className,
 }: {
-  src: string;
+  src: string | null;
   alt?: string;
   className?: string;
 }) {
@@ -30,6 +33,19 @@ export function ExercisePhoto({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
+
+  if (!src) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center bg-primary/10 text-primary",
+          className,
+        )}
+      >
+        <Dumbbell className="h-1/3 w-1/3" />
+      </div>
+    );
+  }
 
   return (
     <>

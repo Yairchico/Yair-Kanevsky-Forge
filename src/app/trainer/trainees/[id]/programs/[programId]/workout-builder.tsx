@@ -30,6 +30,7 @@ interface CatalogExercise {
   name: string;
   muscle_group: string | null;
   equipment: string | null;
+  media_url: string | null;
 }
 
 interface Item {
@@ -56,6 +57,7 @@ export function WorkoutBuilder({
   workoutId,
   initialItems,
   catalog,
+  onNewExercise,
   onEdited,
 }: {
   traineeId: string;
@@ -63,6 +65,7 @@ export function WorkoutBuilder({
   workoutId: string;
   initialItems: Item[];
   catalog: CatalogExercise[];
+  onNewExercise?: (exercise: CatalogExercise) => void;
   onEdited?: () => void;
 }) {
   const [items, setItems] = useState(initialItems);
@@ -74,9 +77,13 @@ export function WorkoutBuilder({
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
   );
 
-  function handleAdd(exerciseId: string) {
-    const ex = catalog.find((c) => c.id === exerciseId);
+  function handleAdd(exerciseId: string, newExercise?: CatalogExercise) {
+    // A just-created exercise (from the picker's inline "add to library")
+    // isn't in `catalog` yet — the parent hands it back via onNewExercise
+    // for next time, but this call still needs it right now.
+    const ex = catalog.find((c) => c.id === exerciseId) ?? newExercise;
     if (!ex) return;
+    if (newExercise) onNewExercise?.(newExercise);
 
     const tempId = nextTempId();
     setItems((prev) => [
