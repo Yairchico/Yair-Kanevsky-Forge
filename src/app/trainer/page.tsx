@@ -3,16 +3,8 @@ import { ArrowLeft, CalendarCheck, Dumbbell, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getWeekStart, toDateKey } from "@/lib/week";
-
-function formatRelativeTime(iso: string) {
-  return new Date(iso).toLocaleString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { getWeekStart, toDateKey, dayName } from "@/lib/week";
+import { formatShortDateTime } from "@/lib/format";
 
 export default async function TrainerHomePage() {
   const supabase = await createClient();
@@ -53,18 +45,18 @@ export default async function TrainerHomePage() {
       .map((p) => p.trainee_id),
   ).size;
 
-  // One more round trip, only for the "אימון N" number on each recent
-  // submission — everything else about it (trainee name, when) is already
-  // on workout_completions itself.
+  // One more round trip, only for the day name on each recent submission —
+  // everything else about it (trainee name, when) is already on
+  // workout_completions itself.
   const completionWorkoutIds = (recentCompletions ?? []).map((c) => c.workout_id);
   const { data: completionWorkouts } = await supabase
     .from("workouts")
-    .select("id, order_index")
+    .select("id, day_of_week")
     .in(
       "id",
       completionWorkoutIds.length ? completionWorkoutIds : ["00000000-0000-0000-0000-000000000000"],
     );
-  const workoutOrderById = new Map((completionWorkouts ?? []).map((w) => [w.id, w.order_index]));
+  const dayOfWeekByWorkoutId = new Map((completionWorkouts ?? []).map((w) => [w.id, w.day_of_week]));
 
   return (
     <AppShell title="אזור מאמן" username={profile?.username}>
@@ -153,11 +145,11 @@ export default async function TrainerHomePage() {
                   {traineeNameById.get(c.trainee_id) ?? "מתאמן"}
                   <span className="font-normal text-muted-foreground">
                     {" "}
-                    · אימון {(workoutOrderById.get(c.workout_id) ?? 0) + 1}
+                    · {dayName(dayOfWeekByWorkoutId.get(c.workout_id) ?? 0)}
                   </span>
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatRelativeTime(c.completed_at)}
+                  {formatShortDateTime(c.completed_at)}
                 </span>
               </Link>
             ))
