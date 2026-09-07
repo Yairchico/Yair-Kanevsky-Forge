@@ -323,6 +323,29 @@ dashboards, never a `wrangler` command run by the user themselves.
   bullet just below was an **earlier, independent hint at the same
   underlying fragility**, from before this was understood as a systemic
   "Node.js middleware on workerd" issue rather than a one-off.
+  **UPDATE, same day**: this revert alone did NOT fix the staging crash —
+  redeployed, and the identical generic 500 on every route (including
+  `/login`, unauthenticated, which barely touches `updateSession`) still
+  reproduced. So the Node.js-middleware theory is real (it's a genuinely
+  unsupported, documented-fragile path, and moving off it was correct to
+  do regardless) but was likely not the *actual* root cause of this
+  specific crash, or wasn't the only one. `routingHandler`/
+  `middlewareHandler` — the function names in the earlier crash log — turn
+  out to be **OpenNext's own internal routing-layer names**
+  (`@opennextjs/aws/dist/core/routingHandler.js`), not proof the crash is
+  literally inside the app's `middleware.ts`/`updateSession`; that log
+  alone doesn't distinguish "our middleware code threw" from "some other
+  step OpenNext's router runs for every request (redirects, rewrites, the
+  cache interceptor, config-header handling) threw before ever reaching
+  our code." A local `wrangler dev --local` repro with a placeholder
+  Supabase URL (`.env.example`) did NOT reproduce the crash — `/login`
+  returned 200, `/` returned a 307 redirect, both as expected — which
+  rules out at least "the current code always crashes in a real workerd
+  runtime" as an explanation, though it doesn't rule out something
+  specific to the real deployed secrets/environment. `upload_source_maps`
+  (added the same commit) should make the *next* crash log genuinely
+  readable instead of minified positions — that's the concrete next
+  lever, not yet acted on as of this note.
 - `src/middleware.ts` (proxy layer) uses `getSession()` (local cookie
   decode), not `getUser()` (network round-trip), purely for *routing* —
   which page shell to render. It is never the authorization boundary; RLS
