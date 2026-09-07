@@ -16,6 +16,19 @@
 			"service": "yair-kanevsky-forge"
 		}
 	],
+	// Without this, whatever logging you enable by hand in the dashboard gets
+	// silently reset to disabled on the next deploy — wrangler.jsonc is the
+	// source of truth on every push, so it has to declare this explicitly.
+	// Discovered 2026-09-07 while trying to get real error logs for the
+	// staging Worker: enabling "Logs" in the dashboard kept showing zero
+	// events after every redeploy, because it was never actually persisted.
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": true
+		}
+	},
 	// `production` is this same, unnamed default environment (no --env flag) —
 	// the real, in-use site. `staging` is a second, separate Worker that
 	// every push deploys to automatically (.github/workflows/deploy.yml) so
@@ -42,7 +55,14 @@
 					"binding": "WORKER_SELF_REFERENCE",
 					"service": "yair-kanevsky-forge-staging"
 				}
-			]
+			],
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"head_sampling_rate": 1,
+					"invocation_logs": true
+				}
+			}
 		}
 	}
 	// Not yet configured (add when needed):
