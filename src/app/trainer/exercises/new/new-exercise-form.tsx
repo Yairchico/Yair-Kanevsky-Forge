@@ -66,6 +66,18 @@ export function NewExerciseForm() {
                 <Textarea id="instructions" name="instructions" />
               </div>
 
+              <div className="space-y-1.5">
+                <Label>תמונה (אופציונלי)</Label>
+                <input
+                  type="file"
+                  name="image_file"
+                  accept="image/*"
+                  className="block w-full text-sm text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:text-secondary-foreground"
+                />
+                <p className="text-center text-xs text-muted-foreground">או</p>
+                <Input name="media_url" placeholder="קישור לתמונה" />
+              </div>
+
               {state.error && (
                 <p className="text-sm text-destructive">{state.error}</p>
               )}

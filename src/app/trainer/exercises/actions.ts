@@ -10,6 +10,67 @@ export interface CreateExerciseState {
   error?: string;
 }
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Shared by createExercise, updateExerciseImage and createExerciseInline:
+ * an uploaded file (stored in the "exercise-images" Storage bucket,
+ * migration 0008) wins over a pasted URL if both are given; returns null
+ * if neither was given.
+ */
+async function resolveMediaUrl(
+  supabase: Supabase,
+  exerciseId: string,
+  formData: FormData,
+): Promise<{ mediaUrl: string | null } | { error: string }> {
+  const urlInput = String(formData.get("media_url") ?? "").trim();
+  const file = formData.get("image_file");
+
+  if (file instanceof File && file.size > 0) {
+    if (!file.type.startsWith("image/")) {
+      return { error: "יש להעלות קובץ תמונה" };
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return { error: "התמונה גדולה מדי (מקסימום 5MB)" };
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const path = `${exerciseId}-${Date.now()}.${ext}`;
+
+    // Wrapped in try/catch, not just checking the returned error: an
+    // upload failure here (e.g. the "exercise-images" bucket from
+    // migration 0008 missing entirely) has been seen to throw rather than
+    // resolve to {error}, which — uncaught — surfaces as Next's generic
+    // crash page instead of a message the trainer can act on.
+    try {
+      // RLS ("trainer manages exercise-images", migration 0008) restricts
+      // this to role='trainer'.
+      const { error: uploadError } = await supabase.storage
+        .from("exercise-images")
+        .upload(path, file, { upsert: true, contentType: file.type });
+
+      if (uploadError) {
+        console.error("resolveMediaUrl: storage upload failed", uploadError);
+        return { error: "שגיאה בהעלאת התמונה" };
+      }
+
+      return { mediaUrl: supabase.storage.from("exercise-images").getPublicUrl(path).data.publicUrl };
+    } catch (err) {
+      console.error("resolveMediaUrl: unexpected upload error", err);
+      return { error: "שגיאה בלתי צפויה בהעלאת התמונה. נסה שוב, או הדבק קישור לתמונה במקום." };
+    }
+  }
+
+  return { mediaUrl: urlInput || null };
+}
+
+/**
+ * The standalone /trainer/exercises/new page. Inserts first (with no
+ * image — a new exercise never gets a guessed/default one, see
+ * src/lib/exercise-image.ts), then resolves and applies an optional
+ * image the same way createExerciseInline does, since resolveMediaUrl
+ * needs the exercise's own id for the storage path.
+ */
 export async function createExercise(
   _prevState: CreateExerciseState,
   formData: FormData,
@@ -32,73 +93,39 @@ export async function createExercise(
   // RLS ("trainer manages exercises") already restricts inserts to
   // role='trainer'; the trainee never reaches this action since it's only
   // wired up from /trainer/exercises/new.
-  const { error } = await supabase.from("exercises").insert({
-    name,
-    muscle_group: muscleGroup,
-    equipment,
-    instructions,
-    is_custom: true,
-    created_by: user.id,
-    // No default/guessed image on creation — a hand-drawn placeholder was
-    // tried and rejected; a new exercise has no picture until the trainer
-    // explicitly adds one.
-    media_url: null,
-  });
+  const { data: row, error } = await supabase
+    .from("exercises")
+    .insert({
+      name,
+      muscle_group: muscleGroup,
+      equipment,
+      instructions,
+      is_custom: true,
+      created_by: user.id,
+      media_url: null,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !row) {
     return {
       error:
-        error.code === "23505"
+        error?.code === "23505"
           ? "כבר קיים תרגיל בשם הזה"
           : "שגיאה בהוספת התרגיל",
     };
   }
 
+  const resolved = await resolveMediaUrl(supabase, row.id, formData);
+  if ("mediaUrl" in resolved && resolved.mediaUrl) {
+    await supabase.from("exercises").update({ media_url: resolved.mediaUrl }).eq("id", row.id);
+  }
+  // A failed image upload doesn't fail the whole exercise creation — the
+  // exercise already exists with no image, exactly like not adding one at
+  // all; resolveMediaUrl already logs the real reason server-side.
+
   revalidatePath("/trainer/exercises");
   redirect("/trainer/exercises");
-}
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
-/**
- * Shared by updateExerciseImage and createExerciseInline: an uploaded file
- * (stored in the "exercise-images" Storage bucket, migration 0008) wins
- * over a pasted URL if both are given; returns null if neither was given.
- */
-async function resolveMediaUrl(
-  supabase: Supabase,
-  exerciseId: string,
-  formData: FormData,
-): Promise<{ mediaUrl: string | null } | { error: string }> {
-  const urlInput = String(formData.get("media_url") ?? "").trim();
-  const file = formData.get("image_file");
-
-  if (file instanceof File && file.size > 0) {
-    if (!file.type.startsWith("image/")) {
-      return { error: "יש להעלות קובץ תמונה" };
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      return { error: "התמונה גדולה מדי (מקסימום 5MB)" };
-    }
-
-    const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-    const path = `${exerciseId}-${Date.now()}.${ext}`;
-
-    // RLS ("trainer manages exercise-images", migration 0008) restricts
-    // this to role='trainer'.
-    const { error: uploadError } = await supabase.storage
-      .from("exercise-images")
-      .upload(path, file, { upsert: true, contentType: file.type });
-
-    if (uploadError) {
-      console.error("resolveMediaUrl: storage upload failed", uploadError);
-      return { error: "שגיאה בהעלאת התמונה" };
-    }
-
-    return { mediaUrl: supabase.storage.from("exercise-images").getPublicUrl(path).data.publicUrl };
-  }
-
-  return { mediaUrl: urlInput || null };
 }
 
 export interface UpdateExerciseImageState {
