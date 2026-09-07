@@ -47,8 +47,9 @@ export async function signIn(
   const role = profile?.role === "trainer" ? "trainer" : "trainee";
   const isSuperadmin = profile?.is_superadmin === true;
 
-  // Cache the role (+ superadmin flag) in their own cookies so proxy.ts
-  // doesn't have to query `profiles` again on every subsequent navigation
+  // Cache the role (+ superadmin flag) in their own cookies so
+  // middleware.ts doesn't have to query `profiles` again on every
+  // subsequent navigation
   // (see the perf notes in src/lib/supabase/middleware.ts).
   const cookieStore = await cookies();
   const cookieOptions = {
@@ -62,7 +63,8 @@ export async function signIn(
   cookieStore.set("app_superadmin", isSuperadmin ? "1" : "0", cookieOptions);
 
   // Redirect straight to the right area instead of bouncing through /login
-  // again (proxy.ts would otherwise have to work this out a second time).
+  // again (middleware.ts would otherwise have to work this out a second
+  // time).
   // A superadmin (read-only oversight, migration 0011) shares the
   // trainer's area — same screens, no write access via RLS.
   redirect(role === "trainer" || isSuperadmin ? "/trainer" : "/trainee");

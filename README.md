@@ -130,7 +130,7 @@ src/components/ui/              קומפוננטות UI בסיסיות (Button, 
 src/components/                 Brand, AppShell, SignOutButton
 src/lib/supabase/               Supabase clients (browser/server/admin) + types
 src/lib/constants.ts            שם האפליקציה (APP_NAME)
-src/proxy.ts                    רענון session + ניתוב לפי role (Next.js "Proxy" — לשעבר middleware)
+src/middleware.ts                רענון session + ניתוב לפי role (בכוונה עדיין middleware.ts ולא proxy.ts — ראו CLAUDE.md)
 supabase/migrations/            סכימת DB + RLS
 supabase/seed.sql               ספריית תרגילי הבסיס
 PLAN.md                         תוכנית הפיתוח המלאה

@@ -29,6 +29,11 @@
 			"invocation_logs": true
 		}
 	},
+	// De-minified stack traces in Observability/Logs — without this, a crash
+	// log shows unreadable minified positions (worker.js:180732:52, function
+	// names like `i9`/`aw`/`tH`) instead of real file/line locations. Added
+	// 2026-09-07 while investigating the staging "Internal Server Error".
+	"upload_source_maps": true,
 	// `production` is this same, unnamed default environment (no --env flag) —
 	// the real, in-use site. `staging` is a second, separate Worker that
 	// every push deploys to automatically (.github/workflows/deploy.yml) so
@@ -62,7 +67,8 @@
 					"head_sampling_rate": 1,
 					"invocation_logs": true
 				}
-			}
+			},
+			"upload_source_maps": true
 		}
 	}
 	// Not yet configured (add when needed):
