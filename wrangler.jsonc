@@ -25,6 +25,18 @@
 	"env": {
 		"staging": {
 			"name": "yair-kanevsky-forge-staging",
+			// Named environments in wrangler.jsonc do NOT automatically inherit
+			// top-level `assets`/`services` — each key must be repeated per
+			// environment explicitly, or it's silently absent for that Worker.
+			// `assets` was missing here (only `services` had been duplicated),
+			// which meant the staging Worker had no ASSETS binding at all and
+			// crashed on every single request, static or dynamic — discovered
+			// 2026-09-07 after this staging environment appeared to never have
+			// worked since it was first split off from production.
+			"assets": {
+				"directory": ".open-next/assets",
+				"binding": "ASSETS"
+			},
 			"services": [
 				{
 					"binding": "WORKER_SELF_REFERENCE",
