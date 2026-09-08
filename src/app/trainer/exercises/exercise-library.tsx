@@ -1,14 +1,14 @@
 "use client";
 
 import { useActionState, useMemo, useState, useTransition } from "react";
-import { Pencil, SearchX, Trash2 } from "lucide-react";
+import { ImageOff, ImagePlus, Pencil, SearchX, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { ExercisePhoto } from "@/components/exercise-photo";
+import { ExerciseImageField } from "@/components/exercise-image-field";
 import { cn } from "@/lib/utils";
 import { deleteExercise, updateExerciseImage, type UpdateExerciseImageState } from "./actions";
 
@@ -25,13 +25,20 @@ const initialImageState: UpdateExerciseImageState = {};
 
 /**
  * Every exercise has a picture (a real default photo — see
- * src/lib/exercise-image.ts), and the only thing a trainer can edit on an
- * existing exercise is that image: upload a file, or paste a URL (the
- * upload wins if both are given). Collapsed behind a small "ערוך תמונה"
- * toggle so the grid stays scannable.
+ * src/lib/exercise-image.ts). A trainer can view it full-size by clicking
+ * the thumbnail (ExercisePhoto's own built-in lightbox, rendered by the
+ * parent card — nothing to do here), and edit it: upload a file, or paste
+ * a URL (the upload wins if both are given, see resolveMediaUrl), or clear
+ * it entirely. Collapsed behind small text controls so the grid stays
+ * scannable — "החלף תמונה"/"מחק תמונה" once an image is set, "הוסף תמונה"
+ * when it isn't.
  */
 function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletePending, startDeleteTransition] = useTransition();
+  const [deleteError, setDeleteError] = useState<string | undefined>();
+
   const action = updateExerciseImage.bind(null, exercise.id);
   const [state, formAction, pending] = useActionState(action, initialImageState);
 
@@ -41,44 +48,91 @@ function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
     if (state.success && editing) setEditing(false);
   }
 
-  if (!editing) {
+  function handleDeleteImage() {
+    startDeleteTransition(async () => {
+      // Empty FormData: no file, no media_url — resolveMediaUrl resolves
+      // that to { mediaUrl: null }, i.e. clears the image.
+      const result = await updateExerciseImage(exercise.id, initialImageState, new FormData());
+      if (result.error) {
+        setDeleteError(result.error);
+        setConfirmingDelete(false);
+      }
+    });
+  }
+
+  if (editing) {
+    return (
+      <form action={formAction} className="mt-1.5 space-y-1.5">
+        <ExerciseImageField urlDefaultValue={exercise.media_url ?? ""} size="sm" />
+        {state.error && <p className="text-xs text-destructive">{state.error}</p>}
+        <div className="flex gap-1.5">
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? "שומר…" : "שמור"}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
+            ביטול
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
+  if (confirmingDelete) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+        <span className="text-muted-foreground">למחוק את התמונה?</span>
+        <button
+          type="button"
+          onClick={handleDeleteImage}
+          disabled={deletePending}
+          className="font-medium text-destructive hover:underline"
+        >
+          {deletePending ? "מוחק…" : "כן"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmingDelete(false)}
+          className="text-muted-foreground hover:underline"
+        >
+          לא
+        </button>
+      </div>
+    );
+  }
+
+  if (!exercise.media_url) {
     return (
       <button
         type="button"
         onClick={() => setEditing(true)}
         className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
       >
-        <Pencil className="h-3 w-3" />
-        ערוך תמונה
+        <ImagePlus className="h-3 w-3" />
+        הוסף תמונה
       </button>
     );
   }
 
   return (
-    <form action={formAction} className="mt-1.5 space-y-1.5">
-      <input
-        type="file"
-        name="image_file"
-        accept="image/*"
-        className="block w-full text-xs text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:text-secondary-foreground"
-      />
-      <p className="text-center text-[10px] text-muted-foreground">או</p>
-      <Input
-        name="media_url"
-        defaultValue={exercise.media_url ?? ""}
-        placeholder="קישור לתמונה (ניתן להשאיר ריק)"
-        className="h-8 text-xs"
-      />
-      {state.error && <p className="text-xs text-destructive">{state.error}</p>}
-      <div className="flex gap-1.5">
-        <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "שומר…" : "שמור"}
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
-          ביטול
-        </Button>
-      </div>
-    </form>
+    <div className="mt-1.5 flex flex-wrap items-center gap-3">
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+      >
+        <Pencil className="h-3 w-3" />
+        החלף תמונה
+      </button>
+      <button
+        type="button"
+        onClick={() => setConfirmingDelete(true)}
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
+      >
+        <ImageOff className="h-3 w-3" />
+        מחק תמונה
+      </button>
+      {deleteError && <p className="w-full text-xs text-destructive">{deleteError}</p>}
+    </div>
   );
 }
 

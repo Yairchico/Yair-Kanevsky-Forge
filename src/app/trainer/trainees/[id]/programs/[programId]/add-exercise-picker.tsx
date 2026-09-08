@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { ExercisePhoto } from "@/components/exercise-photo";
+import { ExerciseImageField } from "@/components/exercise-image-field";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { createExerciseInline, type CreateExerciseInlineState } from "../../../../exercises/actions";
 
@@ -75,14 +76,7 @@ function InlineCreateExercise({
       </div>
       <div className="space-y-1">
         <Label className="text-xs">תמונה (אופציונלי)</Label>
-        <input
-          type="file"
-          name="image_file"
-          accept="image/*"
-          className="block w-full text-xs text-muted-foreground file:me-2 file:rounded-md file:border-0 file:bg-secondary file:px-2 file:py-1 file:text-xs file:text-secondary-foreground"
-        />
-        <p className="text-center text-[10px] text-muted-foreground">או</p>
-        <Input name="media_url" placeholder="קישור לתמונה" className="h-8 text-xs" />
+        <ExerciseImageField size="sm" />
       </div>
       {state.error && <p className="text-xs text-destructive">{state.error}</p>}
       <div className="flex gap-2">
