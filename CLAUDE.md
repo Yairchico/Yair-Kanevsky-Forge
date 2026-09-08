@@ -260,25 +260,12 @@ adds `--env staging`) — piped non-interactively from GitHub's encrypted
 repo secrets — before deploying. This exists because Cloudflare's own
 dashboard "Variables and Secrets" page repeatedly showed
 `SUPABASE_SERVICE_ROLE_KEY` as configured while the deployed Worker's
-actual runtime `process.env` never had it — see Known Gotchas.
-
-**Staging and production use two SEPARATE Supabase projects, on
-purpose** (changed 2026-09-08, at the user's explicit request — "אני
-רוצה שכל שינוי בstaging יהיה מקומי בלבד") — staging used to point at
-the same project as production (same trainer/trainee data, same
-writes), which meant anything tested on staging was really testing
-against real data. `deploy.yml` reads a `STAGING_`-prefixed set of
-GitHub secrets so the two can never accidentally collide:
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are shared (same
-Cloudflare account, just a different Worker), but
-`STAGING_SUPABASE_SERVICE_ROLE_KEY`, `STAGING_NEXT_PUBLIC_SUPABASE_URL`
-and `STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY` must come from a *second*,
-independent Supabase project — never copy production's values into
-these. `deploy-production.yml` keeps reading the original unprefixed
-`SUPABASE_SERVICE_ROLE_KEY` / `NEXT_PUBLIC_SUPABASE_URL` /
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` secrets, untouched. See README's "הקמת
-Supabase" for creating the second project and running the same
-migrations + seed against it.
+actual runtime `process.env` never had it — see Known Gotchas. Required
+GitHub repo secrets (shared by both workflows — staging and production use
+the same Supabase project, only the deployed code differs):
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+`SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
 The user has no local terminal — assume every deploy-adjacent task has to
 work through one of these two workflows or the Cloudflare/GitHub web
@@ -397,19 +384,11 @@ dashboards, never a `wrangler` command run by the user themselves.
   specific crash — it's a build-time secret, not a middleware-runtime
   compatibility issue. **The actual fix is out of this sandbox's reach**:
   a human needs to check GitHub → this repo → Settings → Secrets and
-  variables → Actions → the secret is present and a real
-  `https://...supabase.co` value, fix it if not, then re-run `deploy.yml`
-  (a new push, or a manual re-run) to rebuild with the corrected value.
-  **UPDATE 2026-09-08**: while looking at this, the user asked whether
-  staging changes could touch the real database — they could, staging
-  and production were sharing one Supabase project (see Deployment
-  above) — and asked for that to stop. Fixed by giving staging its own
-  Supabase project, so the secret name to actually set here is now
-  `STAGING_NEXT_PUBLIC_SUPABASE_URL` (and
-  `STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-  `STAGING_SUPABASE_SERVICE_ROLE_KEY`), not the unprefixed ones —
-  those stay reserved for `deploy-production.yml`. The original crash
-  and this DB-isolation gap turned out to be the same fix.
+  variables → Actions → `NEXT_PUBLIC_SUPABASE_URL` (and, since it's set
+  in the same step, worth eyeballing `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  too) is present and a real `https://...supabase.co` value, fix it if
+  not, then re-run `deploy.yml` (a new push, or a manual re-run) to
+  rebuild with the corrected value.
 - `src/middleware.ts` (proxy layer) uses `getSession()` (local cookie
   decode), not `getUser()` (network round-trip), purely for *routing* —
   which page shell to render. It is never the authorization boundary; RLS
