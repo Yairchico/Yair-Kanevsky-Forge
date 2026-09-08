@@ -346,6 +346,49 @@ dashboards, never a `wrangler` command run by the user themselves.
   (added the same commit) should make the *next* crash log genuinely
   readable instead of minified positions — that's the concrete next
   lever, not yet acted on as of this note.
+  **ROOT CAUSE FOUND, 2026-09-08**: `upload_source_maps: true` turned out
+  to be a dead end on its own — every esbuild pass in
+  `@opennextjs/cloudflare`/`@opennextjs/aws`'s build pipeline gates
+  `sourcemap` generation on an internal `debug` flag with no CLI/env
+  switch exposed in this package version (1.20.6), so no `.map` file
+  ever existed for wrangler to upload; the Observability log stayed
+  minified regardless. Decoded it a different way instead: reproduced
+  wrangler's own final bundling pass locally (`wrangler deploy --dry-run
+  --env staging --outdir <dir>`, which — unlike OpenNext's own build step
+  — *does* always emit a `.map` next to its `worker.js`) and matched the
+  crash log's exact line numbers (141802, 142159, 142169, ...) against
+  that local `worker.js`. Line 141802 is `@supabase/ssr`'s own
+  `createServerClient` validation: `if (!t11.match(/^https?:\/\//i))
+  throw Error("Invalid supabaseUrl: Must be a valid HTTP or HTTPS
+  URL.")`, and line 142169 is the exact call site — our
+  `src/lib/supabase/middleware.ts` `createServerClient(...)` call,
+  identifiable by its matching `cookies: { getAll, setAll }` shape. So
+  the staging Worker's `NEXT_PUBLIC_SUPABASE_URL` was inlined at *build*
+  time as something that doesn't start with `http(s)://` — almost
+  certainly empty, meaning the **`NEXT_PUBLIC_SUPABASE_URL` GitHub
+  repository secret** `deploy.yml`'s Build step reads
+  (`${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}`) is missing or blank: GitHub
+  Actions silently substitutes an empty string for an undefined secret
+  rather than failing the workflow, so the build "succeeds" and ships a
+  Worker that throws this on *every* request (this call happens
+  unconditionally at the top of `updateSession`, before the public-path
+  check). This fully explains everything observed: 100% of routes
+  failing identically (static or dynamic, `/login` included); local
+  `wrangler dev` NOT reproducing it (`.env.example`'s placeholder,
+  `https://your-project-ref.supabase.co`, passes the regex fine); and
+  production being unaffected (it's built by Cloudflare's own dashboard-
+  configured "Workers Builds" pipeline, which reads its own dashboard-
+  configured build variables — an entirely separate store from these
+  GitHub repository secrets). The `proxy.ts` → `middleware.ts` revert
+  above was real and worth keeping, but was never the fix for this
+  specific crash — it's a build-time secret, not a middleware-runtime
+  compatibility issue. **The actual fix is out of this sandbox's reach**:
+  a human needs to check GitHub → this repo → Settings → Secrets and
+  variables → Actions → `NEXT_PUBLIC_SUPABASE_URL` (and, since it's set
+  in the same step, worth eyeballing `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  too) is present and a real `https://...supabase.co` value, fix it if
+  not, then re-run `deploy.yml` (a new push, or a manual re-run) to
+  rebuild with the corrected value.
 - `src/middleware.ts` (proxy layer) uses `getSession()` (local cookie
   decode), not `getUser()` (network round-trip), purely for *routing* —
   which page shell to render. It is never the authorization boundary; RLS
