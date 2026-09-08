@@ -84,15 +84,29 @@ npm run dev
 בזמן ריצה (`SUPABASE_SERVICE_ROLE_KEY` המשיך להיראות "חסר" למרות שהיה
 מוגדר שם). כשה-workflow הוא מקור האמת, אין תלות בניווט בדשבורד.
 
+**חשוב: staging ו-production משתמשים בשני פרויקטי Supabase נפרדים
+לגמרי** (לא אותו DB!) — כדי ששינויים/בדיקות ב-staging לעולם לא יגעו
+בנתונים האמיתיים (מתאמנים, תוכניות, היסטוריית אימונים) של הפרודקשן. אז
+לפני ההגדרה למטה: חוזרים על כל שלבי "הקמת Supabase" למעלה (יצירת פרויקט
+חדש, הרצת **כל** המיגרציות 0001–0011 + `seed.sql`, יצירת חשבון מאמן) —
+בפעם השנייה, על פרויקט Supabase **שני, נפרד**, שישמש רק את ה-staging.
+
 **הגדרה חד-פעמית** — ב-GitHub, בריפו הזה: Settings → Secrets and
-variables → Actions → New repository secret, עבור כל אחד מאלה (משותפים
-לשני ה-workflows, אותם ערכים בדיוק — staging ו-production חולקים את אותו
-פרויקט Supabase, רק קוד שונה):
+variables → Actions → New repository secret, עבור כל אחד מאלה:
 - `CLOUDFLARE_API_TOKEN` — מ-dash.cloudflare.com → האייקון של הפרופיל →
-  My Profile → API Tokens → Create Token → תבנית "Edit Cloudflare Workers".
-- `CLOUDFLARE_ACCOUNT_ID` — מופיע בדף הבית של Workers & Pages בדשבורד.
+  My Profile → API Tokens → Create Token → תבנית "Edit Cloudflare
+  Workers" (**משותף** לשני ה-workflows — אותו חשבון Cloudflare, רק Worker
+  אחר).
+- `CLOUDFLARE_ACCOUNT_ID` — מופיע בדף הבית של Workers & Pages בדשבורד
+  (**משותף**, מאותה סיבה).
 - `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`,
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY` — מ-Supabase Project Settings → API.
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` — מ-Supabase Project Settings → API
+  **של פרויקט ה-production** (הראשון). אלה בשימוש `deploy-production.yml`
+  בלבד.
+- `STAGING_SUPABASE_SERVICE_ROLE_KEY`, `STAGING_NEXT_PUBLIC_SUPABASE_URL`,
+  `STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY` — מ-Supabase Project Settings →
+  API **של פרויקט ה-staging הנפרד** (השני, למעלה). אלה בשימוש
+  `deploy.yml` בלבד — **אסור** לשים כאן את הערכים של הפרודקשן.
 
 **כאמור, זה כבר קרה בפועל** (ראו האזהרה למעלה) — כדי לוודא שזה מנוטרל:
 בדשבורד → ה-Worker `yair-kanevsky-forge` → Settings → Build, ולנתק כל

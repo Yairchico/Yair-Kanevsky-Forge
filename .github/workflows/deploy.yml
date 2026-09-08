@@ -25,15 +25,27 @@ name: Deploy to Cloudflare Workers (staging)
 # navigation involved, so there's nothing to get wired to the wrong place
 # (see CLAUDE.md's Known Gotchas for why that matters here).
 #
+# Staging uses its OWN Supabase project — deliberately separate secrets
+# from deploy-production.yml (STAGING_* here vs. the unprefixed ones
+# there), so nothing built/deployed from this branch can ever read or
+# write the real trainer/trainee data. See README's "הקמת Supabase"
+# for setting up the second project and running the same migrations
+# against it.
+#
 # One-time setup (see README's "Deploy" section): add these as GitHub
 # repository secrets under Settings → Secrets and variables → Actions:
-#   CLOUDFLARE_API_TOKEN     (dash.cloudflare.com → My Profile → API
-#                             Tokens → Create Token → "Edit Cloudflare
-#                             Workers" template)
-#   CLOUDFLARE_ACCOUNT_ID    (shown on the Workers & Pages overview page)
-#   SUPABASE_SERVICE_ROLE_KEY
-#   NEXT_PUBLIC_SUPABASE_URL
-#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   CLOUDFLARE_API_TOKEN             (dash.cloudflare.com → My Profile →
+#                                     API Tokens → Create Token → "Edit
+#                                     Cloudflare Workers" template — same
+#                                     token as deploy-production.yml)
+#   CLOUDFLARE_ACCOUNT_ID            (shown on the Workers & Pages
+#                                     overview page — same as production)
+#   STAGING_SUPABASE_SERVICE_ROLE_KEY
+#   STAGING_NEXT_PUBLIC_SUPABASE_URL
+#   STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY
+# (from the STAGING Supabase project's Settings → API — NOT the same
+# values as deploy-production.yml's SUPABASE_SERVICE_ROLE_KEY /
+# NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.)
 
 on:
   push:
@@ -61,8 +73,8 @@ jobs:
       - name: Build
         run: npm run cf:build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       # Re-applied on every run, non-interactively, straight from GitHub's
       # encrypted secrets — this is the actual source of truth from now on.
@@ -72,9 +84,9 @@ jobs:
           printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_URL --env staging
           printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | npx wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --env staging
         env:
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Deploy to staging
         run: npx opennextjs-cloudflare deploy --env staging
