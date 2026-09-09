@@ -26,7 +26,7 @@ interface ExerciseData extends TraineeExerciseData {
   initialLog: LoggedPerformance | null;
 }
 
-interface WorkoutData {
+export interface WorkoutData {
   id: string;
   dayOfWeek: number;
   orderIndex: number;

@@ -1,14 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getWeekStart, toDateKey } from "@/lib/week";
-import { TraineeWorkoutTabs } from "../trainee-workout-tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { TraineeWeekBrowser, type WeekSlot } from "../trainee-week-browser";
+
+/** ±4 weeks around the current one — "up to a month forward and back". */
+const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 
 /**
- * The trainee's actual workouts for the current week — split out from the
- * home screen (/trainee, home-dashboard.tsx), which is now just a summary
- * with a link in here. Same data shape/fetch this page always had before
- * that split.
+ * The trainee's workouts — split out from the home screen (/trainee,
+ * home-dashboard.tsx), which is now just a summary with a link in here.
+ * Fetches every week in the ±4-week window in one round trip (same
+ * "fetch it all up front, switch client-side" approach the within-week
+ * workout tabs already use — see trainee-workout-tabs.tsx) rather than a
+ * server request per week switched to; a week with no published program
+ * still gets its own slot, just an empty one (TraineeWeekBrowser shows a
+ * "no program" message for it instead of a workout list).
  */
 export default async function TraineeWorkoutsPage() {
   const supabase = await createClient();
@@ -28,51 +35,37 @@ export default async function TraineeWorkoutsPage() {
     );
   }
 
-  const currentWeekKey = toDateKey(getWeekStart(new Date()));
+  const currentWeekStart = getWeekStart(new Date());
+  const weekKeys = WEEK_OFFSETS.map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  // Independent of each other (both only need user.id) — run together
-  // instead of one after another.
-  const [{ data: profile }, { data: program }] = await Promise.all([
+  const [{ data: profile }, { data: programs }] = await Promise.all([
     supabase.from("profiles").select("username").eq("id", user.id).single(),
     supabase
       .from("programs")
-      .select("id, title")
+      .select("id, title, week_start_date")
       .eq("trainee_id", user.id)
       .eq("status", "published")
-      .eq("week_start_date", currentWeekKey)
       .is("deleted_at", null)
-      .maybeSingle(),
+      .in("week_start_date", weekKeys),
   ]);
 
-  if (!program) {
-    return (
-      <AppShell title="האימונים שלי" backHref="/trainee" username={profile?.username}>
-        <Card>
-          <CardHeader>
-            <CardTitle>עדיין אין תוכנית מפורסמת לשבוע הזה</CardTitle>
-            <CardDescription>
-              כשהמאמן יפרסם עבורך תוכנית לשבוע הנוכחי, היא תופיע כאן.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </AppShell>
-    );
-  }
+  const publishedPrograms = programs ?? [];
+  const programIds = publishedPrograms.map((p) => p.id);
 
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, day_of_week, order_index")
-    .eq("program_id", program.id)
+    .select("id, program_id, day_of_week, order_index")
+    .in("program_id", programIds.length ? programIds : noRows)
     .order("day_of_week")
     .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
-  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  // Everything below only depends on workoutIds — fetched together so all
-  // "אימון N" tabs and their exercises are ready in one round trip, which
-  // is what makes switching between them a local state change afterward
-  // instead of a fresh server request per tab (see trainee-workout-tabs.tsx).
+  // Everything below only depends on workoutIds — fetched together so
+  // every week's workouts are ready in one round trip, which is what
+  // makes switching between weeks (and, within a week, between its own
+  // workout tabs) a local state change instead of a fresh server request.
   const [
     { data: workoutExercises },
     { data: exercises },
@@ -109,9 +102,7 @@ export default async function TraineeWorkoutsPage() {
   const submittedAtByWorkoutId = new Map(
     (workoutCompletions ?? []).map((c) => [c.workout_id, c.completed_at]),
   );
-  const doneExerciseIds = new Set(
-    (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
-  );
+  const doneExerciseIds = new Set((exerciseCompletions ?? []).map((c) => c.workout_exercise_id));
   // recentLogs is already ordered newest-first, so the first one seen per
   // workout_exercise_id is the latest.
   const latestLogByWorkoutExerciseId = new Map<
@@ -130,36 +121,49 @@ export default async function TraineeWorkoutsPage() {
     });
   }
 
-  const workoutsData = (workouts ?? []).map((w) => ({
-    id: w.id,
-    dayOfWeek: w.day_of_week,
-    orderIndex: w.order_index,
-    submitted: submittedAtByWorkoutId.has(w.id),
-    exercises: (workoutExercises ?? [])
-      .filter((we) => we.workout_id === w.id)
-      .map((we) => {
-        const exercise = exerciseById.get(we.exercise_id);
-        return {
-          id: we.id,
-          name: exercise?.name ?? "תרגיל לא ידוע",
-          muscleGroup: exercise?.muscle_group ?? null,
-          imageUrl: exercise?.media_url ?? null,
-          exerciseDescription: exercise?.instructions ?? null,
-          sets: we.sets,
-          reps: we.reps,
-          weight: we.weight,
-          rpe: we.rpe,
-          restSeconds: we.rest_seconds,
-          instructions: we.instructions,
-          done: doneExerciseIds.has(we.id),
-          initialLog: latestLogByWorkoutExerciseId.get(we.id) ?? null,
-        };
-      }),
-  }));
+  function workoutsForProgram(programId: string) {
+    return (workouts ?? [])
+      .filter((w) => w.program_id === programId)
+      .map((w) => ({
+        id: w.id,
+        dayOfWeek: w.day_of_week,
+        orderIndex: w.order_index,
+        submitted: submittedAtByWorkoutId.has(w.id),
+        exercises: (workoutExercises ?? [])
+          .filter((we) => we.workout_id === w.id)
+          .map((we) => {
+            const exercise = exerciseById.get(we.exercise_id);
+            return {
+              id: we.id,
+              name: exercise?.name ?? "תרגיל לא ידוע",
+              muscleGroup: exercise?.muscle_group ?? null,
+              imageUrl: exercise?.media_url ?? null,
+              exerciseDescription: exercise?.instructions ?? null,
+              sets: we.sets,
+              reps: we.reps,
+              weight: we.weight,
+              rpe: we.rpe,
+              restSeconds: we.rest_seconds,
+              instructions: we.instructions,
+              done: doneExerciseIds.has(we.id),
+              initialLog: latestLogByWorkoutExerciseId.get(we.id) ?? null,
+            };
+          }),
+      }));
+  }
+
+  const programByWeekKey = new Map(publishedPrograms.map((p) => [p.week_start_date, p]));
+  const weeks: WeekSlot[] = weekKeys.map((weekKey) => {
+    const program = programByWeekKey.get(weekKey);
+    return {
+      weekStartDate: weekKey,
+      program: program ? { title: program.title, workouts: workoutsForProgram(program.id) } : null,
+    };
+  });
 
   return (
-    <AppShell title={program.title} backHref="/trainee" username={profile?.username}>
-      <TraineeWorkoutTabs workouts={workoutsData} />
+    <AppShell title="האימונים שלי" backHref="/trainee" username={profile?.username}>
+      <TraineeWeekBrowser weeks={weeks} />
     </AppShell>
   );
 }
