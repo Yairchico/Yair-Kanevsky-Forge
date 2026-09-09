@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
+import { cn } from "@/lib/utils";
 import {
   updateExerciseDetails,
   updateExerciseImage,
@@ -183,12 +184,48 @@ export function ExerciseDetailModal({
         </div>
 
         <div className="flex shrink-0 flex-col items-center gap-2 sm:w-44">
-          <div className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary/10">
+          {/* Tapping the image itself is a second, more direct way to edit
+              an image that already exists (default or uploaded) — on top
+              of the "החלף תמונה" button below, which stays the one clear
+              entry point when there's no image yet. Disabled mid-action
+              (a file is already staged, or the delete confirm is showing)
+              so it can't be mistaken for a way to dismiss those. */}
+          <div
+            role={!readOnly && displaySrc && !previewUrl && !confirmingDelete ? "button" : undefined}
+            tabIndex={!readOnly && displaySrc && !previewUrl && !confirmingDelete ? 0 : undefined}
+            onClick={
+              !readOnly && displaySrc && !previewUrl && !confirmingDelete
+                ? () => fileInputRef.current?.click()
+                : undefined
+            }
+            onKeyDown={
+              !readOnly && displaySrc && !previewUrl && !confirmingDelete
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }
+                  }
+                : undefined
+            }
+            className={cn(
+              "relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary/10",
+              !readOnly && displaySrc && !previewUrl && !confirmingDelete && "cursor-pointer",
+            )}
+          >
             {displaySrc ? (
               // eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host
               <img src={displaySrc} alt={exercise.name} className="h-full w-full object-cover" />
             ) : (
               <Dumbbell className="h-1/3 w-1/3 text-primary" />
+            )}
+            {!readOnly && displaySrc && !previewUrl && !confirmingDelete && (
+              <span
+                aria-hidden="true"
+                className="absolute bottom-1.5 end-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </span>
             )}
           </div>
 
