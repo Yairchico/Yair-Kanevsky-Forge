@@ -153,7 +153,7 @@ export default async function TraineeHomePage() {
 
   return (
     <AppShell title={program.title} username={profile?.username}>
-      <TraineeWorkoutTabs workouts={workoutsData} />
+      <TraineeWorkoutTabs workouts={workoutsData} weekStartDate={currentWeekKey} />
     </AppShell>
   );
 }
