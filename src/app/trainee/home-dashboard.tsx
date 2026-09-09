@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import {
   CalendarClock,
   ChevronLeft,
+  ChevronRight,
   Dumbbell,
   Flame,
   History as HistoryIcon,
@@ -9,9 +13,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { addDays, dayName, parseDateKey } from "@/lib/week";
+import { buttonVariants } from "@/components/ui/button";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 
-export interface CurrentWeekWorkout {
+export interface BrowsableWeekWorkout {
   id: string;
   dayOfWeek: number;
   orderIndex: number;
@@ -20,10 +25,10 @@ export interface CurrentWeekWorkout {
   doneCount: number;
 }
 
-export interface CurrentWeekSummary {
-  programTitle: string;
+export interface BrowsableWeek {
   weekStartDate: string;
-  workouts: CurrentWeekWorkout[];
+  /** null when the trainer hasn't published a program for this week at all. */
+  program: { title: string; workouts: BrowsableWeekWorkout[] } | null;
 }
 
 /** "9.9" — matches the short numeric style already used elsewhere (formatWeekRange). */
@@ -39,28 +44,38 @@ function greeting(hour: number): string {
 }
 
 /**
- * The trainee home screen's content: a greeting, this week's progress +
- * a preview of what's next (both link into /trainee/workouts rather than
- * jumping state directly — this is a separate screen now, not a strip
- * above the workout tabs), a couple of light motivational stats (a
- * completion streak, a 30-day count), a glance at the last thing actually
- * submitted, and two clear paths onward (the workouts themselves, and the
- * history log). No per-exercise detail lives here on purpose — that's the
- * workouts screen's job; this one is meant to be readable in a glance.
+ * The trainee home screen's content: a greeting, a week pager + that
+ * week's summary (browsable up to a month either way — same ±4-week
+ * range /trainee/workouts fetches, see WEEK_OFFSETS in both page.tsx
+ * files), a couple of light motivational stats that stay put regardless
+ * of which week is browsed (a completion streak, a 30-day count), a
+ * glance at the last thing actually submitted, and two clear paths onward
+ * (the workouts screen, and the history log).
+ *
+ * The pager sits ABOVE the week-summary card on purpose, and that card's
+ * own layout stays constant (a fixed two-column grid, or the "no program"
+ * card, never a variable-height stack) — otherwise the prev/next buttons
+ * would shift up and down as their content above changed size while
+ * browsing, which is exactly what made the first version of this
+ * uncomfortable to use.
  */
 export function HomeDashboard({
   traineeName,
-  currentWeek,
+  currentWeekKey,
+  weeks,
   streakWeeks,
   monthlyWorkoutCount,
   lastWorkout,
 }: {
   traineeName: string | null;
-  currentWeek: CurrentWeekSummary | null;
+  currentWeekKey: string;
+  weeks: BrowsableWeek[];
   streakWeeks: number;
   monthlyWorkoutCount: number;
   lastWorkout: { label: string; dateLabel: string } | null;
 }) {
+  const [activeIndex, setActiveIndex] = useState(() => Math.floor(weeks.length / 2));
+
   const now = new Date();
   const todayLabel = now.toLocaleDateString("he-IL", {
     weekday: "long",
@@ -68,7 +83,11 @@ export function HomeDashboard({
     month: "long",
   });
 
-  const workouts = currentWeek?.workouts ?? [];
+  const activeWeek = weeks[activeIndex];
+  const isCurrentWeek = activeWeek?.weekStartDate === currentWeekKey;
+  const weekStart = activeWeek ? parseDateKey(activeWeek.weekStartDate) : null;
+
+  const workouts = activeWeek?.program?.workouts ?? [];
   const totalWorkouts = workouts.length;
   const doneWorkouts = workouts.filter((w) => w.submitted).length;
   const totalExercises = workouts.reduce((sum, w) => sum + w.exerciseCount, 0);
@@ -76,14 +95,18 @@ export function HomeDashboard({
   const workoutPct = totalWorkouts > 0 ? Math.round((doneWorkouts / totalWorkouts) * 100) : 0;
   const exercisePct = totalExercises > 0 ? Math.round((doneExercises / totalExercises) * 100) : 0;
 
-  const nextWorkout = [...workouts]
-    .filter((w) => !w.submitted)
-    .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.orderIndex - b.orderIndex)[0];
+  const nextWorkout = isCurrentWeek
+    ? [...workouts]
+        .filter((w) => !w.submitted)
+        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.orderIndex - b.orderIndex)[0]
+    : undefined;
 
-  function workoutLabel(w: CurrentWeekWorkout): string {
+  function workoutLabel(w: BrowsableWeekWorkout): string {
     const sameDayCount = workouts.filter((x) => x.dayOfWeek === w.dayOfWeek).length;
     return sameDayCount > 1 ? `${dayName(w.dayOfWeek)} · אימון ${w.orderIndex + 1}` : dayName(w.dayOfWeek);
   }
+
+  const viewProgramHref = activeWeek ? `/trainee/workouts?week=${activeWeek.weekStartDate}` : "/trainee/workouts";
 
   return (
     <div className="space-y-4">
@@ -95,17 +118,47 @@ export function HomeDashboard({
         <p className="text-base text-muted-foreground">{todayLabel}</p>
       </div>
 
-      {!currentWeek ? (
+      <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card p-3">
+        <button
+          type="button"
+          disabled={activeIndex <= 0}
+          onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        >
+          <ChevronRight className="h-4 w-4" />
+          שבוע קודם
+        </button>
+
+        <div className="text-center">
+          <p className="text-sm font-medium">{weekStart && formatWeekLabel(weekStart)}</p>
+          <p className="text-xs text-muted-foreground">{weekStart && formatWeekRange(weekStart)}</p>
+        </div>
+
+        <button
+          type="button"
+          disabled={activeIndex >= weeks.length - 1}
+          onClick={() => setActiveIndex((i) => Math.min(weeks.length - 1, i + 1))}
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+        >
+          שבוע הבא
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      </div>
+
+      {!activeWeek?.program ? (
         <Card>
           <CardContent className="p-6 text-base text-muted-foreground">
-            עדיין אין תוכנית מפורסמת לשבוע הזה. כשהמאמן יפרסם עבורך תוכנית, היא תופיע כאן.
+            אין תוכנית מפורסמת לשבוע זה.
+            {isCurrentWeek && " כשהמאמן יפרסם עבורך תוכנית, היא תופיע כאן."}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           <Card>
             <CardContent className="space-y-3 p-4">
-              <p className="text-sm font-semibold text-muted-foreground">התקדמות השבוע</p>
+              <p className="text-sm font-semibold text-muted-foreground">
+                {isCurrentWeek ? "התקדמות השבוע" : "סיכום השבוע"}
+              </p>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-sm">
@@ -143,27 +196,39 @@ export function HomeDashboard({
 
           <Card>
             <CardContent className="flex flex-col gap-2.5 p-4">
-              <p className="text-sm font-semibold text-muted-foreground">האימון הבא</p>
+              <p className="text-sm font-semibold text-muted-foreground">
+                {isCurrentWeek ? "האימון הבא" : "התוכנית לשבוע זה"}
+              </p>
 
-              {nextWorkout ? (
+              {isCurrentWeek && nextWorkout ? (
                 <Link
-                  href="/trainee/workouts"
+                  href={viewProgramHref}
                   className="group -m-1 flex items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-muted"
                 >
                   <CalendarClock className="h-6 w-6 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-medium">{workoutLabel(nextWorkout)}</p>
                     <p className="text-sm text-muted-foreground">
-                      {formatDayDate(addDays(parseDateKey(currentWeek.weekStartDate), nextWorkout.dayOfWeek))}
+                      {formatDayDate(addDays(weekStart!, nextWorkout.dayOfWeek))}
                     </p>
                   </div>
                   <ChevronLeft className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5" />
                 </Link>
-              ) : (
+              ) : isCurrentWeek ? (
                 <div className="flex items-center gap-2.5 text-success">
                   <PartyPopper className="h-6 w-6 shrink-0" />
                   <p className="text-base font-medium">כל האימונים הוגשו השבוע!</p>
                 </div>
+              ) : (
+                <>
+                  <p className="truncate text-base font-medium">{activeWeek.program.title}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {totalWorkouts} {totalWorkouts === 1 ? "אימון מתוכנן" : "אימונים מתוכננים"}
+                  </p>
+                  <Link href={viewProgramHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
+                    לצפייה בתוכנית
+                  </Link>
+                </>
               )}
             </CardContent>
           </Card>

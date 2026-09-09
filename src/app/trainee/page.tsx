@@ -3,14 +3,20 @@ import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDays, getWeekStart, toDateKey } from "@/lib/week";
 import { formatShortDateTime } from "@/lib/format";
-import { HomeDashboard, type CurrentWeekSummary } from "./home-dashboard";
+import { HomeDashboard, type BrowsableWeek } from "./home-dashboard";
+
+/**
+ * ±4 weeks around the current one — matches WEEK_OFFSETS in
+ * /trainee/workouts/page.tsx exactly, so "לצפייה בתוכנית" from a given
+ * week here always lands on a week that page can actually show.
+ */
+const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
 
 /**
  * The trainee's home screen: a light "how am I doing" summary, not the
- * workouts themselves (those moved to /trainee/workouts, see that page and
- * trainee-workout-tabs.tsx) — this page owns none of the per-exercise data,
- * only counts and dates, so its query stays cheap regardless of how much
- * detail a program's exercises carry.
+ * workouts themselves (those are /trainee/workouts) — this page owns none
+ * of the per-exercise data, only counts and dates, so its query stays
+ * cheap regardless of how much detail a program's exercises carry.
  */
 export default async function TraineeHomePage() {
   const supabase = await createClient();
@@ -32,7 +38,11 @@ export default async function TraineeHomePage() {
 
   const currentWeekStart = getWeekStart(new Date());
   const currentWeekKey = toDateKey(currentWeekStart);
-  const eightWeeksAgoKey = toDateKey(addDays(currentWeekStart, -8 * 7));
+  // Streak needs deeper history than the browsable range (WEEK_OFFSETS
+  // only reaches -4 weeks back) — one combined fetch covering both, from
+  // -8 weeks (streak) through +4 weeks (browsable).
+  const streakWindowStartKey = toDateKey(addDays(currentWeekStart, -8 * 7));
+  const browseEndKey = toDateKey(addDays(currentWeekStart, 4 * 7));
 
   const [{ data: profile }, { data: programs }] = await Promise.all([
     supabase.from("profiles").select("username, full_name").eq("id", user.id).single(),
@@ -42,7 +52,8 @@ export default async function TraineeHomePage() {
       .eq("trainee_id", user.id)
       .eq("status", "published")
       .is("deleted_at", null)
-      .gte("week_start_date", eightWeeksAgoKey)
+      .gte("week_start_date", streakWindowStartKey)
+      .lte("week_start_date", browseEndKey)
       .order("week_start_date", { ascending: false }),
   ]);
 
@@ -89,8 +100,8 @@ export default async function TraineeHomePage() {
   }
 
   // One entry per program (= per week), each carrying its own workouts —
-  // built once, then used for the current week's card, the completion
-  // streak, and (implicitly) the monthly count below.
+  // used for the browsable weeks below, the completion streak, and
+  // (implicitly) the monthly count further down.
   const weeks = allPrograms.map((program) => {
     const programWorkouts = (workouts ?? [])
       .filter((w) => w.program_id === program.id)
@@ -113,17 +124,25 @@ export default async function TraineeHomePage() {
     };
   });
 
-  const currentWeek = weeks.find((w) => w.weekStartDate === currentWeekKey);
-  const currentWeekSummary: CurrentWeekSummary | null = currentWeek
-    ? { programTitle: currentWeek.title, weekStartDate: currentWeek.weekStartDate, workouts: currentWeek.workouts }
-    : null;
+  const weekByKey = new Map(weeks.map((w) => [w.weekStartDate, w]));
+
+  // Every offset gets a slot even if nothing's published for it — the
+  // dashboard shows a "no program" message for those instead of skipping
+  // them, same as the full workouts screen.
+  const browsableWeeks: BrowsableWeek[] = WEEK_OFFSETS.map((offset) => {
+    const weekKey = toDateKey(addDays(currentWeekStart, offset * 7));
+    const week = weekByKey.get(weekKey);
+    return {
+      weekStartDate: weekKey,
+      program: week ? { title: week.title, workouts: week.workouts } : null,
+    };
+  });
 
   // Consecutive fully-submitted weeks counting back from the week right
   // before this one (the current week is still in progress, so it's never
   // part of the streak yet) — a week has to be exactly 7 days before the
   // last to keep the streak alive, so a week with no published program at
   // all breaks it too, not just one with unfinished workouts.
-  const weekByKey = new Map(weeks.map((w) => [w.weekStartDate, w]));
   let streakWeeks = 0;
   let cursor = addDays(currentWeekStart, -7);
   while (true) {
@@ -159,7 +178,8 @@ export default async function TraineeHomePage() {
     <AppShell title="בית" username={profile?.username}>
       <HomeDashboard
         traineeName={profile?.full_name?.split(" ")[0] ?? null}
-        currentWeek={currentWeekSummary}
+        currentWeekKey={currentWeekKey}
+        weeks={browsableWeeks}
         streakWeeks={streakWeeks}
         monthlyWorkoutCount={monthlyWorkoutCount}
         lastWorkout={lastWorkout}

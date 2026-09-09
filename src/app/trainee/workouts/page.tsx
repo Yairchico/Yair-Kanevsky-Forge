@@ -17,7 +17,13 @@ const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
  * still gets its own slot, just an empty one (TraineeWeekBrowser shows a
  * "no program" message for it instead of a workout list).
  */
-export default async function TraineeWorkoutsPage() {
+export default async function TraineeWorkoutsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ week?: string }>;
+}) {
+  const { week: requestedWeek } = await searchParams;
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -163,7 +169,7 @@ export default async function TraineeWorkoutsPage() {
 
   return (
     <AppShell title="האימונים שלי" backHref="/trainee" username={profile?.username}>
-      <TraineeWeekBrowser weeks={weeks} />
+      <TraineeWeekBrowser weeks={weeks} initialWeek={requestedWeek} />
     </AppShell>
   );
 }
