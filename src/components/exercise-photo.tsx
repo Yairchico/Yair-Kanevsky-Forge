@@ -5,6 +5,42 @@ import { Dumbbell, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
+ * A plain, non-interactive thumbnail — same sizing/placeholder as
+ * ExercisePhoto below, minus its click-to-zoom lightbox. For spots where
+ * the thumbnail's own click already does something else (the exercise
+ * library grid opens a detail modal per card; the program builder's
+ * exercise picker adds the exercise to the workout) — ExercisePhoto's
+ * internal lightbox button would fight that outer click there.
+ */
+export function ExerciseThumbnail({
+  src,
+  alt = "",
+  className,
+}: {
+  src: string | null;
+  alt?: string;
+  className?: string;
+}) {
+  if (!src) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center bg-primary/10 text-primary",
+          className,
+        )}
+      >
+        <Dumbbell className="h-1/3 w-1/3" />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host
+    <img src={src} alt={alt} loading="lazy" className={cn("shrink-0 object-cover", className)} />
+  );
+}
+
+/**
  * A thumbnail that opens a full-size lightbox on click/tap — exercise
  * photos are informative (form, setup) and the thumbnails are small, so
  * being able to blow one up matters more here than for most images in

@@ -1,16 +1,15 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
-import { ImageOff, ImagePlus, Pencil, SearchX, Trash2 } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { SearchX, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
-import { ExercisePhoto } from "@/components/exercise-photo";
-import { ExerciseImageField } from "@/components/exercise-image-field";
+import { ExerciseThumbnail } from "@/components/exercise-photo";
 import { cn } from "@/lib/utils";
-import { deleteExercise, updateExerciseImage, type UpdateExerciseImageState } from "./actions";
+import { deleteExercise } from "./actions";
+import { ExerciseDetailModal } from "./exercise-detail-modal";
 
 interface Exercise {
   id: string;
@@ -19,121 +18,6 @@ interface Exercise {
   equipment: string | null;
   is_custom: boolean;
   media_url: string | null;
-}
-
-const initialImageState: UpdateExerciseImageState = {};
-
-/**
- * Every exercise has a picture (a real default photo — see
- * src/lib/exercise-image.ts). A trainer can view it full-size by clicking
- * the thumbnail (ExercisePhoto's own built-in lightbox, rendered by the
- * parent card — nothing to do here), and edit it: upload a file, or paste
- * a URL (the upload wins if both are given, see resolveMediaUrl), or clear
- * it entirely. Collapsed behind small text controls so the grid stays
- * scannable — "החלף תמונה"/"מחק תמונה" once an image is set, "הוסף תמונה"
- * when it isn't.
- */
-function ExerciseImageEditor({ exercise }: { exercise: Exercise }) {
-  const [editing, setEditing] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deletePending, startDeleteTransition] = useTransition();
-  const [deleteError, setDeleteError] = useState<string | undefined>();
-
-  const action = updateExerciseImage.bind(null, exercise.id);
-  const [state, formAction, pending] = useActionState(action, initialImageState);
-
-  const [prevState, setPrevState] = useState(state);
-  if (state !== prevState) {
-    setPrevState(state);
-    if (state.success && editing) setEditing(false);
-  }
-
-  function handleDeleteImage() {
-    startDeleteTransition(async () => {
-      // Empty FormData: no file, no media_url — resolveMediaUrl resolves
-      // that to { mediaUrl: null }, i.e. clears the image.
-      const result = await updateExerciseImage(exercise.id, initialImageState, new FormData());
-      if (result.error) {
-        setDeleteError(result.error);
-        setConfirmingDelete(false);
-      }
-    });
-  }
-
-  if (editing) {
-    return (
-      <form action={formAction} className="mt-1.5 space-y-1.5">
-        <ExerciseImageField urlDefaultValue={exercise.media_url ?? ""} size="sm" />
-        {state.error && <p className="text-xs text-destructive">{state.error}</p>}
-        <div className="flex gap-1.5">
-          <Button type="submit" size="sm" disabled={pending}>
-            {pending ? "שומר…" : "שמור"}
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
-            ביטול
-          </Button>
-        </div>
-      </form>
-    );
-  }
-
-  if (confirmingDelete) {
-    return (
-      <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-        <span className="text-muted-foreground">למחוק את התמונה?</span>
-        <button
-          type="button"
-          onClick={handleDeleteImage}
-          disabled={deletePending}
-          className="font-medium text-destructive hover:underline"
-        >
-          {deletePending ? "מוחק…" : "כן"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setConfirmingDelete(false)}
-          className="text-muted-foreground hover:underline"
-        >
-          לא
-        </button>
-      </div>
-    );
-  }
-
-  if (!exercise.media_url) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-      >
-        <ImagePlus className="h-3 w-3" />
-        הוסף תמונה
-      </button>
-    );
-  }
-
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-      >
-        <Pencil className="h-3 w-3" />
-        החלף תמונה
-      </button>
-      <button
-        type="button"
-        onClick={() => setConfirmingDelete(true)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
-      >
-        <ImageOff className="h-3 w-3" />
-        מחק תמונה
-      </button>
-      {deleteError && <p className="w-full text-xs text-destructive">{deleteError}</p>}
-    </div>
-  );
 }
 
 /** Inline confirm, not a full dialog — deleting one exercise from a list is routine. */
@@ -197,6 +81,11 @@ function DeleteExerciseButton({ exercise }: { exercise: Exercise }) {
  * array — no network round trip, no debounce needed, no server-navigation
  * latency. This replaced a version that filtered via ?q=/?group= URL
  * params (a full server re-render per interaction, which felt slow).
+ *
+ * Clicking a card opens ExerciseDetailModal (name/muscle-group/equipment +
+ * a real-size image, with their own edit controls) — "מחק תרגיל" stays a
+ * quick action directly on the card, stopping propagation so it doesn't
+ * also open the modal.
  */
 export function ExerciseLibrary({
   exercises,
@@ -207,6 +96,7 @@ export function ExerciseLibrary({
 }) {
   const [q, setQ] = useState("");
   const [group, setGroup] = useState<string | null>(null);
+  const [openExerciseId, setOpenExerciseId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -216,6 +106,11 @@ export function ExerciseLibrary({
       return true;
     });
   }, [exercises, q, group]);
+
+  // Re-derived from the (possibly just-revalidated) exercises prop rather
+  // than held as its own snapshot, so an edit inside the modal is reflected
+  // immediately without a stale copy of the exercise floating around.
+  const openExercise = openExerciseId ? exercises.find((e) => e.id === openExerciseId) : undefined;
 
   return (
     <div className="space-y-4">
@@ -258,9 +153,21 @@ export function ExerciseLibrary({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((ex) => (
-            <Card key={ex.id} className="transition-shadow hover:shadow-sm">
+            <Card
+              key={ex.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setOpenExerciseId(ex.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpenExerciseId(ex.id);
+                }
+              }}
+              className="cursor-pointer transition-shadow hover:shadow-sm"
+            >
               <CardContent className="flex items-start gap-3 p-4">
-                <ExercisePhoto
+                <ExerciseThumbnail
                   src={getExerciseImage(ex)}
                   className="h-14 w-14 rounded-lg bg-primary/10"
                 />
@@ -277,8 +184,7 @@ export function ExerciseLibrary({
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
                   {!readOnly && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <ExerciseImageEditor exercise={ex} />
+                    <div onClick={(e) => e.stopPropagation()}>
                       <DeleteExerciseButton exercise={ex} />
                     </div>
                   )}
@@ -287,6 +193,14 @@ export function ExerciseLibrary({
             </Card>
           ))}
         </div>
+      )}
+
+      {openExercise && (
+        <ExerciseDetailModal
+          exercise={openExercise}
+          readOnly={readOnly}
+          onClose={() => setOpenExerciseId(null)}
+        />
       )}
     </div>
   );

@@ -13,17 +13,17 @@ export interface CreateExerciseState {
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /**
- * Shared by createExercise, updateExerciseImage and createExerciseInline:
- * an uploaded file (stored in the "exercise-images" Storage bucket,
- * migration 0008) wins over a pasted URL if both are given; returns null
- * if neither was given.
+ * Shared by createExercise, updateExerciseImage and createExerciseInline: an
+ * uploaded file (stored in the "exercise-images" Storage bucket, migration
+ * 0008). File upload only — pasting an external URL used to be allowed too,
+ * but was removed so every exercise photo actually lives in our own bucket.
+ * Returns null (clears the image) if no file was given.
  */
 async function resolveMediaUrl(
   supabase: Supabase,
   exerciseId: string,
   formData: FormData,
 ): Promise<{ mediaUrl: string | null } | { error: string }> {
-  const urlInput = String(formData.get("media_url") ?? "").trim();
   const file = formData.get("image_file");
 
   if (file instanceof File && file.size > 0) {
@@ -57,11 +57,11 @@ async function resolveMediaUrl(
       return { mediaUrl: supabase.storage.from("exercise-images").getPublicUrl(path).data.publicUrl };
     } catch (err) {
       console.error("resolveMediaUrl: unexpected upload error", err);
-      return { error: "שגיאה בלתי צפויה בהעלאת התמונה. נסה שוב, או הדבק קישור לתמונה במקום." };
+      return { error: "שגיאה בלתי צפויה בהעלאת התמונה. נסה שוב." };
     }
   }
 
-  return { mediaUrl: urlInput || null };
+  return { mediaUrl: null };
 }
 
 /**
@@ -128,17 +128,58 @@ export async function createExercise(
   redirect("/trainer/exercises");
 }
 
+export interface UpdateExerciseDetailsState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * Name/muscle-group/equipment on an existing (catalog) exercise — edited
+ * from the exercise-detail modal (exercise-detail-modal.tsx). This is
+ * shared library data: changing it ripples through every program that
+ * already references the exercise (they all point at the same row), which
+ * is deliberate — a trainer fixing a typo or reclassifying an exercise
+ * expects it to update everywhere, not fork per program.
+ */
+export async function updateExerciseDetails(
+  exerciseId: string,
+  _prevState: UpdateExerciseDetailsState,
+  formData: FormData,
+): Promise<UpdateExerciseDetailsState> {
+  const name = String(formData.get("name") ?? "").trim();
+  const muscleGroup = String(formData.get("muscle_group") ?? "").trim() || null;
+  const equipment = String(formData.get("equipment") ?? "").trim() || null;
+
+  if (!name) {
+    return { error: "נא להזין שם תרגיל" };
+  }
+
+  const supabase = await createClient();
+  // RLS ("trainer manages exercises") restricts this to role='trainer'.
+  const { error } = await supabase
+    .from("exercises")
+    .update({ name, muscle_group: muscleGroup, equipment })
+    .eq("id", exerciseId);
+
+  if (error) {
+    return {
+      error: error.code === "23505" ? "כבר קיים תרגיל בשם הזה" : "שגיאה בשמירת התרגיל",
+    };
+  }
+
+  revalidatePath("/trainer/exercises");
+  return { success: true };
+}
+
 export interface UpdateExerciseImageState {
   error?: string;
   success?: boolean;
 }
 
 /**
- * The only editable field on an existing (catalog) exercise: its image.
- * Everything else about a base exercise is shared library data — changing
- * a name/muscle-group here would ripple through every program that already
- * references it, which isn't what "edit" is meant to do. Clearing both the
- * file and the URL leaves the exercise with no image again.
+ * An existing (catalog) exercise's image: upload a file, or clear it
+ * (empty FormData — no "image_file" — resolves to null, see
+ * resolveMediaUrl). Called from the exercise-detail modal.
  */
 export async function updateExerciseImage(
   exerciseId: string,
