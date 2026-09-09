@@ -76,7 +76,9 @@ export default async function TraineeDetailPage({
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds")
+      .select(
+        "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
+      )
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name, muscle_group"),
@@ -147,6 +149,7 @@ export default async function TraineeDetailPage({
                 rpe: we.rpe,
                 restSeconds: we.rest_seconds,
               },
+              instructions: we.instructions,
               done: doneExerciseIds.has(we.id),
               log: latestLogByWorkoutExerciseId.get(we.id) ?? null,
             };
