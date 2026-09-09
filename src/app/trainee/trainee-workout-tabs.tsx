@@ -1,20 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { History } from "lucide-react";
+import { Check, ChevronLeft, History } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatWeight } from "@/lib/format";
 import { getExerciseImage } from "@/lib/exercise-image";
-import { ExercisePhoto } from "@/components/exercise-photo";
+import { ExerciseThumbnail } from "@/components/exercise-photo";
 import { dayName } from "@/lib/week";
-import {
-  ExerciseCheckbox,
-  PerformanceEntryFields,
-  SubmitWorkoutButton,
-} from "./workout-actions";
+import { Toast, useToast } from "@/components/toast";
+import { SubmitWorkoutButton } from "./workout-actions";
+import { toggleExerciseCompletion } from "./actions";
 import type { LoggedPerformance, PerformanceEntry } from "./actions";
+import { TraineeExerciseModal, type TraineeExerciseData } from "./trainee-exercise-modal";
 import {
   loadWorkoutDraft,
   saveWorkoutDraft,
@@ -23,17 +21,7 @@ import {
   type WorkoutExerciseDraft,
 } from "@/lib/workout-draft";
 
-interface ExerciseData {
-  id: string;
-  name: string;
-  muscleGroup: string | null;
-  imageUrl: string | null;
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
-  restSeconds: number | null;
-  instructions: string | null;
+interface ExerciseData extends TraineeExerciseData {
   done: boolean;
   initialLog: LoggedPerformance | null;
 }
@@ -97,7 +85,7 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
 
       {!activeWorkout || activeWorkout.exercises.length === 0 ? (
         <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
+          <CardContent className="p-6 text-base text-muted-foreground">
             אין תרגילים באימון הזה.
           </CardContent>
         </Card>
@@ -113,12 +101,14 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
 }
 
 /**
- * Owns one workout's performance-entry draft: initialized from
- * localStorage (falling back to the trainee's last logged values per
- * exercise), updated on every keystroke, and persisted right back to
- * localStorage so it survives a closed tab. There's no per-exercise save
- * anymore — SubmitWorkoutButton reads the whole draft at submit time and
- * writes it to the server in one batch.
+ * Owns one workout's performance-entry draft (localStorage, survives a
+ * closed tab — see src/lib/workout-draft.ts) and its per-exercise "done"
+ * state. The exercise list itself is just clickable name cards; all the
+ * actual detail (the trainer's guidance, the exercise's image/description,
+ * the performance fields, and the "done" toggle) lives in
+ * TraineeExerciseModal, opened per exercise. There's no per-exercise
+ * "save" to the server — SubmitWorkoutButton reads the whole draft at
+ * submit time and writes it in one batch.
  */
 function WorkoutPanel({ workout }: { workout: WorkoutData }) {
   const [draft, setDraft] = useState<WorkoutDraft>(() => {
@@ -135,11 +125,26 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
     return initial;
   });
 
+  const [doneMap, setDoneMap] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(workout.exercises.map((ex) => [ex.id, ex.done])),
+  );
+  const [, startDoneTransition] = useTransition();
+
+  const [openExerciseId, setOpenExerciseId] = useState<string | null>(null);
+  const toast = useToast();
+
   function updateEntry(exerciseId: string, next: WorkoutExerciseDraft) {
     setDraft((prev) => {
       const updated = { ...prev, [exerciseId]: next };
       saveWorkoutDraft(workout.id, updated);
       return updated;
+    });
+  }
+
+  function toggleDone(exerciseId: string, next: boolean) {
+    setDoneMap((prev) => ({ ...prev, [exerciseId]: next }));
+    startDoneTransition(() => {
+      void toggleExerciseCompletion(exerciseId, next);
     });
   }
 
@@ -156,45 +161,77 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
     });
   }
 
+  const openExercise = openExerciseId
+    ? workout.exercises.find((ex) => ex.id === openExerciseId)
+    : undefined;
+
   return (
     <>
-      <div className="space-y-3">
-        {workout.exercises.map((ex) => (
-          <Card key={ex.id}>
-            <CardContent className="flex items-start gap-3 p-4">
-              <ExercisePhoto
-                src={getExerciseImage({ name: ex.name, muscle_group: ex.muscleGroup, media_url: ex.imageUrl })}
-                className="h-12 w-12 rounded-lg bg-primary/10"
-              />
-              <ExerciseCheckbox workoutExerciseId={ex.id} completed={ex.done} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{ex.name}</p>
-                {ex.muscleGroup && (
-                  <p className="text-xs text-muted-foreground">{ex.muscleGroup}</p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                  {ex.sets != null && <span>{ex.sets} סטים</span>}
-                  {ex.reps && <span>{ex.reps} חזרות</span>}
-                  {ex.weight && <span>{formatWeight(ex.weight)}</span>}
-                  {ex.rpe != null && <span>RPE {ex.rpe}</span>}
-                  {ex.restSeconds != null && <span>{ex.restSeconds} שנ׳ מנוחה</span>}
-                </div>
-                {ex.instructions && <p className="mt-2 text-sm">{ex.instructions}</p>}
-                <PerformanceEntryFields
-                  value={draft[ex.id] ?? EMPTY_DRAFT_ENTRY}
-                  onChange={(next) => updateEntry(ex.id, next)}
+      <div className="space-y-2.5">
+        {workout.exercises.map((ex) => {
+          const done = doneMap[ex.id] ?? false;
+          return (
+            <Card
+              key={ex.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setOpenExerciseId(ex.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpenExerciseId(ex.id);
+                }
+              }}
+              className={cn(
+                "cursor-pointer transition-shadow hover:shadow-sm",
+                done && "border-success/40 bg-success/5",
+              )}
+            >
+              <CardContent className="flex items-center gap-3 p-4">
+                <ExerciseThumbnail
+                  src={getExerciseImage({
+                    name: ex.name,
+                    muscle_group: ex.muscleGroup,
+                    media_url: ex.imageUrl,
+                  })}
+                  className="h-12 w-12 rounded-lg bg-primary/10"
                 />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                <div
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2",
+                    done ? "border-success bg-success text-success-foreground" : "border-border text-transparent",
+                  )}
+                >
+                  <Check className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-medium">{ex.name}</p>
+                  {ex.muscleGroup && (
+                    <p className="text-sm text-muted-foreground">{ex.muscleGroup}</p>
+                  )}
+                </div>
+                <ChevronLeft className="h-5 w-5 shrink-0 text-muted-foreground" />
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      <SubmitWorkoutButton
-        workoutId={workout.id}
-        submitted={workout.submitted}
-        getEntries={getEntries}
-      />
+      <SubmitWorkoutButton workoutId={workout.id} submitted={workout.submitted} getEntries={getEntries} />
+
+      {openExercise && (
+        <TraineeExerciseModal
+          exercise={openExercise}
+          done={doneMap[openExercise.id] ?? false}
+          draft={draft[openExercise.id] ?? EMPTY_DRAFT_ENTRY}
+          onDraftChange={(next) => updateEntry(openExercise.id, next)}
+          onToggleDone={(next) => toggleDone(openExercise.id, next)}
+          onClose={() => setOpenExerciseId(null)}
+          onToast={toast.show}
+        />
+      )}
+
+      <Toast message={toast.message} />
     </>
   );
 }
