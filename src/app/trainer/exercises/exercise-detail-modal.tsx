@@ -231,7 +231,7 @@ export function ExerciseDetailModal({
                     לא
                   </button>
                 </div>
-              ) : exercise.media_url ? (
+              ) : displaySrc ? (
                 <div className="flex gap-1.5">
                   <Button
                     type="button"
@@ -243,15 +243,22 @@ export function ExerciseDetailModal({
                     <Pencil className="h-3.5 w-3.5" />
                     החלף תמונה
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    aria-label="מחק תמונה"
-                    onClick={() => setConfirmingDelete(true)}
-                  >
-                    <ImageOff className="h-3.5 w-3.5" />
-                  </Button>
+                  {/* Deleting only makes sense when this exercise actually
+                      has its own media_url set — a base exercise showing
+                      its seed-matched default photo (src/lib/exercise-image.ts)
+                      has nothing to clear, since that default isn't stored
+                      on the row at all. */}
+                  {exercise.media_url && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      aria-label="מחק תמונה"
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      <ImageOff className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <Button
