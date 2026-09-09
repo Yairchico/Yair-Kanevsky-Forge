@@ -30,6 +30,7 @@ export async function toggleExerciseCompletion(
   }
 
   revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
   revalidatePath("/trainer/trainees/[id]", "page");
 }
 
@@ -158,6 +159,7 @@ export async function submitWorkout(
   }
 
   revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
   revalidatePath("/trainer/trainees/[id]", "page");
   return {};
 }

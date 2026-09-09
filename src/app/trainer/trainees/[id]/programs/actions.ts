@@ -181,6 +181,7 @@ export async function deleteProgram(
   revalidatePath(`/trainer/trainees/${traineeId}`);
   revalidatePath("/trainer");
   revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
   redirect(`/trainer/trainees/${traineeId}`);
 }
 

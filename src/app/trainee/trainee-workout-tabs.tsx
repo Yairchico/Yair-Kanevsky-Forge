@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Check, ChevronLeft, History } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import { SubmitWorkoutButton } from "./workout-actions";
 import { toggleExerciseCompletion } from "./actions";
 import type { LoggedPerformance, PerformanceEntry } from "./actions";
 import { TraineeExerciseModal, type TraineeExerciseData } from "./trainee-exercise-modal";
-import { WeekDashboard, type WorkoutSummary } from "./week-dashboard";
 import {
   loadWorkoutDraft,
   saveWorkoutDraft,
@@ -44,38 +43,20 @@ interface WorkoutData {
  *
  * Defaults to the earliest not-yet-submitted workout (falling back to the
  * first one if everything's already done) instead of always the first tab
- * — a trainee opening the app mid-week usually wants to pick up where they
- * left off, not re-see Sunday's already-submitted workout.
+ * — a trainee opening this screen mid-week usually wants to pick up where
+ * they left off, not re-see Sunday's already-submitted workout. (The
+ * weekly progress summary and "האימון הבא" preview live on the home
+ * screen, /trainee — see home-dashboard.tsx — not here; this screen is
+ * just the workouts themselves.)
  */
-export function TraineeWorkoutTabs({
-  workouts,
-  weekStartDate,
-}: {
-  workouts: WorkoutData[];
-  weekStartDate: string;
-}) {
+export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
   const [activeId, setActiveId] = useState(
     () => workouts.find((w) => !w.submitted)?.id ?? workouts[0]?.id ?? null,
   );
   const activeWorkout = workouts.find((w) => w.id === activeId) ?? workouts[0];
 
-  const workoutSummaries: WorkoutSummary[] = useMemo(
-    () =>
-      workouts.map((w) => ({
-        id: w.id,
-        dayOfWeek: w.dayOfWeek,
-        orderIndex: w.orderIndex,
-        submitted: w.submitted,
-        exerciseCount: w.exercises.length,
-        doneCount: w.exercises.filter((ex) => ex.done).length,
-      })),
-    [workouts],
-  );
-
   return (
-    <div className="space-y-4">
-      <WeekDashboard weekStartDate={weekStartDate} workouts={workoutSummaries} onJumpToWorkout={setActiveId} />
-
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto pb-1">
           {workouts.map((w) => {

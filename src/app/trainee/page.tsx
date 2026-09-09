@@ -1,9 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getWeekStart, toDateKey } from "@/lib/week";
-import { TraineeWorkoutTabs } from "./trainee-workout-tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { formatShortDateTime } from "@/lib/format";
+import { HomeDashboard, type CurrentWeekSummary } from "./home-dashboard";
 
+/**
+ * The trainee's home screen: a light "how am I doing" summary, not the
+ * workouts themselves (those moved to /trainee/workouts, see that page and
+ * trainee-workout-tabs.tsx) — this page owns none of the per-exercise data,
+ * only counts and dates, so its query stays cheap regardless of how much
+ * detail a program's exercises carry.
+ */
 export default async function TraineeHomePage() {
   const supabase = await createClient();
   const {
@@ -12,9 +20,9 @@ export default async function TraineeHomePage() {
 
   if (!user) {
     return (
-      <AppShell title="השבוע שלי">
+      <AppShell title="בית">
         <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
+          <CardContent className="p-6 text-base text-muted-foreground">
             שגיאת התחברות.
           </CardContent>
         </Card>
@@ -22,138 +30,140 @@ export default async function TraineeHomePage() {
     );
   }
 
-  const currentWeekKey = toDateKey(getWeekStart(new Date()));
+  const currentWeekStart = getWeekStart(new Date());
+  const currentWeekKey = toDateKey(currentWeekStart);
+  const eightWeeksAgoKey = toDateKey(addDays(currentWeekStart, -8 * 7));
 
-  // Independent of each other (both only need user.id) — run together
-  // instead of one after another.
-  const [{ data: profile }, { data: program }] = await Promise.all([
-    supabase.from("profiles").select("username").eq("id", user.id).single(),
+  const [{ data: profile }, { data: programs }] = await Promise.all([
+    supabase.from("profiles").select("username, full_name").eq("id", user.id).single(),
     supabase
       .from("programs")
-      .select("id, title")
+      .select("id, title, week_start_date")
       .eq("trainee_id", user.id)
       .eq("status", "published")
-      .eq("week_start_date", currentWeekKey)
       .is("deleted_at", null)
-      .maybeSingle(),
+      .gte("week_start_date", eightWeeksAgoKey)
+      .order("week_start_date", { ascending: false }),
   ]);
 
-  if (!program) {
-    return (
-      <AppShell title="השבוע שלי" username={profile?.username}>
-        <Card>
-          <CardHeader>
-            <CardTitle>עדיין אין תוכנית מפורסמת לשבוע הזה</CardTitle>
-            <CardDescription>
-              כשהמאמן יפרסם עבורך תוכנית לשבוע הנוכחי, היא תופיע כאן.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </AppShell>
-    );
-  }
+  const allPrograms = programs ?? [];
+  const programIds = allPrograms.map((p) => p.id);
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, day_of_week, order_index")
-    .eq("program_id", program.id)
+    .select("id, program_id, day_of_week, order_index")
+    .in("program_id", programIds.length ? programIds : noRows)
     .order("day_of_week")
     .order("order_index");
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
-  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  // Everything below only depends on workoutIds — fetched together so all
-  // "אימון N" tabs and their exercises are ready in one round trip, which
-  // is what makes switching between them a local state change afterward
-  // instead of a fresh server request per tab (see trainee-workout-tabs.tsx).
-  const [
-    { data: workoutExercises },
-    { data: exercises },
-    { data: workoutCompletions },
-    { data: exerciseCompletions },
-    { data: recentLogs },
-  ] = await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .select(
-        "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-      )
-      .in("workout_id", workoutIds.length ? workoutIds : noRows)
-      .order("order_index"),
-    supabase.from("exercises").select("id, name, muscle_group, media_url, instructions"),
-    supabase
-      .from("workout_completions")
-      .select("workout_id, completed_at")
-      .eq("trainee_id", user.id)
-      .in("workout_id", workoutIds.length ? workoutIds : noRows),
-    supabase
-      .from("workout_exercise_completions")
-      .select("workout_exercise_id")
-      .eq("trainee_id", user.id),
-    supabase
-      .from("workout_logs")
-      .select("workout_exercise_id, performed_at, actual_sets, rpe_actual, notes")
-      .eq("trainee_id", user.id)
-      .order("performed_at", { ascending: false })
-      .limit(200),
-  ]);
+  const [{ data: workoutExercises }, { data: completions }, { data: exerciseCompletions }] =
+    await Promise.all([
+      supabase
+        .from("workout_exercises")
+        .select("id, workout_id")
+        .in("workout_id", workoutIds.length ? workoutIds : noRows),
+      supabase
+        .from("workout_completions")
+        .select("workout_id, completed_at")
+        .eq("trainee_id", user.id)
+        .in("workout_id", workoutIds.length ? workoutIds : noRows),
+      supabase
+        .from("workout_exercise_completions")
+        .select("workout_exercise_id")
+        .eq("trainee_id", user.id),
+    ]);
 
-  const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
+  const programById = new Map(allPrograms.map((p) => [p.id, p]));
   const submittedAtByWorkoutId = new Map(
-    (workoutCompletions ?? []).map((c) => [c.workout_id, c.completed_at]),
+    (completions ?? []).map((c) => [c.workout_id, c.completed_at]),
   );
-  const doneExerciseIds = new Set(
-    (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
-  );
-  // recentLogs is already ordered newest-first, so the first one seen per
-  // workout_exercise_id is the latest.
-  const latestLogByWorkoutExerciseId = new Map<
-    string,
-    { weight: string | null; reps: string | null; rpe: number | null; notes: string | null; performedAt: string }
-  >();
-  for (const log of recentLogs ?? []) {
-    if (latestLogByWorkoutExerciseId.has(log.workout_exercise_id)) continue;
-    const sets = log.actual_sets as { weight?: string | null; reps?: string | null } | null;
-    latestLogByWorkoutExerciseId.set(log.workout_exercise_id, {
-      weight: sets?.weight ?? null,
-      reps: sets?.reps ?? null,
-      rpe: log.rpe_actual,
-      notes: log.notes,
-      performedAt: log.performed_at,
-    });
+  const doneExerciseIds = new Set((exerciseCompletions ?? []).map((c) => c.workout_exercise_id));
+  const exerciseIdsByWorkoutId = new Map<string, string[]>();
+  for (const we of workoutExercises ?? []) {
+    const list = exerciseIdsByWorkoutId.get(we.workout_id) ?? [];
+    list.push(we.id);
+    exerciseIdsByWorkoutId.set(we.workout_id, list);
   }
 
-  const workoutsData = (workouts ?? []).map((w) => ({
-    id: w.id,
-    dayOfWeek: w.day_of_week,
-    orderIndex: w.order_index,
-    submitted: submittedAtByWorkoutId.has(w.id),
-    exercises: (workoutExercises ?? [])
-      .filter((we) => we.workout_id === w.id)
-      .map((we) => {
-        const exercise = exerciseById.get(we.exercise_id);
+  // One entry per program (= per week), each carrying its own workouts —
+  // built once, then used for the current week's card, the completion
+  // streak, and (implicitly) the monthly count below.
+  const weeks = allPrograms.map((program) => {
+    const programWorkouts = (workouts ?? [])
+      .filter((w) => w.program_id === program.id)
+      .map((w) => {
+        const exIds = exerciseIdsByWorkoutId.get(w.id) ?? [];
         return {
-          id: we.id,
-          name: exercise?.name ?? "תרגיל לא ידוע",
-          muscleGroup: exercise?.muscle_group ?? null,
-          imageUrl: exercise?.media_url ?? null,
-          exerciseDescription: exercise?.instructions ?? null,
-          sets: we.sets,
-          reps: we.reps,
-          weight: we.weight,
-          rpe: we.rpe,
-          restSeconds: we.rest_seconds,
-          instructions: we.instructions,
-          done: doneExerciseIds.has(we.id),
-          initialLog: latestLogByWorkoutExerciseId.get(we.id) ?? null,
+          id: w.id,
+          dayOfWeek: w.day_of_week,
+          orderIndex: w.order_index,
+          submitted: submittedAtByWorkoutId.has(w.id),
+          exerciseCount: exIds.length,
+          doneCount: exIds.filter((id) => doneExerciseIds.has(id)).length,
         };
-      }),
-  }));
+      });
+    return {
+      weekStartDate: program.week_start_date,
+      title: program.title,
+      workouts: programWorkouts,
+      allDone: programWorkouts.length > 0 && programWorkouts.every((w) => w.submitted),
+    };
+  });
+
+  const currentWeek = weeks.find((w) => w.weekStartDate === currentWeekKey);
+  const currentWeekSummary: CurrentWeekSummary | null = currentWeek
+    ? { programTitle: currentWeek.title, weekStartDate: currentWeek.weekStartDate, workouts: currentWeek.workouts }
+    : null;
+
+  // Consecutive fully-submitted weeks counting back from the week right
+  // before this one (the current week is still in progress, so it's never
+  // part of the streak yet) — a week has to be exactly 7 days before the
+  // last to keep the streak alive, so a week with no published program at
+  // all breaks it too, not just one with unfinished workouts.
+  const weekByKey = new Map(weeks.map((w) => [w.weekStartDate, w]));
+  let streakWeeks = 0;
+  let cursor = addDays(currentWeekStart, -7);
+  while (true) {
+    const week = weekByKey.get(toDateKey(cursor));
+    if (!week?.allDone) break;
+    streakWeeks++;
+    cursor = addDays(cursor, -7);
+  }
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const monthlyWorkoutCount = (completions ?? []).filter(
+    (c) => new Date(c.completed_at) >= thirtyDaysAgo,
+  ).length;
+
+  const workoutById = new Map((workouts ?? []).map((w) => [w.id, w]));
+  const lastCompletion = (completions ?? []).reduce<{ workout_id: string; completed_at: string } | null>(
+    (latest, c) => (!latest || c.completed_at > latest.completed_at ? c : latest),
+    null,
+  );
+  const lastWorkout = (() => {
+    if (!lastCompletion) return null;
+    const workout = workoutById.get(lastCompletion.workout_id);
+    if (!workout) return null;
+    const program = programById.get(workout.program_id);
+    return {
+      label: program ? program.title : "אימון",
+      dateLabel: formatShortDateTime(lastCompletion.completed_at),
+    };
+  })();
 
   return (
-    <AppShell title={program.title} username={profile?.username}>
-      <TraineeWorkoutTabs workouts={workoutsData} weekStartDate={currentWeekKey} />
+    <AppShell title="בית" username={profile?.username}>
+      <HomeDashboard
+        traineeName={profile?.full_name?.split(" ")[0] ?? null}
+        currentWeek={currentWeekSummary}
+        streakWeeks={streakWeeks}
+        monthlyWorkoutCount={monthlyWorkoutCount}
+        lastWorkout={lastWorkout}
+      />
     </AppShell>
   );
 }
