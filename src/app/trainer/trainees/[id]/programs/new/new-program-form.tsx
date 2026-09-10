@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { addDays, dayName, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
+import { formatWeight } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionState = {};
@@ -55,15 +56,18 @@ interface DuplicateCandidate {
   title: string;
   weekStartDate: string;
   status: "draft" | "published";
+  /** Still ongoing (this week's own program) — a valid duplication source too, not just past weeks. */
+  isCurrentWeek: boolean;
   workouts: DuplicateWorkout[];
 }
 
 /**
- * The preview a trainer must step through before duplicating a week: a
- * centered popup (not an inline accordion) showing one workout at a time,
- * with arrows on the sides to flip between the week's workouts. Confirming
- * here is the only way to actually select a candidate — closing/cancelling
- * leaves the previous selection untouched.
+ * The preview a trainer must step through before duplicating a program: a
+ * centered popup (not an inline accordion) showing one workout (day) at a
+ * time, with arrows on the sides to flip between the program's workouts —
+ * each exercise shown with its full planned detail (sets/reps/weight/RPE),
+ * not just a name. Confirming here is the only way to actually select a
+ * candidate — closing/cancelling leaves the previous selection untouched.
  */
 function PreviewModal({
   candidate,
@@ -92,12 +96,13 @@ function PreviewModal({
       title={`תצוגה מקדימה — ${candidate.title}`}
       className="max-w-lg"
     >
-      <p className="mb-3 text-xs text-muted-foreground">
+      <p className="mb-3 text-sm text-muted-foreground">
         {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)}
+        {candidate.isCurrentWeek && " · השבוע הנוכחי"}
       </p>
 
       {candidate.workouts.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">אין אימונים בשבוע זה.</p>
+        <p className="py-6 text-center text-base text-muted-foreground">אין אימונים בשבוע זה.</p>
       ) : (
         <div className="flex items-center gap-2">
           <button
@@ -105,30 +110,34 @@ function PreviewModal({
             onClick={() => go(-1)}
             disabled={index === 0}
             aria-label="האימון הקודם"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-5 w-5" />
           </button>
 
-          <div className="min-w-0 flex-1 rounded-lg border border-border p-3">
+          <div className="min-w-0 flex-1 rounded-lg border border-border p-3.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold">{dayName(workout.dayOfWeek)}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-base font-semibold">{dayName(workout.dayOfWeek)}</p>
+              <p className="text-sm text-muted-foreground">
                 אימון {index + 1} מתוך {candidate.workouts.length}
               </p>
             </div>
             {workout.exercises.length === 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">אין תרגילים.</p>
+              <p className="mt-2 text-sm text-muted-foreground">אין תרגילים.</p>
             ) : (
-              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+              <div className="mt-2 divide-y divide-border">
                 {workout.exercises.map((ex) => (
-                  <li key={ex.id}>
-                    <span className="text-foreground">{ex.name}</span> — {ex.sets}×{ex.reps}
-                    {ex.weight ? ` · ${ex.weight}` : ""}
-                    {ex.rpe != null ? ` · RPE ${ex.rpe}` : ""}
-                  </li>
+                  <div key={ex.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
+                    <p className="text-sm font-medium">{ex.name}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
+                      {ex.sets != null && <span>{ex.sets} סטים</span>}
+                      {ex.reps && <span>{ex.reps} חזרות</span>}
+                      {formatWeight(ex.weight) && <span>{formatWeight(ex.weight)}</span>}
+                      {ex.rpe != null && <span>RPE {ex.rpe}</span>}
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </div>
 
@@ -137,9 +146,9 @@ function PreviewModal({
             onClick={() => go(1)}
             disabled={index === candidate.workouts.length - 1}
             aria-label="האימון הבא"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-5 w-5" />
           </button>
         </div>
       )}
@@ -147,10 +156,10 @@ function PreviewModal({
       <div className="mt-4 flex gap-2">
         <Button type="button" onClick={() => onConfirm(candidate.programId)} className="flex-1">
           <Check className="h-4 w-4" />
-          אשר ובחר שבוע זה
+          אשר והמשך
         </Button>
         <Button type="button" variant="outline" onClick={onClose}>
-          ביטול
+          בטל
         </Button>
       </div>
     </Modal>
@@ -171,7 +180,7 @@ function DuplicateWeekPicker({
   if (!candidates.length) {
     return (
       <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
-        אין שבועות שמורים בחודש האחרון לשכפול.
+        אין תוכניות שמורות בחודש האחרון לשכפול.
       </p>
     );
   }
@@ -201,6 +210,7 @@ function DuplicateWeekPicker({
               <p className="text-xs text-muted-foreground">
                 {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)} ·{" "}
                 {c.status === "published" ? "פורסם" : "טיוטה"}
+                {c.isCurrentWeek && " · מתרחש כעת"}
               </p>
             </div>
             <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
@@ -300,11 +310,12 @@ export function NewProgramForm({
                     className="h-4 w-4 rounded border-border accent-primary"
                   />
                   <Copy className="h-3.5 w-3.5" />
-                  שכפול שבוע — העתק את כל האימונים והתרגילים משבוע קודם
+                  שכפול מתוכנית — העתק את כל האימונים והתרגילים מתוכנית קודמת
                 </label>
                 {duplicateEnabled && (
                   <p className="text-xs text-muted-foreground">
-                    לחץ על שבוע כדי לצפות בתצוגה מקדימה ולבחור אותו.
+                    כולל השבוע הנוכחי, גם אם עדיין לא הסתיים. לחץ על תוכנית
+                    כדי לצפות בתצוגה מקדימה ולבחור אותה.
                   </p>
                 )}
 

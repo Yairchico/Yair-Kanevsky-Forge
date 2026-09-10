@@ -30,10 +30,13 @@ export default async function NewProgramPage({
 
   if (!trainee) notFound();
 
-  // Candidates for "שכפול שבוע": the trainee's own past weeks, up to about
-  // a month back. Fetched fully (workouts + exercises), not just a list,
-  // so the trainer can preview a week's contents client-side with no extra
-  // round trip when they expand one.
+  // Candidates for "שכפול מתוכנית": the trainee's own past programs, up to
+  // about a month back, PLUS the current week's own program (still
+  // ongoing, but a perfectly good template for "make next week look like
+  // this one") — hence lte, not lt, on week_start_date. Fetched fully
+  // (workouts + exercises), not just a list, so the trainer can preview a
+  // program's contents client-side with no extra round trip when they
+  // expand one.
   const currentWeekStart = getWeekStart(new Date());
   const monthAgoKey = toDateKey(addDays(currentWeekStart, -35));
   const currentWeekKey = toDateKey(currentWeekStart);
@@ -44,7 +47,7 @@ export default async function NewProgramPage({
     .select("id, title, week_start_date, status")
     .eq("trainee_id", id)
     .gte("week_start_date", monthAgoKey)
-    .lt("week_start_date", currentWeekKey)
+    .lte("week_start_date", currentWeekKey)
     .is("deleted_at", null)
     .order("week_start_date", { ascending: false });
 
@@ -77,6 +80,7 @@ export default async function NewProgramPage({
     title: program.title,
     weekStartDate: program.week_start_date,
     status: program.status,
+    isCurrentWeek: program.week_start_date === currentWeekKey,
     workouts: (pastWorkouts ?? [])
       .filter((w) => w.program_id === program.id)
       .map((w) => ({
