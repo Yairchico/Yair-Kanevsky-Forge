@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronLeft, ChevronRight, Copy, Eye } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, Eye } from "lucide-react";
 import { createProgram, type ActionState } from "../actions";
 import { AppShell } from "@/components/app-shell";
+import { Brand } from "@/components/brand";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -166,6 +167,47 @@ function PreviewModal({
   );
 }
 
+/**
+ * The confirmation a trainer must clear before creating a program on a
+ * week that already has one — the only way to actually get "replace_existing"
+ * onto the form submit (see NewProgramForm's handleSubmit); closing/
+ * cancelling leaves the existing program untouched.
+ */
+function ReplaceProgramModal({
+  open,
+  existingTitle,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  existingTitle: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <Modal open onClose={onCancel} className="max-w-sm">
+      <div className="flex flex-col items-center gap-3 py-2 text-center">
+        <Brand />
+        <AlertTriangle className="h-10 w-10 text-destructive" />
+        <p className="text-lg font-semibold">כבר קיימת תוכנית לשבוע זה</p>
+        <p className="text-base text-muted-foreground">
+          &quot;{existingTitle}&quot; — האם אתה בטוח שברצונך ליצור תוכנית חדשה?
+        </p>
+        <div className="mt-1 flex w-full gap-2">
+          <Button type="button" variant="destructive" onClick={onConfirm} className="flex-1">
+            המשך ומחק את התוכנית הישנה
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel} className="flex-1">
+            בטל
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function DuplicateWeekPicker({
   candidates,
   selectedId,
@@ -237,10 +279,13 @@ export function NewProgramForm({
   traineeId,
   traineeName,
   duplicateCandidates,
+  existingProgramByWeek,
 }: {
   traineeId: string;
   traineeName: string;
   duplicateCandidates: DuplicateCandidate[];
+  /** The 3 selectable weeks (this week, +1, +2) that already have a program — keyed by week_start_date. */
+  existingProgramByWeek: Record<string, { id: string; title: string }>;
 }) {
   const action = createProgram.bind(null, traineeId);
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -249,6 +294,34 @@ export function NewProgramForm({
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   const canSubmit = !duplicateEnabled || selectedCandidateId != null;
+
+  // Confirming "כבר קיימת תוכנית לשבוע זה" needs replace_existing on the
+  // actual submitted form, but setting state and calling requestSubmit in
+  // the same tick would submit before React re-renders the hidden input
+  // with the new value — so onConfirm only records which week was
+  // confirmed, and this effect (running after that re-render lands) does
+  // the real submit.
+  const [confirmedReplaceWeek, setConfirmedReplaceWeek] = useState<string | null>(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (confirmedReplaceWeek) formRef.current?.requestSubmit();
+  }, [confirmedReplaceWeek]);
+
+  const existingForSelectedWeek = existingProgramByWeek[week];
+
+  function handleSubmit(e: React.FormEvent) {
+    if (existingForSelectedWeek && confirmedReplaceWeek !== week) {
+      e.preventDefault();
+      setShowReplaceModal(true);
+    }
+  }
+
+  function selectWeek(key: string) {
+    setWeek(key);
+    setConfirmedReplaceWeek(null);
+  }
 
   return (
     <AppShell title="תוכנית חדשה" backHref={`/trainer/trainees/${traineeId}`}>
@@ -262,7 +335,7 @@ export function NewProgramForm({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form action={formAction} className="space-y-4">
+            <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="title">שם התוכנית</Label>
                 <Input
@@ -276,25 +349,45 @@ export function NewProgramForm({
               <div className="space-y-1.5">
                 <Label>שבוע</Label>
                 <input type="hidden" name="week_start_date" value={week} />
+                <input
+                  type="hidden"
+                  name="replace_existing"
+                  value={existingForSelectedWeek && confirmedReplaceWeek === week ? "1" : ""}
+                />
                 <div className="grid gap-2">
-                  {weekOptions.map((opt) => (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setWeek(opt.key)}
-                      className={cn(
-                        "flex items-center justify-between rounded-lg border p-3 text-start transition-colors",
-                        week === opt.key
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-muted",
-                      )}
-                    >
-                      <span className="font-medium">{opt.label}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {opt.range}
-                      </span>
-                    </button>
-                  ))}
+                  {weekOptions.map((opt) => {
+                    const existingProgram = existingProgramByWeek[opt.key];
+                    const isSelected = week === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => selectWeek(opt.key)}
+                        className={cn(
+                          "flex items-center justify-between rounded-lg border p-3 text-start transition-colors",
+                          existingProgram
+                            ? isSelected
+                              ? "border-destructive bg-destructive/5"
+                              : "border-destructive/40 hover:bg-destructive/5"
+                            : isSelected
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-muted",
+                        )}
+                      >
+                        <span>
+                          <span className={cn("font-medium", existingProgram && "text-destructive")}>
+                            {opt.label}
+                          </span>
+                          {existingProgram && (
+                            <span className="block text-xs text-destructive">
+                              כבר קיימת תוכנית: {existingProgram.title}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-sm text-muted-foreground">{opt.range}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -350,6 +443,18 @@ export function NewProgramForm({
                 </Link>
               </div>
             </form>
+
+            {existingForSelectedWeek && (
+              <ReplaceProgramModal
+                open={showReplaceModal}
+                existingTitle={existingForSelectedWeek.title}
+                onCancel={() => setShowReplaceModal(false)}
+                onConfirm={() => {
+                  setShowReplaceModal(false);
+                  setConfirmedReplaceWeek(week);
+                }}
+              />
+            )}
           </CardContent>
         </Card>
       </div>

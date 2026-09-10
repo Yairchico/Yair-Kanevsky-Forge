@@ -75,6 +75,22 @@ export default async function NewProgramPage({
 
   const exerciseNameById = new Map((exerciseCatalog ?? []).map((e) => [e.id, e.name]));
 
+  // Which of the 3 selectable target weeks (this week, +1, +2 — same
+  // offsets new-program-form.tsx's weekOptions uses) already have a
+  // (non-deleted) program, so the form can flag them red instead of
+  // letting a trainer walk into silently overwriting one.
+  const weekOptionKeys = [0, 1, 2].map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
+  const { data: existingAtOptionWeeks } = await supabase
+    .from("programs")
+    .select("id, title, week_start_date")
+    .eq("trainee_id", id)
+    .in("week_start_date", weekOptionKeys)
+    .is("deleted_at", null);
+
+  const existingProgramByWeek = Object.fromEntries(
+    (existingAtOptionWeeks ?? []).map((p) => [p.week_start_date, { id: p.id, title: p.title }]),
+  );
+
   const duplicateCandidates = (pastPrograms ?? []).map((program) => ({
     programId: program.id,
     title: program.title,
@@ -107,6 +123,7 @@ export default async function NewProgramPage({
       traineeId={trainee.id}
       traineeName={trainee.full_name}
       duplicateCandidates={duplicateCandidates}
+      existingProgramByWeek={existingProgramByWeek}
     />
   );
 }

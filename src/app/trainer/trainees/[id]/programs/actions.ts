@@ -97,6 +97,10 @@ export async function createProgram(
   const weekStartDate = String(formData.get("week_start_date") ?? "").trim();
   const duplicateFromProgramId =
     String(formData.get("duplicate_from_program_id") ?? "").trim() || null;
+  // Set only after the trainer confirms the "כבר קיימת תוכנית לשבוע זה"
+  // popup (new-program-form.tsx) — without it, an existing program for the
+  // chosen week is never touched.
+  const replaceExisting = formData.get("replace_existing") === "1";
 
   if (!title) {
     return { error: "נא להזין שם לתוכנית" };
@@ -107,10 +111,8 @@ export async function createProgram(
 
   const supabase = await createClient();
 
-  // One program per (trainee, week) — see migration 0006. If one already
-  // exists for the chosen week, just go there instead of erroring. A
-  // soft-deleted program (migration 0010) doesn't count — that week is
-  // free again.
+  // One program per (trainee, week) — see migration 0006. A soft-deleted
+  // program (migration 0010) doesn't count — that week is free again.
   const { data: existing } = await supabase
     .from("programs")
     .select("id")
@@ -119,8 +121,29 @@ export async function createProgram(
     .is("deleted_at", null)
     .maybeSingle();
 
-  if (existing) {
+  if (existing && !replaceExisting) {
+    // No confirmation on file (a stale form, or JS-disabled client bypassing
+    // the popup entirely) — same safe fallback as before this flow existed:
+    // just go to the existing program instead of silently doing anything
+    // destructive.
     redirect(`/trainer/trainees/${traineeId}/programs/${existing.id}`);
+  }
+
+  if (existing && replaceExisting) {
+    // Soft-delete (same as deleteProgram) BEFORE inserting the new program:
+    // the partial-unique index on (trainee_id, week_start_date) where
+    // deleted_at is null would otherwise reject the insert while the old
+    // row still occupies that week. This only flips deleted_at/status —
+    // its workouts/workout_exercises rows (and any real submitted history
+    // under them) are untouched, so duplicating from this exact program
+    // below (if the trainer chose it as its own source) still works.
+    const { error: replaceError } = await supabase
+      .from("programs")
+      .update({ deleted_at: new Date().toISOString(), status: "draft" })
+      .eq("id", existing.id);
+    if (replaceError) {
+      return { error: "שגיאה בהחלפת התוכנית הקיימת" };
+    }
   }
 
   const { data: program, error } = await supabase
@@ -148,6 +171,13 @@ export async function createProgram(
   }
 
   revalidatePath(`/trainer/trainees/${traineeId}`);
+  if (existing && replaceExisting) {
+    // The replaced program could have been showing on the trainee's side
+    // (e.g. this week's own, still-ongoing program) — same revalidation as
+    // deleteProgram.
+    revalidatePath("/trainee");
+    revalidatePath("/trainee/workouts");
+  }
   redirect(`/trainer/trainees/${traineeId}/programs/${program.id}`);
 }
 
