@@ -74,11 +74,27 @@ export function WorkoutExerciseRow({
     setFields(next);
     const result = await updateWorkoutExercise(traineeId, programId, id, next);
     if (result.error) {
-      // Rejected (e.g. missing sets/reps, RPE out of range) — nothing was
-      // persisted, so snap the field back to the last value that did save
-      // rather than leaving the UI showing an invalid state as if it saved.
+      // Rejected — every validation rule (see validateWorkoutExerciseFields)
+      // is about sets/reps/rpe specifically, so only those three snap back
+      // to the last value that did save; weight/rest/instructions are left
+      // exactly as they are. Snapping the *whole* row back here used to
+      // wipe out whatever the trainer had just typed into e.g. notes: blur
+      // fires (and this save starts) per field, so editing notes while
+      // reps still held an invalid in-progress value triggered reps'
+      // rejection, and a blanket setFields(lastValid.current) clobbered the
+      // notes edit as collateral damage — it looked like the row "forced"
+      // you to fix reps before anything else could be typed at all. Using
+      // a functional update (reading current state, not the `next`
+      // snapshot this save started with) also means a newer edit made
+      // while this request was in flight survives, instead of a stale
+      // response overwriting it.
       setError(result.error);
-      setFields(lastValid.current);
+      setFields((current) => ({
+        ...current,
+        sets: lastValid.current.sets,
+        reps: lastValid.current.reps,
+        rpe: lastValid.current.rpe,
+      }));
       return;
     }
     setError(null);
