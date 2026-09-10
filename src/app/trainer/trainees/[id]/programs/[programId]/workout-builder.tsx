@@ -34,6 +34,14 @@ interface CatalogExercise {
 }
 
 interface Item {
+  /**
+   * Stable identity for React's own reconciliation — set once and never
+   * changed, unlike `id` below. Keeping these separate is what lets a
+   * newly-added/duplicated row's temp-id get swapped for its real server
+   * id without WorkoutExerciseRow remounting (and losing whatever the
+   * trainer is mid-typing into it, e.g. notes) the moment that swap lands.
+   */
+  key: string;
   id: string;
   exerciseName: string;
   muscleGroup: string | null;
@@ -64,14 +72,17 @@ export function WorkoutBuilder({
   traineeId: string;
   programId: string;
   workoutId: string;
-  initialItems: Item[];
+  /** Already-confirmed rows only — real ids, so `key` is just `id` for these. */
+  initialItems: Omit<Item, "key">[];
   catalog: CatalogExercise[];
   onNewExercise?: (exercise: CatalogExercise) => void;
   onEdited?: () => void;
   /** The read-only superadmin viewer (migration 0011) — hides every mutation control, disables drag-reorder. */
   readOnly?: boolean;
 }) {
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState<Item[]>(() =>
+    initialItems.map((it) => ({ ...it, key: it.id })),
+  );
   const tempCounter = useRef(0);
   const nextTempId = () => `temp-${(tempCounter.current += 1)}`;
 
@@ -92,12 +103,24 @@ export function WorkoutBuilder({
     setItems((prev) => [
       ...prev,
       {
+        key: tempId,
         id: tempId,
         exerciseName: ex.name,
         muscleGroup: ex.muscle_group,
+        // Matches addExerciseToWorkout's own DB defaults for a new row
+        // (sets/reps are required — see validateWorkoutExerciseFields) —
+        // this optimistic copy used to say reps: null, which didn't just
+        // look wrong for a moment, it stuck: the row's own fields state
+        // initializes from these on mount, and swapping in the id below
+        // (not the fields) once the real row comes back meant "reps" and
+        // its "לא מולא" validation error simply never went away, even
+        // though the actual saved row had "8-10" like any other new
+        // exercise. Any *other* field the trainer edited before then
+        // failed to save right along with it, since a row can't save
+        // anything while sets/reps are invalid.
         fields: {
           sets: 3,
-          reps: null,
+          reps: "8-10",
           weight: null,
           rpe: null,
           rest_seconds: null,
@@ -114,8 +137,27 @@ export function WorkoutBuilder({
         exerciseId,
       );
       if (result.row) {
+        const row = result.row;
         setItems((prev) =>
-          prev.map((it) => (it.id === tempId ? { ...it, id: result.row!.id } : it)),
+          prev.map((it) =>
+            it.id === tempId
+              ? {
+                  ...it,
+                  id: row.id,
+                  // Sync with whatever actually got saved, not just the id —
+                  // belt-and-suspenders alongside matching the defaults
+                  // above, in case the two ever drift again.
+                  fields: {
+                    sets: row.sets,
+                    reps: row.reps,
+                    weight: row.weight,
+                    rpe: row.rpe,
+                    rest_seconds: row.rest_seconds,
+                    instructions: row.instructions,
+                  },
+                }
+              : it,
+          ),
         );
         if (result.revertedToDraft) onEdited?.();
       } else {
@@ -140,15 +182,31 @@ export function WorkoutBuilder({
     const tempId = nextTempId();
     setItems((prev) => [
       ...prev.slice(0, index + 1),
-      { ...source, id: tempId },
+      { ...source, key: tempId, id: tempId },
       ...prev.slice(index + 1),
     ]);
 
     void (async () => {
       const result = await duplicateWorkoutExercise(traineeId, programId, id);
       if (result.row) {
+        const row = result.row;
         setItems((prev) =>
-          prev.map((it) => (it.id === tempId ? { ...it, id: result.row!.id } : it)),
+          prev.map((it) =>
+            it.id === tempId
+              ? {
+                  ...it,
+                  id: row.id,
+                  fields: {
+                    sets: row.sets,
+                    reps: row.reps,
+                    weight: row.weight,
+                    rpe: row.rpe,
+                    rest_seconds: row.rest_seconds,
+                    instructions: row.instructions,
+                  },
+                }
+              : it,
+          ),
         );
         if (result.revertedToDraft) onEdited?.();
       } else {
@@ -214,7 +272,7 @@ export function WorkoutBuilder({
             <div>
               {items.map((it, i) => (
                 <WorkoutExerciseRow
-                  key={it.id}
+                  key={it.key}
                   traineeId={traineeId}
                   programId={programId}
                   id={it.id}
