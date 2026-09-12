@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { dayName } from "@/lib/week";
 import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 import { PublishToggle } from "./publish-toggle";
 import { WorkoutBuilder } from "./workout-builder";
 import { createWorkout, deleteWorkout } from "./actions";
@@ -67,6 +68,7 @@ export function ProgramBuilderClient({
   const [catalogList, setCatalogList] = useState(catalog);
   const [activeId, setActiveId] = useState(workoutList[0]?.id ?? null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [pending, startTransition] = useTransition();
   const tempCounter = useRef(0);
 
@@ -131,6 +133,12 @@ export function ProgramBuilderClient({
     });
   }
 
+  function confirmDeleteWorkout() {
+    if (!deleteTarget) return;
+    handleDeleteWorkout(deleteTarget.id);
+    setDeleteTarget(null);
+  }
+
   const allDaysFull = DAYS.every((d) => countOnDay(d) >= MAX_WORKOUTS_PER_DAY);
 
   return (
@@ -182,7 +190,7 @@ export function ProgramBuilderClient({
               {!readOnly && (
                 <button
                   type="button"
-                  onClick={() => handleDeleteWorkout(w.id)}
+                  onClick={() => setDeleteTarget({ id: w.id, label })}
                   aria-label={`מחק ${label}`}
                   className={cn(
                     "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
@@ -240,6 +248,27 @@ export function ProgramBuilderClient({
           </div>
         </Modal>
       )}
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="מחיקת אימון"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            האם אתה בטוח שברצונך למחוק את &quot;{deleteTarget?.label}&quot;? כל
+            התרגילים באימון זה יימחקו גם כן. לא ניתן לבטל פעולה זו.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              ביטול
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmDeleteWorkout}>
+              כן, מחק
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {!activeWorkout ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
