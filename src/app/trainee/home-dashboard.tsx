@@ -48,9 +48,8 @@ function greeting(hour: number): string {
  * week's summary (browsable up to a month either way — same ±4-week
  * range /trainee/workouts fetches, see WEEK_OFFSETS in both page.tsx
  * files), a couple of light motivational stats that stay put regardless
- * of which week is browsed (a completion streak, a 30-day count), a
- * glance at the last thing actually submitted, and two clear paths onward
- * (the workouts screen, and the history log).
+ * of which week is browsed (a completion streak, a 30-day count), and
+ * two clear paths onward (the workouts screen, and the history log).
  *
  * The pager sits ABOVE the week-summary card on purpose, and that card's
  * own layout stays constant (a fixed two-column grid, or the "no program"
@@ -65,14 +64,12 @@ export function HomeDashboard({
   weeks,
   streakWeeks,
   monthlyWorkoutCount,
-  lastWorkout,
 }: {
   traineeName: string | null;
   currentWeekKey: string;
   weeks: BrowsableWeek[];
   streakWeeks: number;
   monthlyWorkoutCount: number;
-  lastWorkout: { label: string; dateLabel: string } | null;
 }) {
   const [activeIndex, setActiveIndex] = useState(() => Math.floor(weeks.length / 2));
 
@@ -236,70 +233,58 @@ export function HomeDashboard({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-warning/20 text-warning-foreground">
-              <Flame className="h-5 w-5" />
+        <Card className="border-warning/30 bg-gradient-to-b from-warning/10 to-transparent">
+          <CardContent className="flex min-h-[10.5rem] flex-col items-center justify-center gap-3 p-6 text-center">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-warning/20 text-warning-foreground">
+              <Flame className="h-8 w-8" />
             </div>
-            <div className="min-w-0">
-              <p className="text-xl font-bold leading-none">{streakWeeks}</p>
-              <p className="truncate text-sm text-muted-foreground">
+            <div>
+              <p className="text-4xl font-extrabold leading-none">{streakWeeks}</p>
+              <p className="mt-1.5 text-sm font-medium text-muted-foreground">
                 {streakWeeks === 1 ? "שבוע רצוף" : "שבועות רצופים"}
               </p>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-              <TrendingUp className="h-5 w-5" />
+        <Card className="border-primary/30 bg-gradient-to-b from-primary/10 to-transparent">
+          <CardContent className="flex min-h-[10.5rem] flex-col items-center justify-center gap-3 p-6 text-center">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <TrendingUp className="h-8 w-8" />
             </div>
-            <div className="min-w-0">
-              <p className="text-xl font-bold leading-none">{monthlyWorkoutCount}</p>
-              <p className="truncate text-sm text-muted-foreground">אימונים ב-30 יום</p>
+            <div>
+              <p className="text-4xl font-extrabold leading-none">{monthlyWorkoutCount}</p>
+              <p className="mt-1.5 text-sm font-medium text-muted-foreground">אימונים ב-30 יום</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {lastWorkout && (
-        <Card>
-          <CardContent className="flex items-center justify-between gap-3 p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-muted-foreground">האימון האחרון שהוגש</p>
-              <p className="truncate text-base font-medium">{lastWorkout.label}</p>
-            </div>
-            <span className="shrink-0 text-sm text-muted-foreground">{lastWorkout.dateLabel}</span>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3">
         <Link href="/trainee/workouts" className="group">
-          <Card className="h-full transition-shadow group-hover:shadow-sm">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
-                <Dumbbell className="h-5 w-5" />
+          <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:shadow-md">
+            <CardContent className="flex min-h-[11rem] flex-col items-center justify-center gap-3 p-6 text-center">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                <Dumbbell className="h-8 w-8" />
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-base font-medium">האימונים שלי</p>
-                <p className="text-sm text-muted-foreground">אימוני השבוע הנוכחי</p>
+              <div>
+                <p className="text-base font-semibold">האימונים שלי</p>
+                <p className="mt-1 text-sm text-muted-foreground">אימוני השבוע הנוכחי</p>
               </div>
-              <ChevronLeft className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5" />
             </CardContent>
           </Card>
         </Link>
         <Link href="/trainee/history" className="group">
-          <Card className="h-full transition-shadow group-hover:shadow-sm">
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-                <HistoryIcon className="h-5 w-5" />
+          <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:shadow-md">
+            <CardContent className="flex min-h-[11rem] flex-col items-center justify-center gap-3 p-6 text-center">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+                <HistoryIcon className="h-8 w-8" />
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-base font-medium">היסטוריה</p>
-                <p className="text-sm text-muted-foreground">אימונים שהוגשו</p>
+              <div>
+                <p className="text-base font-semibold">היסטוריה</p>
+                <p className="mt-1 text-sm text-muted-foreground">אימונים שהוגשו</p>
               </div>
-              <ChevronLeft className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5" />
             </CardContent>
           </Card>
         </Link>

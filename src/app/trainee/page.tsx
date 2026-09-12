@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDays, getWeekStart, toDateKey } from "@/lib/week";
-import { formatShortDateTime } from "@/lib/format";
 import { HomeDashboard, type BrowsableWeek } from "./home-dashboard";
 
 /**
@@ -87,7 +86,6 @@ export default async function TraineeHomePage() {
         .eq("trainee_id", user.id),
     ]);
 
-  const programById = new Map(allPrograms.map((p) => [p.id, p]));
   const submittedAtByWorkoutId = new Map(
     (completions ?? []).map((c) => [c.workout_id, c.completed_at]),
   );
@@ -158,22 +156,6 @@ export default async function TraineeHomePage() {
     (c) => new Date(c.completed_at) >= thirtyDaysAgo,
   ).length;
 
-  const workoutById = new Map((workouts ?? []).map((w) => [w.id, w]));
-  const lastCompletion = (completions ?? []).reduce<{ workout_id: string; completed_at: string } | null>(
-    (latest, c) => (!latest || c.completed_at > latest.completed_at ? c : latest),
-    null,
-  );
-  const lastWorkout = (() => {
-    if (!lastCompletion) return null;
-    const workout = workoutById.get(lastCompletion.workout_id);
-    if (!workout) return null;
-    const program = programById.get(workout.program_id);
-    return {
-      label: program ? program.title : "אימון",
-      dateLabel: formatShortDateTime(lastCompletion.completed_at),
-    };
-  })();
-
   return (
     <AppShell title="בית" username={profile?.username}>
       <HomeDashboard
@@ -182,7 +164,6 @@ export default async function TraineeHomePage() {
         weeks={browsableWeeks}
         streakWeeks={streakWeeks}
         monthlyWorkoutCount={monthlyWorkoutCount}
-        lastWorkout={lastWorkout}
       />
     </AppShell>
   );
