@@ -6,6 +6,8 @@ import { Eye, Pencil, Trash2 } from "lucide-react";
 import { deleteProgram } from "./programs/actions";
 import { cn } from "@/lib/utils";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
+import { Modal } from "@/components/ui/modal";
+import { Button } from "@/components/ui/button";
 
 interface Program {
   id: string;
@@ -18,9 +20,9 @@ interface Program {
  * The whole row is a Link to the builder — that's the "edit" action, and
  * always has been — but a bare row like that reads as informational, not
  * clickable, so it carries an explicit pencil icon as a visual cue. A
- * separate quick-delete affordance sits next to it (its own confirm step,
- * not a full page navigation) — deleteProgram existed as a server action
- * but nothing in the UI called it until now.
+ * separate quick-delete affordance sits next to it, gated behind a
+ * confirmation Modal (not an inline replace-the-button state) — deleteProgram
+ * existed as a server action but nothing in the UI called it until now.
  *
  * deleteProgram is a soft-delete (migration 0010): the program disappears
  * from this list, but its workout history/submissions are NOT destroyed.
@@ -44,6 +46,7 @@ export function ProgramRow({
   function handleDelete() {
     startTransition(async () => {
       await deleteProgram(traineeId, program.id);
+      setConfirming(false);
     });
   }
 
@@ -78,31 +81,7 @@ export function ProgramRow({
         </div>
       </Link>
 
-      {readOnly ? null : confirming ? (
-        <div className="flex shrink-0 flex-col items-end gap-1 py-2 pe-2">
-          <p className="max-w-40 text-end text-[11px] leading-snug text-muted-foreground">
-            התוכנית תוסר מהרשימה. היסטוריית האימונים וההגשות שנשמרה תישאר
-            במערכת, אך אי אפשר לשחזר את התוכנית עצמה מכאן.
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={pending}
-              className="rounded-md px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
-            >
-              {pending ? "מסיר…" : "הסר תוכנית"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-            >
-              ביטול
-            </button>
-          </div>
-        </div>
-      ) : (
+      {!readOnly && (
         <button
           type="button"
           onClick={() => setConfirming(true)}
@@ -112,6 +91,24 @@ export function ProgramRow({
           <Trash2 className="h-4 w-4" />
         </button>
       )}
+
+      <Modal open={confirming} onClose={() => setConfirming(false)} title="הסרת תוכנית">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            האם אתה בטוח שברצונך להסיר את &quot;{program.title}&quot;? התוכנית
+            תוסר מהרשימה. היסטוריית האימונים וההגשות שנשמרה תישאר במערכת, אך
+            אי אפשר לשחזר את התוכנית עצמה מכאן.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+              ביטול
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={pending}>
+              {pending ? "מסיר…" : "כן, הסר"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
