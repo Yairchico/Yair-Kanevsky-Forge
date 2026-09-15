@@ -95,19 +95,30 @@ export async function createWorkout(
 ): Promise<WorkoutResult> {
   const supabase = await createClient();
 
-  const { count } = await supabase
+  // order_index isn't just "how many exist" — it's whichever of {0, 1} is
+  // still free. Deleting the first of a day's two workouts and then adding
+  // a new one used to assign it the surviving workout's own order_index
+  // (both landed on order_index=1), a silent (day_of_week, order_index)
+  // collision within the program: the "אימון N" numbering above showed two
+  // workouts as "אימון 2", and duplicateProgramContents (programs/actions.ts),
+  // which maps old->new workout ids by that exact composite key, would
+  // silently mis-map or drop one side of the collision when a program in
+  // that state was later duplicated into a new week.
+  const { data: existingOnDay } = await supabase
     .from("workouts")
-    .select("id", { count: "exact", head: true })
+    .select("order_index")
     .eq("program_id", programId)
     .eq("day_of_week", dayOfWeek);
 
-  if ((count ?? 0) >= MAX_WORKOUTS_PER_DAY) {
+  const usedIndexes = new Set((existingOnDay ?? []).map((w) => w.order_index));
+  if (usedIndexes.size >= MAX_WORKOUTS_PER_DAY) {
     return { error: `ניתן ליצור עד ${MAX_WORKOUTS_PER_DAY} אימונים ביום` };
   }
+  const orderIndex = usedIndexes.has(0) ? 1 : 0;
 
   const { data: workout, error } = await supabase
     .from("workouts")
-    .insert({ program_id: programId, day_of_week: dayOfWeek, order_index: count ?? 0 })
+    .insert({ program_id: programId, day_of_week: dayOfWeek, order_index: orderIndex })
     .select("id, order_index, day_of_week")
     .single();
 

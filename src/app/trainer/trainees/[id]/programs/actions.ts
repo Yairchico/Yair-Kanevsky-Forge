@@ -31,32 +31,29 @@ async function duplicateProgramContents(
 
   if (!sourceWorkouts?.length) return null;
 
-  const { data: newWorkouts, error: workoutsError } = await supabase
-    .from("workouts")
-    .insert(
-      sourceWorkouts.map((w) => ({
-        program_id: toProgramId,
-        day_of_week: w.day_of_week,
-        order_index: w.order_index,
-      })),
-    )
-    .select("id, day_of_week, order_index");
+  // Inserted one at a time (not a single batch insert) so each source
+  // workout's new id is captured directly from its own insert response.
+  // This used to be a batch insert with old->new ids reconstructed
+  // afterwards via a (day_of_week, order_index) composite key — but that
+  // key isn't actually guaranteed unique per program: createWorkout could
+  // (before its own fix) assign a new workout the same order_index as an
+  // existing one on the same day, and a Map can't hold two entries under
+  // one key, so one side of that collision silently mapped to the wrong
+  // new workout (or to undefined) and its exercises came out wrong or
+  // failed to copy at all.
+  const oldToNewWorkoutId = new Map<string, string>();
+  for (const w of sourceWorkouts) {
+    const { data: newWorkout, error: workoutError } = await supabase
+      .from("workouts")
+      .insert({ program_id: toProgramId, day_of_week: w.day_of_week, order_index: w.order_index })
+      .select("id")
+      .single();
 
-  if (workoutsError || !newWorkouts) {
-    return "שגיאה בשכפול האימונים";
+    if (workoutError || !newWorkout) {
+      return "שגיאה בשכפול האימונים";
+    }
+    oldToNewWorkoutId.set(w.id, newWorkout.id);
   }
-
-  // (day_of_week, order_index) is unique per program (at most 2/day), so
-  // it's a safe composite key to map old -> new workout ids by, regardless
-  // of the order rows come back in. order_index alone is NOT unique per
-  // program anymore — up to 2 workouts share it (one per day).
-  const key = (dayOfWeek: number, orderIndex: number) => `${dayOfWeek}:${orderIndex}`;
-  const newWorkoutIdByKey = new Map(
-    newWorkouts.map((w) => [key(w.day_of_week, w.order_index), w.id]),
-  );
-  const oldToNewWorkoutId = new Map(
-    sourceWorkouts.map((w) => [w.id, newWorkoutIdByKey.get(key(w.day_of_week, w.order_index))]),
-  );
 
   const { data: sourceExercises } = await supabase
     .from("workout_exercises")
