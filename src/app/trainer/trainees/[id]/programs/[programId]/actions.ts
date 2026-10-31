@@ -130,6 +130,73 @@ export async function createWorkout(
   return { workout };
 }
 
+export interface MoveWorkoutResult {
+  error?: string;
+  workout?: { id: string; order_index: number; day_of_week: number };
+  revertedToDraft?: boolean;
+}
+
+/**
+ * Moves an existing workout (with all its exercises) to a different day.
+ * Same free-slot logic as createWorkout: the moved workout takes whichever
+ * of order_index {0, 1} is still free on the target day, so the
+ * (day_of_week, order_index) pair never collides. The max-2-per-day DB
+ * trigger (migration 0009) also fires on `update of day_of_week` as the
+ * backstop. workout_logs/workout_completions reference the workout id, not
+ * the day, so a trainee's history for this workout is untouched.
+ */
+export async function moveWorkoutToDay(
+  traineeId: string,
+  programId: string,
+  workoutId: string,
+  dayOfWeek: number,
+): Promise<MoveWorkoutResult> {
+  if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+    return { error: "יום לא תקין" };
+  }
+
+  const supabase = await createClient();
+
+  const { data: current } = await supabase
+    .from("workouts")
+    .select("id, day_of_week, order_index")
+    .eq("id", workoutId)
+    .eq("program_id", programId)
+    .single();
+  if (!current) return { error: "האימון לא נמצא" };
+  if (current.day_of_week === dayOfWeek) {
+    return { workout: current };
+  }
+
+  const { data: existingOnDay } = await supabase
+    .from("workouts")
+    .select("order_index")
+    .eq("program_id", programId)
+    .eq("day_of_week", dayOfWeek)
+    .neq("id", workoutId);
+
+  const usedIndexes = new Set((existingOnDay ?? []).map((w) => w.order_index));
+  if (usedIndexes.size >= MAX_WORKOUTS_PER_DAY) {
+    return { error: `ניתן ליצור עד ${MAX_WORKOUTS_PER_DAY} אימונים ביום` };
+  }
+  const orderIndex = usedIndexes.has(0) ? 1 : 0;
+
+  const { data: workout, error } = await supabase
+    .from("workouts")
+    .update({ day_of_week: dayOfWeek, order_index: orderIndex })
+    .eq("id", workoutId)
+    .select("id, order_index, day_of_week")
+    .single();
+
+  if (error || !workout) {
+    return { error: "שגיאה בהעברת האימון" };
+  }
+
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
+  revalidateBuilder(traineeId, programId);
+  return { workout, revertedToDraft };
+}
+
 export async function deleteWorkout(
   traineeId: string,
   programId: string,

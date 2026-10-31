@@ -1,14 +1,14 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { dayName } from "@/lib/week";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { PublishToggle } from "./publish-toggle";
 import { WorkoutBuilder } from "./workout-builder";
-import { createWorkout, deleteWorkout } from "./actions";
+import { createWorkout, deleteWorkout, moveWorkoutToDay } from "./actions";
 import type { WorkoutExerciseFields } from "./actions";
 
 const MAX_WORKOUTS_PER_DAY = 2;
@@ -69,6 +69,8 @@ export function ProgramBuilderClient({
   const [activeId, setActiveId] = useState(workoutList[0]?.id ?? null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ id: string; label: string; dayOfWeek: number } | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const tempCounter = useRef(0);
 
@@ -133,6 +135,48 @@ export function ProgramBuilderClient({
     });
   }
 
+  /**
+   * Moves a workout (exercises and all) to another day. Optimistic like
+   * everything else here: the tab jumps to its new spot immediately, and
+   * snaps back with an error if the server refuses (e.g. the target day
+   * filled up meanwhile).
+   */
+  function handleMoveWorkout(workoutId: string, dayOfWeek: number) {
+    setMoveTarget(null);
+    const original = workoutList.find((w) => w.id === workoutId);
+    if (!original || original.dayOfWeek === dayOfWeek) return;
+    const othersOnDay = workoutList.filter((w) => w.dayOfWeek === dayOfWeek && w.id !== workoutId);
+    if (othersOnDay.length >= MAX_WORKOUTS_PER_DAY) return;
+    const orderIndex = othersOnDay.some((w) => w.orderIndex === 0) ? 1 : 0;
+
+    setMoveError(null);
+    setWorkoutList((prev) =>
+      prev.map((w) => (w.id === workoutId ? { ...w, dayOfWeek, orderIndex } : w)),
+    );
+
+    startTransition(async () => {
+      const result = await moveWorkoutToDay(traineeId, programId, workoutId, dayOfWeek);
+      if (result.workout) {
+        const saved = result.workout;
+        setWorkoutList((prev) =>
+          prev.map((w) =>
+            w.id === workoutId ? { ...w, dayOfWeek: saved.day_of_week, orderIndex: saved.order_index } : w,
+          ),
+        );
+        if (result.revertedToDraft) handleEdited();
+      } else {
+        setWorkoutList((prev) =>
+          prev.map((w) =>
+            w.id === workoutId
+              ? { ...w, dayOfWeek: original.dayOfWeek, orderIndex: original.orderIndex }
+              : w,
+          ),
+        );
+        setMoveError(result.error ?? "שגיאה בהעברת האימון");
+      }
+    });
+  }
+
   function confirmDeleteWorkout() {
     if (!deleteTarget) return;
     handleDeleteWorkout(deleteTarget.id);
@@ -187,6 +231,23 @@ export function ProgramBuilderClient({
               <button type="button" onClick={() => setActiveId(w.id)}>
                 {label}
               </button>
+              {!readOnly && !w.id.startsWith("temp-") && (
+                <button
+                  type="button"
+                  onClick={() => setMoveTarget({ id: w.id, label, dayOfWeek: w.dayOfWeek })}
+                  disabled={pending}
+                  aria-label={`שנה יום ל${label}`}
+                  title="שינוי יום"
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
+                    w.id === activeId
+                      ? "hover:bg-primary-foreground/20"
+                      : "hover:bg-foreground/10",
+                  )}
+                >
+                  <CalendarDays className="h-3 w-3" />
+                </button>
+              )}
               {!readOnly && (
                 <button
                   type="button"
@@ -218,6 +279,45 @@ export function ProgramBuilderClient({
           </button>
         )}
       </div>
+
+      {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+
+      {!readOnly && (
+        <Modal
+          open={moveTarget !== null}
+          onClose={() => setMoveTarget(null)}
+          title={`העברת "${moveTarget?.label ?? ""}" ליום אחר`}
+        >
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {DAYS.map((day) => {
+              const isCurrent = moveTarget?.dayOfWeek === day;
+              const count = countOnDay(day);
+              const full = !isCurrent && count >= MAX_WORKOUTS_PER_DAY;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={full || isCurrent}
+                  onClick={() => moveTarget && handleMoveWorkout(moveTarget.id, day)}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
+                    isCurrent
+                      ? "cursor-default border-primary bg-primary/10 text-primary"
+                      : full
+                        ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
+                        : "border-border hover:border-primary hover:text-primary",
+                  )}
+                >
+                  {dayName(day)}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {isCurrent ? "היום הנוכחי" : `${count}/${MAX_WORKOUTS_PER_DAY}`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
 
       {!readOnly && (
         <Modal open={dayPickerOpen} onClose={() => setDayPickerOpen(false)} title="בחר יום לאימון החדש">
