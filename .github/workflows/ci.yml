@@ -1,0 +1,53 @@
+# Continuous integration: the same checks CLAUDE.md's "Verification" section
+# asks for before every commit, run automatically on every push (any branch)
+# and every pull request. Deploys nothing and needs no secrets: it builds
+# with .env.example's placeholder values, which is enough to prove the code
+# compiles and bundles. Real Supabase values only matter to the deploy
+# workflows (deploy.yml / deploy-production.yml), which inline them at build
+# time.
+#
+# Note: this does NOT gate Cloudflare's own git-connected "Workers Builds"
+# production deploy (see the warning in deploy.yml / CLAUDE.md). That runs
+# on push regardless of whether this workflow passes.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Placeholder env
+        run: cp .env.example .env.local
+
+      - name: Lint
+        run: npx eslint .
+
+      # tsc needs Next's generated route types (LayoutProps, PageProps, ...),
+      # which normally only appear after a build. typegen makes them without one.
+      - name: Type check
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+
+      # opennextjs-cloudflare build runs `next build` itself, then the
+      # Cloudflare-specific bundling step, which catches issues next build
+      # alone won't.
+      - name: Build (Next.js + OpenNext/Cloudflare)
+        run: npm run cf:build

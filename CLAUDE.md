@@ -208,6 +208,12 @@ cp .env.example .env.local && npm run build   # placeholder env is enough for a 
 npm run cf:build                              # OpenNext/Cloudflare-specific build — catches issues `next build` alone won't
 rm .env.local                                 # never commit this
 ```
+`.github/workflows/ci.yml` runs these same checks (lint, `next typegen` +
+`tsc`, `cf:build` with `.env.example` placeholders) on every push and PR —
+no secrets, deploys nothing, and does **not** gate Cloudflare's own
+git-connected production build (see Deployment). Still run them locally
+first; CI is the safety net, not the first check.
+
 This sandbox cannot reach the live `*.workers.dev` deployment or a real
 Supabase project — these four commands are the full extent of what can be
 verified here. Live behavior needs the user to check and report back;
