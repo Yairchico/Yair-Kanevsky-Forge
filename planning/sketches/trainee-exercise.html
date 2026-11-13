@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מודאל תרגיל, מתאמן</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap">
+<!-- Static sketch only. sketches.css is compiled from sketches.input.css (the app's own tokens from src/app/globals.css) with Tailwind v4. Not connected to any code. -->
+<link rel="stylesheet" href="sketches.css">
+<style>
+  body { font-family: 'Rubik', Arial, sans-serif; }
+  input { font: inherit; }
+  .sketch-note { background: repeating-linear-gradient(-45deg,#fff7e6,#fff7e6 8px,#fff2d6 8px,#fff2d6 16px); }
+</style>
+</head>
+<body class="min-h-screen bg-background text-foreground antialiased">
+<div class="sketch-note border-b border-warning/40 px-4 py-2 text-xs text-warning-foreground">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+    <span><b>סקיצה סטטית</b> · מסך מתאמן · פיצ'רים 1, 2, 3, 4</span>
+    <a href="index.html" class="font-medium text-primary underline-offset-4 hover:underline">כל הסקיצות</a>
+  </div>
+</div>
+
+<div class="relative mx-auto min-h-screen max-w-md border-x border-border bg-background">
+
+<header class="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+  <div class="flex items-center gap-3">
+    <a href="#" aria-label="חזרה" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-sm"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+    <img src="../../public/logo-mark.png" alt="" class="h-10 w-10 rounded-xl object-cover bg-primary/10">
+    <div>
+      <p class="text-sm font-semibold leading-none">Yair Kanevsky by Forge</p>
+      <p class="mt-1 text-xs text-muted-foreground">האימונים שלי</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-3">
+    
+    <p class="hidden text-sm font-semibold sm:block">@yair</p>
+    <span class="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg></span>
+  </div>
+</header>
+  <!-- page behind the modal (dimmed) -->
+  <main class="space-y-2.5 p-4 opacity-40">
+    <div class="flex gap-2"><span class="rounded-full bg-primary px-3 py-1.5 text-sm text-primary-foreground">ראשון</span><span class="rounded-full bg-secondary px-3 py-1.5 text-sm">שלישי</span><span class="rounded-full bg-secondary px-3 py-1.5 text-sm">חמישי</span></div>
+    <div class="h-20 rounded-xl border border-border bg-card"></div>
+    <div class="h-20 rounded-xl border border-border bg-card"></div>
+    <div class="h-20 rounded-xl border border-border bg-card"></div>
+  </main>
+
+  <div class="absolute inset-0 bg-black/40"></div>
+
+  <!-- modal -->
+  <div class="absolute inset-x-2 top-24 rounded-xl border border-border bg-card shadow-xl">
+    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+      <h2 class="text-lg font-semibold">סקוואט עם מוט</h2>
+      <span class="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 shrink-0" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+    </div>
+    <div class="space-y-4 p-4">
+      <!-- block context (feature 2) -->
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>בלוק כוח · שבוע 3 מתוך 6</span>
+        <span class="text-sm text-muted-foreground">רגליים</span>
+      </div>
+
+      <!-- image + video (feature 4) -->
+      <div class="relative flex h-40 items-center justify-center overflow-hidden rounded-xl bg-primary/10">
+        <span class="text-primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-12 w-12 shrink-0" aria-hidden="true"><path d="M14.4 14.4 9.6 9.6"/><path d="M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z"/><path d="m21.5 21.5-1.4-1.4"/><path d="M3.9 3.9 2.5 2.5"/><path d="M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z"/></svg></span>
+        <button type="button" class="absolute bottom-2 start-2 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-sm font-medium text-white"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>צפה בסרטון</button>
+      </div>
+
+      <!-- notes (feature 3) -->
+      <div class="space-y-2 rounded-xl bg-muted/60 p-3.5">
+        <p class="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>דגשי המאמן</p>
+        <p class="whitespace-pre-line text-base leading-relaxed">גב ישר לאורך כל התנועה. ברכיים בקו האצבעות, ירידה עד מקביל לפחות.</p>
+        <div class="border-t border-border pt-2">
+          <p class="text-sm font-semibold text-muted-foreground">השבוע</p>
+          <p class="text-base">עצירה של 2 שנ׳ בתחתית בכל חזרה.</p>
+        </div>
+        <p class="text-sm text-muted-foreground">מנוחה 3 דק׳ בין סטים</p>
+      </div>
+
+      <!-- sets (feature 1 + 2) -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-semibold text-muted-foreground">סטים · כל סט נשמר כשמאשרים ✓</p>
+          <p class="text-sm font-medium">3/5</p>
+        </div>
+
+<div class="rounded-xl border p-2.5 border-success/30 bg-success/5">
+  <div class="flex items-center gap-2">
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">1</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-sm font-semibold"><bdi dir="ltr">50×8</bdi></span><span class="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">חימום</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">שבוע שעבר: <bdi dir="ltr">50×8</bdi></p>
+    </div>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">ק"ג</span>
+      <input inputmode="decimal" value="50" class="h-10 w-16 rounded-md border border-input bg-card px-2 text-center text-base">
+    </label>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">חזרות</span>
+      <input inputmode="numeric" value="8" class="h-10 w-12 rounded-md border border-input bg-card px-1 text-center text-base">
+    </label>
+    <button type="button" aria-label="אישור סט" class="mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-success bg-success text-success-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+  </div>
+  <p class="text-[11px] text-success">נשמר ✓</p>
+</div>
+<div class="rounded-xl border p-2.5 border-success/30 bg-success/5">
+  <div class="flex items-center gap-2">
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">2</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-sm font-semibold"><bdi dir="ltr">82.5×5</bdi></span><span class="flex items-center gap-0.5 text-[11px] font-semibold text-success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>‎+2.5</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">שבוע שעבר: <bdi dir="ltr">80×5</bdi></p>
+    </div>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">ק"ג</span>
+      <input inputmode="decimal" value="82.5" class="h-10 w-16 rounded-md border border-input bg-card px-2 text-center text-base">
+    </label>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">חזרות</span>
+      <input inputmode="numeric" value="5" class="h-10 w-12 rounded-md border border-input bg-card px-1 text-center text-base">
+    </label>
+    <button type="button" aria-label="אישור סט" class="mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-success bg-success text-success-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+  </div>
+  <p class="text-[11px] text-success">נשמר ✓</p>
+</div>
+<div class="rounded-xl border p-2.5 border-warning/40 bg-warning/5">
+  <div class="flex items-center gap-2">
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">3</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-sm font-semibold"><bdi dir="ltr">82.5×5</bdi></span><span class="flex items-center gap-0.5 text-[11px] font-semibold text-success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>‎+2.5</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">שבוע שעבר: <bdi dir="ltr">80×5</bdi></p>
+    </div>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">ק"ג</span>
+      <input inputmode="decimal" value="82.5" class="h-10 w-16 rounded-md border border-input bg-card px-2 text-center text-base">
+    </label>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">חזרות</span>
+      <input inputmode="numeric" value="4" class="h-10 w-12 rounded-md border border-input bg-card px-1 text-center text-base">
+    </label>
+    <button type="button" aria-label="אישור סט" class="mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-warning bg-warning text-warning-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+  </div>
+  <p class="text-[11px] text-warning-foreground">נשמר · 4 מתוך 5 חזרות</p>
+</div>
+<div class="rounded-xl border p-2.5 border-warning/40 bg-warning/5">
+  <div class="flex items-center gap-2">
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">4</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-sm font-semibold"><bdi dir="ltr">82.5×5</bdi></span><span class="flex items-center gap-0.5 text-[11px] font-semibold text-success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>‎+2.5</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">שבוע שעבר: <bdi dir="ltr">80×5</bdi></p>
+    </div>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">ק"ג</span>
+      <input inputmode="decimal" value="82.5" class="h-10 w-16 rounded-md border border-input bg-card px-2 text-center text-base">
+    </label>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">חזרות</span>
+      <input inputmode="numeric" value="5" class="h-10 w-12 rounded-md border border-input bg-card px-1 text-center text-base">
+    </label>
+    <button type="button" aria-label="אישור סט" class="mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-warning bg-warning/15 text-warning-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 shrink-0" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+  </div>
+  <p class="text-[11px] text-warning-foreground">ממתין לחיבור, יישלח שוב אוטומטית</p>
+</div>
+<div class="rounded-xl border p-2.5 border-primary ring-2 ring-primary/20 bg-card">
+  <div class="flex items-center gap-2">
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">5</div>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-sm font-semibold"><bdi dir="ltr">82.5×5</bdi></span><span class="flex items-center gap-0.5 text-[11px] font-semibold text-success"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>‎+2.5</span>
+      </div>
+      <p class="text-[11px] text-muted-foreground">שבוע שעבר: <bdi dir="ltr">80×4</bdi></p>
+    </div>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">ק"ג</span>
+      <input inputmode="decimal" placeholder="82.5" class="h-10 w-16 rounded-md border border-input bg-card px-2 text-center text-base">
+    </label>
+    <label class="flex flex-col items-center gap-0.5">
+      <span class="text-[10px] text-muted-foreground">חזרות</span>
+      <input inputmode="numeric" placeholder="5" class="h-10 w-12 rounded-md border border-input bg-card px-1 text-center text-base">
+    </label>
+    <button type="button" aria-label="אישור סט" class="mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-primary bg-card text-primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+  </div>
+  
+</div>
+        <button type="button" class="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>סט נוסף</button>
+      </div>
+
+      <div class="space-y-1">
+        <label class="text-sm font-medium">הערה לתרגיל (אופציונלי)</label>
+        <input placeholder="איך הרגשת, שינויים וכו׳" class="h-10 w-full rounded-md border border-input bg-card px-3 text-base">
+      </div>
+
+      <button type="button" class="h-10 w-full rounded-md border border-border bg-card text-sm font-medium">סגור</button>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div class="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+    <span class="rounded-full bg-foreground px-4 py-2 text-sm text-background shadow-lg">סט 2 נשמר ✓</span>
+  </div>
+</div>
+<div class="mx-auto max-w-md space-y-1 p-4 text-sm text-muted-foreground">
+  <p><b>מה רואים כאן:</b> כל סט היא שורה נפרדת עם יעד ושבוע שעבר. השדות ממולאים מראש לפי היעד, ולחיצה על ✓ שומרת מיד בשרת.</p>
+  <p>מצבים: ✓ ירוק = נשמר · כתום = נשמר אבל פחות חזרות מהיעד · ⟳ = נשמר מקומית, ממתין לחיבור · מסגרת סגולה = הסט הבא.</p>
+  <p>הקפיצה (‎+2.5) ושורת "בלוק כוח" מופיעות רק כשהתוכנית שייכת לבלוק (פיצ'ר 2).</p>
+</div>
+
+</body>
+</html>

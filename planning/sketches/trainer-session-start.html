@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>אימון אישי: בחירה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap">
+<!-- Static sketch only. sketches.css is compiled from sketches.input.css (the app's own tokens from src/app/globals.css) with Tailwind v4. Not connected to any code. -->
+<link rel="stylesheet" href="sketches.css">
+<style>
+  body { font-family: 'Rubik', Arial, sans-serif; }
+  input { font: inherit; }
+  .sketch-note { background: repeating-linear-gradient(-45deg,#fff7e6,#fff7e6 8px,#fff2d6 8px,#fff2d6 16px); }
+</style>
+</head>
+<body class="min-h-screen bg-background text-foreground antialiased">
+<div class="sketch-note border-b border-warning/40 px-4 py-2 text-xs text-warning-foreground">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+    <span><b>סקיצה סטטית</b> · מסך מאמן חדש · פיצ'ר 5</span>
+    <a href="index.html" class="font-medium text-primary underline-offset-4 hover:underline">כל הסקיצות</a>
+  </div>
+</div>
+
+<header class="flex items-center justify-between border-b border-border bg-card px-4 py-3 sm:px-6">
+  <div class="flex items-center gap-3">
+    
+    <img src="../../public/logo-mark.png" alt="" class="h-10 w-10 rounded-xl object-cover bg-primary/10">
+    <div>
+      <p class="text-sm font-semibold leading-none">Yair Kanevsky by Forge</p>
+      <p class="mt-1 text-xs text-muted-foreground">אזור מאמן</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-3">
+    
+    <p class="hidden text-sm font-semibold sm:block">@yair</p>
+    <span class="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg></span>
+  </div>
+</header>
+<main class="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
+  <p class="text-xs font-semibold text-muted-foreground">דף הבית של המאמן (תוספת):</p>
+  <a href="#" class="flex items-center gap-4 rounded-xl bg-primary p-5 text-primary-foreground shadow-sm">
+    <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
+    <div class="flex-1"><p class="text-lg font-semibold">התחל אימון אישי</p><p class="text-sm opacity-80">מתאמן מולך? תעד משקלים וחזרות בזמן אמת</p></div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 shrink-0" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+  </a>
+
+  <p class="pt-2 text-xs font-semibold text-muted-foreground">/trainer/session:</p>
+  <div class="rounded-xl border border-border bg-card shadow-sm">
+    <div class="space-y-1.5 p-6 pb-3"><h1 class="text-lg font-semibold">אימון אישי</h1><p class="text-sm text-muted-foreground">בחר מתאמן ואימון. אפשר לעבור בין התרגילים ידנית, ואין טיימרים.</p></div>
+    <div class="space-y-5 p-6 pt-0">
+      <div class="space-y-2">
+        <p class="text-sm font-semibold">1. מתאמן</p>
+        <div class="relative"><span class="absolute inset-y-0 start-3 flex items-center text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span><input placeholder="חיפוש מתאמן" class="h-10 w-full rounded-md border border-input bg-card ps-9 pe-3"></div>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-primary bg-primary/5"><input type="radio" name="t" checked class="h-4 w-4"><div class="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">ד</div><div class="flex-1"><p class="font-medium">דני כהן</p><p class="text-xs text-muted-foreground">בלוק כוח 1 · שבוע 3</p></div></label>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-border bg-card"><input type="radio" name="t"  class="h-4 w-4"><div class="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">מ</div><div class="flex-1"><p class="font-medium">מיכל לוי</p><p class="text-xs text-muted-foreground">שבוע רגיל · 2/3 אימונים בוצעו</p></div></label>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-border bg-card"><input type="radio" name="t"  class="h-4 w-4"><div class="flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-sm font-semibold">י</div><div class="flex-1"><p class="font-medium">יוסי אברהם</p><p class="text-xs text-muted-foreground">אין תוכנית לשבוע הזה</p></div></label>
+      </div>
+      <div class="space-y-2">
+        <p class="text-sm font-semibold">2. אימון, מהשבוע הנוכחי (16.11-22.11)</p>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-primary bg-primary/5 ring-2 ring-primary/20"><input type="radio" name="w" checked class="h-4 w-4"><div class="flex-1"><p class="flex items-center gap-2 font-medium">יום ראשון<span class="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">היום</span></p><p class="text-xs text-muted-foreground">5 תרגילים · סקוואט, לחיצת חזה, חתירה…</p></div><span class="rounded-full bg-secondary px-2 py-0.5 text-xs">לא בוצע</span></label>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-border bg-card"><input type="radio" name="w"  class="h-4 w-4"><div class="flex-1"><p class="flex items-center gap-2 font-medium">יום שלישי</p><p class="text-xs text-muted-foreground">4 תרגילים</p></div><span class="rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">בוצע</span></label>
+        <label class="flex items-center gap-3 rounded-lg border p-3 border-border bg-card"><input type="radio" name="w"  class="h-4 w-4"><div class="flex-1"><p class="flex items-center gap-2 font-medium">יום חמישי</p><p class="text-xs text-muted-foreground">5 תרגילים</p></div><span class="rounded-full bg-secondary px-2 py-0.5 text-xs">לא בוצע</span></label>
+        <button class="text-sm text-primary hover:underline">אימון משבוע אחר…</button>
+      </div>
+      <div class="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
+        <span class="mt-0.5 text-warning-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>
+        <p>התוכנית של השבוע עדיין <b>בטיוטה</b>. תחילת האימון תפרסם אותה, כדי שהמתאמן יראה את האימון בהיסטוריה שלו (שאלה Q5.2).</p>
+      </div>
+      <button class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground h-11 w-full text-base"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 shrink-0" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>התחל אימון</button>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>
