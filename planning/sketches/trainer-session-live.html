@@ -5,20 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>אימון אישי: מסך חי</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap">
 <!-- Static sketch only. sketches.css is compiled from sketches.input.css (the app's own tokens from src/app/globals.css) with Tailwind v4. Not connected to any code. -->
 <link rel="stylesheet" href="sketches.css">
 <style>
-  body { font-family: 'Rubik', Arial, sans-serif; }
+  body { font-family: 'Heebo', Arial, sans-serif; }
   input { font: inherit; }
-  .sketch-note { background: repeating-linear-gradient(-45deg,#fff7e6,#fff7e6 8px,#fff2d6 8px,#fff2d6 16px); }
+  .sketch-note { background: repeating-linear-gradient(-45deg,#231c08,#231c08 8px,#1d1706 8px,#1d1706 16px); }
 </style>
 </head>
 <body class="min-h-screen bg-background text-foreground antialiased">
 <div class="sketch-note border-b border-warning/40 px-4 py-2 text-xs text-warning-foreground">
   <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
     <span><b>סקיצה סטטית</b> · מסך מאמן חדש · פיצ'ר 5</span>
-    <a href="index.html" class="font-medium text-primary underline-offset-4 hover:underline">כל הסקיצות</a>
+    <a href="index.html" class="font-medium text-primary-text underline-offset-4 hover:underline">כל הסקיצות</a>
   </div>
 </div>
 
@@ -104,11 +104,11 @@
     </div>
   </div>
   
-  <div class="space-y-2 rounded-xl border p-3 border-primary ring-2 ring-primary/25 bg-card">
+  <div class="space-y-2 rounded-xl border p-3 border-primary ring-2 ring-primary-deep bg-card">
     <div class="flex items-center gap-3">
       <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-primary-foreground">3</div>
       <div class="min-w-0 flex-1"><p class="text-base font-semibold"><bdi dir="ltr">70×10-12</bdi></p><p class="text-xs text-muted-foreground">שבוע שעבר: <bdi dir="ltr">70×8</bdi></p></div>
-      <button class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-primary text-primary bg-card" aria-label="אישור סט"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-7 w-7 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
+      <button class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-primary text-primary-text bg-card" aria-label="אישור סט"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-7 w-7 shrink-0" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>
     </div>
     <div class="flex items-end justify-center gap-3">
       
@@ -160,7 +160,7 @@
         <li class="flex items-center gap-1.5 text-muted-foreground"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><path d="M5 12h14"/></svg>פלאנק סט 3: לא בוצע</li>
       </ul>
       <div class="space-y-1"><label class="text-sm font-medium">הערה כללית לאימון</label><textarea rows="2" class="w-full rounded-md border border-input bg-card p-2 text-sm"></textarea></div>
-      <p class="flex items-center gap-1 text-xs text-primary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>שבוע 4 של הבלוק יחושב מחדש לפי האימון הזה</p>
+      <p class="flex items-center gap-1 text-xs text-primary-text"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>שבוע 4 של הבלוק יחושב מחדש לפי האימון הזה</p>
       <button class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground h-11 w-full text-base">שמור וסיים</button>
       <p class="text-center text-xs text-muted-foreground">אפשר לסיים גם אם לא כל הסטים בוצעו. הם יופיעו כ"לא בוצע".</p>
     </div>

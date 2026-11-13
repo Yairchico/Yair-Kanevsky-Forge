@@ -1,27 +1,50 @@
 /*
  * Source for sketches.css (static sketches only — not part of the app build).
- * Tokens copied from src/app/globals.css so the sketches match the app.
+ * Palette: the crimson dark theme (claude/crimson-dark-theme): always dark,
+ * crimson #B3122E for fills only, soft pink #F3C9D1 for crimson-family
+ * text/icons, Heebo font. The other values are the ones that branch's
+ * session reported; its globals.css was never pushed, so this is a copy of
+ * the reported values, not of the file itself.
  * Rebuild: npx @tailwindcss/cli@4 -i sketches.input.css -o sketches.css --minify  (from this folder)
  */
 @import "tailwindcss" source(none);
 @source "./*.html";
 
 :root {
-  --background: #f4f5f7; --foreground: #17181c;
-  --card: #ffffff; --card-foreground: #17181c;
-  --border: #e4e5ea; --input: #dcdde3; --ring: #511ce0;
-  --muted: #edeef1; --muted-foreground: #6b6f76;
-  --primary: #511ce0; --primary-foreground: #ffffff;
-  --secondary: #edeef1; --secondary-foreground: #17181c;
-  --destructive: #dc2626; --destructive-foreground: #ffffff;
-  --success: #16a34a; --success-foreground: #ffffff;
-  --warning: #f59e0b; --warning-foreground: #1c1233;
+  --background: #121212;
+  --foreground: #EDEDED;
+  --heading: #FFFFFF;
+  --card: #1E1E1E;
+  --card-foreground: #FFFFFF;
+  --border: #2A2A2A;
+  --input: #2E2E2E;
+  --muted: #2A2A2A;
+  --muted-foreground: #A3A3A3;
+  --subtle: #7A7A7A;
+  --hover: #3A3A3A;
+  --secondary: #2A2A2A;
+  --secondary-foreground: #EDEDED;
+  --primary: #B3122E;
+  --primary-hover: #C8102E;
+  --primary-active: #9E1030;
+  --primary-deep: #7A0C1F;
+  --primary-tint: #3A0A14;
+  --primary-text: #F3C9D1;
+  --primary-foreground: #FFFFFF;
+  --ring: #B3122E;
+  --destructive: #F87171;
+  --destructive-foreground: #1A0606;
+  --success: #22C55E;
+  --success-foreground: #06200F;
+  --warning: #F59E0B;
+  --warning-foreground: #FCD34D;
   --radius: 0.75rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-heading: var(--heading);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-border: var(--border);
@@ -29,7 +52,14 @@
   --color-ring: var(--ring);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-hover: var(--hover);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-deep: var(--primary-deep);
+  --color-primary-tint: var(--primary-tint);
+  --color-primary-text: var(--primary-text);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -42,9 +72,12 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 0.25rem);
   --radius-sm: calc(var(--radius) - 0.5rem);
-  --font-sans: "Rubik", Arial, Helvetica, sans-serif;
+  --font-sans: "Heebo", Arial, Helvetica, sans-serif;
 }
 
 @layer base {
   * { border-color: var(--color-border); }
+  html { color-scheme: dark; }
+  h1, h2, h3 { color: var(--color-heading); }
+  input::placeholder, textarea::placeholder { color: var(--color-subtle); }
 }
