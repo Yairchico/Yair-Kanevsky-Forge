@@ -475,6 +475,79 @@ create table public.free_session_sets (
 
 ---
 
+### פיצ'ר 5ג: אימונים אישיים שמורים (תבניות) (גודל M, נוסף בבקשה)
+
+#### מטרה
+המאמן שומר אימון אישי **כתבנית לשימוש חוזר**: רשימת תרגילים, ולכל תרגיל סטים עם יעד (חזרות ומשקל). התבנית לא שייכת לאף מתאמן ולאף שבוע. אפשר להפעיל אותה כמה פעמים שרוצים, עם מתאמן או בלי. יש שתי דרכים ליצור תבנית:
+1. **לבנות מראש**: "אימון שמור חדש", בעורך שדומה לבילדר.
+2. **לשמור אימון חופשי שהסתיים**: תיבת סימון "שמור גם כאימון שמור" במודאל הסיום. מה שבוצע בפועל הופך ליעדים של התבנית.
+
+#### DB (סקיצה, נכנס ל-‏`0015_trainer_session.sql`)
+```sql
+create table public.session_templates (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (length(trim(title)) > 0),
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz                                  -- מחיקה רכה, כדי שאימונים שכבר נעשו מהתבנית ימשיכו להצביע עליה
+);
+create table public.session_template_exercises (
+  id uuid primary key default gen_random_uuid(),
+  template_id uuid not null references public.session_templates(id) on delete cascade,
+  exercise_id uuid not null references public.exercises(id) on delete restrict,
+  order_index smallint not null,
+  rest_seconds integer,
+  notes text
+);
+create table public.session_template_sets (               -- אותן עמודות יעד כמו workout_exercise_sets (פיצ'ר 1)
+  id uuid primary key default gen_random_uuid(),
+  template_exercise_id uuid not null references public.session_template_exercises(id) on delete cascade,
+  set_index smallint not null check (set_index >= 1),
+  set_type text not null default 'working' check (set_type in ('warmup','working','backoff')),
+  reps_min smallint, reps_max smallint, reps_note text,
+  weight_kg numeric(6,2), weight_note text,
+  rpe numeric(3,1) check (rpe is null or rpe between 1 and 10),
+  unique (template_exercise_id, set_index)
+);
+
+-- אימון שהתחיל מתבנית זוכר מאיפה הוא בא, ושומר את היעדים שהיו באותו רגע:
+alter table public.free_sessions add column if not exists template_id uuid
+  references public.session_templates(id) on delete set null;
+alter table public.free_session_sets
+  add column if not exists target_reps_min smallint,
+  add column if not exists target_reps_max smallint,
+  add column if not exists target_weight_kg numeric(6,2);
+```
+- **RLS**: למאמן `for all` ולצופה (superadmin) קריאה. המתאמן לא רואה תבניות בכלל.
+- **למה מעתיקים את היעדים בהתחלת האימון ולא קוראים אותם מהתבנית בזמן אמת?** כדי שעריכת תבנית מחר לא תשנה בדיעבד מה היה היעד באימון של היום.
+
+#### לוגיקה
+- `createTemplate`, ‏`updateTemplate` ו-`deleteTemplate` (מחיקה רכה), ו-`duplicateTemplate`. עריכת סטים ותרגילים עוברת דרך אותן פונקציות ולידציה של פיצ'ר 1 (חזרות, טווח, משקל ו-RPE).
+- `startFromTemplate(templateId, traineeId | null)` יוצר `free_sessions` עם `template_id` (ו-`trainee_id` אם נבחר), מעתיק את התרגילים, וממלא מראש את היעדים בכל סט.
+- `saveSessionAsTemplate(sessionId, title)` נקרא מתוך `finishFreeSession`, כשהתיבה מסומנת. **הביצוע בפועל** הופך ליעד, ותרגיל שלא בוצע בו אף סט לא נכלל.
+- **"בפעם הקודמת"** באימון מתבנית: האימון האחרון מאותה תבנית **עם אותו מתאמן**, ואם אין כזה, ה-`set_logs` האחרון של אותו `exercise_id` (כמו בפיצ'ר 2). כשאין מתאמן, לא מוצג "בפעם הקודמת".
+- **"הוסף לתוכנית של מתאמן…"** (אופציונלי, Q5.12): מעתיק את התבנית כאימון חדש לשבוע שנבחר בתוכנית של המתאמן. זה אותו קוד כמו שכפול שבוע, רק ממקור אחר.
+
+#### מסכים
+| מסך | תיאור | סקיצה |
+|---|---|---|
+| **חדש**: ‏`/trainer/session/templates` | כרטיסי תבניות (שם, מספר תרגילים, שימוש אחרון) עם כפתורי התחל, ערוך, שכפל ומחק | `trainer-session-templates.html` |
+| **חדש**: מודאל "התחל" | עם מתאמן (בחירה מרשימה) או בלי | באותה סקיצה |
+| **חדש**: עורך תבנית | שם, הערה, ושורות תרגיל עם **אותו רכיב טבלת סטים כמו בבילדר**, בלי קפיצות ובלי ימים | באותה סקיצה |
+| `/trainer/session`, בחירה | אפשרות "מתוך אימון שמור" | `trainer-session-start.html` |
+| מודאל סיום של אימון חופשי | "שמור גם כאימון שמור" עם שם | `trainer-session-freeform.html` |
+| דף הבית של המאמן | קישור "אימונים שמורים" ליד "התחל אימון אישי" | – |
+
+#### מקרי קצה וסיכונים
+- **מחיקת תרגיל מהספרייה שמשמש בתבנית**: `on delete restrict`, כמו בתוכניות. מוצגת הודעה ידידותית שהתרגיל בשימוש בתבנית.
+- **שתי תבניות עם אותו שם**: מותר. מוצג גם תאריך יצירה כדי להבדיל ביניהן.
+- **עריכת תבנית בזמן שאימון ממנה פתוח**: לא משפיע על האימון הפתוח, כי היעדים הועתקו בהתחלה.
+- **שימוש חוזר במבנה של פיצ'ר 1**: עורך התבנית ורכיב הסטים חייבים להיות אותם רכיבים בדיוק כמו בבילדר. אחרת יהיו שני עורכי סטים שונים לתחזק. לכן 5ג נבנה **אחרי** פיצ'ר 1 ו-5ב.
+
+---
+
 ## חלק ג: סדר ביצוע מומלץ ותלויות
 
 ```
@@ -496,13 +569,13 @@ create table public.free_session_sets (
 |---|---|---|---|
 | **1** | פיצול סטים, כולל "שבוע שעבר" לפי exercise_id | ‏`0013` | הבסיס. כולל כבר את עמודות פיצ'ר 2 על הסטים כדי לחסוך migration נוסף |
 | **2** | הערות קבועות ווידאו בקישור | ‏`0014` | זול, עצמאי, ונותן ערך מיד. אפשר לעשות במקביל לשלב 1, וגם **לפני** אם רוצים "ניצחון מהיר" |
-| **3** | מצב אימון אישי, כולל אימון חופשי ללא מתאמן (5ב) | ‏`0015` | פשוט יותר מבלוקים, משתמש בדיוק ברכיבי הסטים של שלב 1, ומייצר את נתוני הביצוע שהבלוקים יצרכו. 5ב אפשר לפצל ל-commit נפרד אחרי 5 |
+| **3** | מצב אימון אישי, כולל אימון חופשי ללא מתאמן (5ב) ואימונים שמורים (5ג) | ‏`0015` | פשוט יותר מבלוקים, משתמש בדיוק ברכיבי הסטים של שלב 1, ומייצר את נתוני הביצוע שהבלוקים יצרכו. הסדר בתוך השלב: 5, אחריו 5ב, אחריו 5ג, כל אחד ב-commit נפרד |
 | **4** | בלוקים וקפיצות | ‏`0016_blocks_and_progression.sql` | הכי גדול ומסוכן. נבנה כשמודל הסטים כבר יציב ונבדק בשימוש אמיתי. החישוב מתחבר גם ל-`submitWorkout` וגם ל-`finishSession` |
 | **5** | וידאו בהעלאה (אם יוחלט) | ‏`0018` (bucket ‏+ policies) | רק אם הקישורים לא מספיקים בפועל |
 | **6** | ניקוי | ‏`0017` | מחיקת `sets/reps/weight/rpe` מ-`workout_exercises`, אחרי כמה שבועות של שימוש יציב |
 
 > מספור ה-migrations לפי סדר הביצוע: ‏0013 סטים, ‏0014 הערות ווידאו (קישור), ‏0015 אימון אישי, ‏0016 בלוקים, ‏0017 ניקוי, ‏0018 bucket וידאו (אם יוחלט). אם הסדר ישתנה, המספור ישתנה איתו.
 
-**הערכה כוללת**: L + L + S + M + M, ועוד M לאימון החופשי (5ב). כל שלב הוא commit או סדרת commits נפרדת, עם `tsc`, ‏`eslint`, ‏`build` ו-`cf:build` לפני כל commit. **כל שלב עם migration דורש שהמשתמש יריץ את ה-SQL ב-Supabase לפני ה-push**, בגלל הסיכון הידוע שכל push עולה לפרודקשן.
+**הערכה כוללת**: L + L + S + M + M, ועוד M לאימון החופשי (5ב) ו-M לאימונים השמורים (5ג). כל שלב הוא commit או סדרת commits נפרדת, עם `tsc`, ‏`eslint`, ‏`build` ו-`cf:build` לפני כל commit. **כל שלב עם migration דורש שהמשתמש יריץ את ה-SQL ב-Supabase לפני ה-push**, בגלל הסיכון הידוע שכל push עולה לפרודקשן.
 
 **בדיקות**: מה שאפשר לבדוק בסביבה הזו הוא ה-build, וגם (מוצע) Postgres מקומי להרצת ה-migrations על נתוני דמה ולבדיקת פונקציית הקפיצות. את ההתנהגות החיה המשתמש צריך לבדוק בעצמו, כמו היום.
