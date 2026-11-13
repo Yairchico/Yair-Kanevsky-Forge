@@ -1,7 +1,19 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatShortDateTime, formatWeight } from "@/lib/format";
+import { formatShortDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import {
+  PLANNED_SET_COLUMNS,
+  SET_LOG_COLUMNS,
+  formatLegacyActual,
+  formatLoggedSet,
+  isSetTargetMet,
+  toLoggedSet,
+  toPlannedSet,
+  type LoggedSet,
+} from "@/lib/sets";
+import { selectInChunks } from "@/lib/previous-sets";
 import { dayName } from "@/lib/week";
 
 /**
@@ -57,9 +69,34 @@ export default async function TraineeHistoryPage() {
       .order("order_index"),
     supabase
       .from("workout_logs")
-      .select("workout_exercise_id, actual_sets, rpe_actual, notes")
+      .select("workout_exercise_id, actual_sets, notes")
       .eq("trainee_id", user.id),
   ]);
+
+  // Per-set performance (migration 0013) and the planned targets, to mark
+  // a set that fell short of its target.
+  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+  const [plannedRows, loggedRows] = await Promise.all([
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+    ),
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase
+        .from("set_logs")
+        .select(SET_LOG_COLUMNS)
+        .eq("trainee_id", user.id)
+        .eq("status", "done")
+        .neq("source", "legacy")
+        .in("workout_exercise_id", chunk),
+    ),
+  ]);
+  const plannedByKey = new Map(plannedRows.map((r) => [`${r.workout_exercise_id}:${r.set_index}`, toPlannedSet(r)]));
+  const loggedByWe = new Map<string, LoggedSet[]>();
+  for (const row of loggedRows) {
+    const list = loggedByWe.get(row.workout_exercise_id) ?? [];
+    list.push(toLoggedSet(row));
+    loggedByWe.set(row.workout_exercise_id, list);
+  }
 
   const programIds = [...new Set((workouts ?? []).map((w) => w.program_id))];
   const { data: programs } = await supabase
@@ -90,15 +127,20 @@ export default async function TraineeHistoryPage() {
         .filter((we) => we.workout_id === completion.workout_id)
         .map((we) => {
           const log = logByWorkoutExerciseId.get(we.id);
-          if (!log) return null;
-          const sets = log.actual_sets as { weight?: string | null; reps?: string | null } | null;
+          const sets = (loggedByWe.get(we.id) ?? [])
+            .sort((a, b) => a.setIndex - b.setIndex)
+            .map((set) => ({
+              ...set,
+              met: isSetTargetMet(plannedByKey.get(`${we.id}:${set.setIndex}`), set),
+            }));
+          const legacy = sets.length === 0 ? formatLegacyActual(log?.actual_sets) : null;
+          if (sets.length === 0 && !legacy && !log?.notes) return null;
           return {
             id: we.id,
             name: exerciseNameById.get(we.exercise_id) ?? "תרגיל לא ידוע",
-            reps: sets?.reps ?? null,
-            weight: sets?.weight ?? null,
-            rpe: log.rpe_actual,
-            notes: log.notes,
+            sets,
+            legacy,
+            notes: log?.notes ?? null,
           };
         })
         .filter((ex): ex is NonNullable<typeof ex> => ex !== null);
@@ -144,14 +186,29 @@ export default async function TraineeHistoryPage() {
                   <div className="divide-y divide-border">
                     {entry.exercises.map((ex) => (
                       <div key={ex.id} className="space-y-0.5 py-2 first:pt-0 last:pb-0">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                          <span className="text-sm font-medium">{ex.name}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {[ex.reps && `${ex.reps} חזרות`, formatWeight(ex.weight), ex.rpe != null && `RPE ${ex.rpe}`]
-                              .filter(Boolean)
-                              .join(" · ") || "נרשם"}
-                          </span>
-                        </div>
+                        <p className="text-sm font-medium">{ex.name}</p>
+                        {ex.sets.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {ex.sets.map((set) => (
+                              <span
+                                key={set.setIndex}
+                                dir="ltr"
+                                className={cn(
+                                  "rounded-md px-2 py-0.5 text-sm",
+                                  set.met ? "bg-muted" : "bg-warning/20 text-warning-foreground",
+                                )}
+                              >
+                                {formatLoggedSet(set)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {ex.legacy && (
+                          <p className="text-sm">
+                            {ex.legacy}{" "}
+                            <span className="text-xs text-muted-foreground">(מלפני פיצול הסטים)</span>
+                          </p>
+                        )}
                         {ex.notes && <p className="text-sm text-muted-foreground">{ex.notes}</p>}
                       </div>
                     ))}

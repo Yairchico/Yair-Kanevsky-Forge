@@ -1,4 +1,6 @@
 import { notFound, redirect } from "next/navigation";
+import { PLANNED_SET_COLUMNS, summarizeSets, toPlannedSet, type PlannedSet } from "@/lib/sets";
+import { selectInChunks } from "@/lib/previous-sets";
 import { createClient } from "@/lib/supabase/server";
 import { isReadOnlyViewer } from "@/lib/viewer";
 import { addDays, getWeekStart, toDateKey } from "@/lib/week";
@@ -65,13 +67,23 @@ export default async function NewProgramPage({
   const [{ data: pastExercises }, { data: exerciseCatalog }] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select(
-        "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-      )
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
       .in("workout_id", pastWorkoutIds.length ? pastWorkoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name"),
   ]);
+
+  const plannedRows = await selectInChunks(
+    (pastExercises ?? []).map((we) => we.id),
+    (chunk) =>
+      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+  );
+  const plannedByWe = new Map<string, PlannedSet[]>();
+  for (const row of plannedRows) {
+    const list = plannedByWe.get(row.workout_exercise_id) ?? [];
+    list.push(toPlannedSet(row));
+    plannedByWe.set(row.workout_exercise_id, list);
+  }
 
   const exerciseNameById = new Map((exerciseCatalog ?? []).map((e) => [e.id, e.name]));
 
@@ -108,10 +120,9 @@ export default async function NewProgramPage({
           .map((we) => ({
             id: we.id,
             name: exerciseNameById.get(we.exercise_id) ?? "תרגיל לא ידוע",
-            sets: we.sets,
-            reps: we.reps,
-            weight: we.weight,
-            rpe: we.rpe,
+            summary: summarizeSets(
+              (plannedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex),
+            ),
             restSeconds: we.rest_seconds,
             instructions: we.instructions,
           })),

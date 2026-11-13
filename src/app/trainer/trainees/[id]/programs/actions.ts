@@ -11,8 +11,9 @@ export interface ActionState {
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /**
- * Deep-copies one program's entire structure (every workout, and every
- * workout_exercise on it — sets/reps/weight/RPE/rest/instructions) into
+ * Deep-copies one program's entire structure (every workout, every
+ * workout_exercise on it, and every planned set under those — migration
+ * 0013 — with reps/weight/RPE targets, rest and instructions) into
  * another, freshly-created program. Used by "שכפול שבוע": the new program
  * is always created as a draft, so the trainer reviews the copy before
  * publishing it.
@@ -57,9 +58,7 @@ async function duplicateProgramContents(
 
   const { data: sourceExercises } = await supabase
     .from("workout_exercises")
-    .select(
-      "workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-    )
+    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
     .in(
       "workout_id",
       sourceWorkouts.map((w) => w.id),
@@ -68,21 +67,63 @@ async function duplicateProgramContents(
 
   if (!sourceExercises?.length) return null;
 
-  const { error: exercisesError } = await supabase.from("workout_exercises").insert(
-    sourceExercises.map((we) => ({
-      workout_id: oldToNewWorkoutId.get(we.workout_id)!,
-      exercise_id: we.exercise_id,
-      order_index: we.order_index,
-      sets: we.sets,
-      reps: we.reps,
-      weight: we.weight,
-      rpe: we.rpe,
-      rest_seconds: we.rest_seconds,
-      instructions: we.instructions,
-    })),
-  );
+  const { data: sourceSets } = await supabase
+    .from("workout_exercise_sets")
+    .select(
+      "workout_exercise_id, set_index, set_type, reps_min, reps_max, reps_note, weight_kg, weight_note, rpe",
+    )
+    .in(
+      "workout_exercise_id",
+      sourceExercises.map((we) => we.id),
+    );
 
-  return exercisesError ? "שגיאה בשכפול התרגילים" : null;
+  // One insert per exercise, same reasoning as the workouts above: each
+  // exercise's new id comes straight from its own insert, so its sets
+  // (migration 0013) can be attached without reconstructing a mapping.
+  for (const we of sourceExercises) {
+    const { data: newExercise, error: exerciseError } = await supabase
+      .from("workout_exercises")
+      .insert({
+        workout_id: oldToNewWorkoutId.get(we.workout_id)!,
+        exercise_id: we.exercise_id,
+        order_index: we.order_index,
+        rest_seconds: we.rest_seconds,
+        instructions: we.instructions,
+      })
+      .select("id")
+      .single();
+
+    if (exerciseError || !newExercise) {
+      return "שגיאה בשכפול התרגילים";
+    }
+
+    const sets = (sourceSets ?? []).filter((s) => s.workout_exercise_id === we.id);
+    // A legacy exercise with no sets yet (shouldn't happen after migration
+    // 0013's backfill) gets the same default a newly-added exercise does.
+    const rows = sets.length
+      ? sets.map(({ workout_exercise_id: _from, ...set }) => {
+          void _from;
+          return { ...set, workout_exercise_id: newExercise.id };
+        })
+      : [1, 2, 3].map((n) => ({
+          workout_exercise_id: newExercise.id,
+          set_index: n,
+          set_type: "working" as const,
+          reps_min: 8,
+          reps_max: 10,
+          reps_note: null,
+          weight_kg: null,
+          weight_note: null,
+          rpe: null,
+        }));
+
+    const { error: setsError } = await supabase.from("workout_exercise_sets").insert(rows);
+    if (setsError) {
+      return "שגיאה בשכפול הסטים";
+    }
+  }
+
+  return null;
 }
 
 export async function createProgram(

@@ -17,6 +17,16 @@ import { TraineeWeekView } from "./trainee-week-view";
 import { ProgramRow } from "./program-row";
 import { cn } from "@/lib/utils";
 import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import {
+  PLANNED_SET_COLUMNS,
+  SET_LOG_COLUMNS,
+  formatLegacyActual,
+  toLoggedSet,
+  toPlannedSet,
+  type LoggedSet,
+  type PlannedSet,
+} from "@/lib/sets";
+import { selectInChunks } from "@/lib/previous-sets";
 
 export default async function TraineeDetailPage({
   params,
@@ -72,13 +82,10 @@ export default async function TraineeDetailPage({
     { data: exercises },
     { data: workoutCompletions },
     { data: exerciseCompletions },
-    { data: recentLogs },
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select(
-        "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-      )
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name, muscle_group"),
@@ -91,12 +98,30 @@ export default async function TraineeDetailPage({
       .from("workout_exercise_completions")
       .select("workout_exercise_id")
       .eq("trainee_id", id),
-    supabase
-      .from("workout_logs")
-      .select("workout_exercise_id, performed_at, actual_sets, rpe_actual, notes")
-      .eq("trainee_id", id)
-      .order("performed_at", { ascending: false })
-      .limit(300),
+  ]);
+
+  // Planned vs. performed per set (migration 0013), plus the exercise-level
+  // note and, for anything logged before sets were split, the old value.
+  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+  const [plannedRows, loggedRows, exerciseLogRows] = await Promise.all([
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+    ),
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase
+        .from("set_logs")
+        .select(SET_LOG_COLUMNS)
+        .eq("trainee_id", id)
+        .eq("status", "done")
+        .in("workout_exercise_id", chunk),
+    ),
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase
+        .from("workout_logs")
+        .select("workout_exercise_id, actual_sets, notes")
+        .eq("trainee_id", id)
+        .in("workout_exercise_id", chunk),
+    ),
   ]);
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
@@ -106,21 +131,21 @@ export default async function TraineeDetailPage({
   const doneExerciseIds = new Set(
     (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
   );
-  const latestLogByWorkoutExerciseId = new Map<
-    string,
-    { weight: string | null; reps: string | null; rpe: number | null; notes: string | null; performedAt: string }
-  >();
-  for (const log of recentLogs ?? []) {
-    if (latestLogByWorkoutExerciseId.has(log.workout_exercise_id)) continue;
-    const sets = log.actual_sets as { weight?: string | null; reps?: string | null } | null;
-    latestLogByWorkoutExerciseId.set(log.workout_exercise_id, {
-      weight: sets?.weight ?? null,
-      reps: sets?.reps ?? null,
-      rpe: log.rpe_actual,
-      notes: log.notes,
-      performedAt: log.performed_at,
-    });
+  const plannedByWe = new Map<string, PlannedSet[]>();
+  for (const row of plannedRows) {
+    const list = plannedByWe.get(row.workout_exercise_id) ?? [];
+    list.push(toPlannedSet(row));
+    plannedByWe.set(row.workout_exercise_id, list);
   }
+  const loggedByWe = new Map<string, LoggedSet[]>();
+  for (const row of loggedRows) {
+    // Carried-over rows are shown through legacyActual (the original text) instead.
+    if (row.source === "legacy") continue;
+    const list = loggedByWe.get(row.workout_exercise_id) ?? [];
+    list.push(toLoggedSet(row));
+    loggedByWe.set(row.workout_exercise_id, list);
+  }
+  const exerciseLogByWe = new Map(exerciseLogRows.map((l) => [l.workout_exercise_id, l]));
 
   const weeks = recentPrograms.map((program) => ({
     programId: program.id,
@@ -138,20 +163,21 @@ export default async function TraineeDetailPage({
           .filter((we) => we.workout_id === w.id)
           .map((we) => {
             const exercise = exerciseById.get(we.exercise_id);
+            const loggedSets = (loggedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex);
+            const exerciseLog = exerciseLogByWe.get(we.id);
             return {
               id: we.id,
               name: exercise?.name ?? "תרגיל לא ידוע",
               muscleGroup: exercise?.muscle_group ?? null,
-              planned: {
-                sets: we.sets,
-                reps: we.reps,
-                weight: we.weight,
-                rpe: we.rpe,
-                restSeconds: we.rest_seconds,
-              },
+              plannedSets: (plannedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex),
+              loggedSets,
+              restSeconds: we.rest_seconds,
               instructions: we.instructions,
               done: doneExerciseIds.has(we.id),
-              log: latestLogByWorkoutExerciseId.get(we.id) ?? null,
+              note: exerciseLog?.notes ?? null,
+              // Only when nothing has been logged per set since (re-logging
+              // an old exercise replaces the old value as what's current).
+              legacyActual: loggedSets.length === 0 ? formatLegacyActual(exerciseLog?.actual_sets) : null,
             };
           }),
       })),

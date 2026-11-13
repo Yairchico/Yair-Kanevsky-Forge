@@ -184,6 +184,8 @@ workout_completions       -- סימון "בוצע" ברמת האימון השל�
   - [ ] QA חי בפועל מול המאמן (מובייל אמיתי, שני חשבונות מתאמן אמיתיים לבדיקת בידוד) — לא ניתן לבצע מהסביבה הזו (אין גישה ל-workers.dev/לפרויקט Supabase החי).
   - [ ] **[2026-09-06] תגלית תשתית קריטית, לא פתורה**: הענף `claude/fitness-app-trainers-gccazz` מחובר ב-Cloudflare עצמה ("Workers Builds") ישירות ל-Worker של **production** — כל push אליו יכול לעלות לאתר האמיתי מיד, במקביל ומבלי קשר ל-`deploy.yml`/`deploy-production.yml` שלנו (שנשארו ב-0 הרצות ל-production לאורך כל הזמן — בלתי נראה מצד GitHub לגמרי). התגלה כשהמשתמש ראה שינויים טריים בקישור ה-production. **נוסה תיקון**: מעבר לענף פיתוח נפרד, `testing` — **לא עבד**: אושר בדשבורד Cloudflare (טאב Deployments, build מתויג `testing`) שה-git integration מופעל על push לכל ענף, לא רק לענף המקורי. **החלטת המשתמש [2026-09-06]**: "תדחוף למיין וזהו, נטפל בזה אחר כך" — לחזור לפתח ולדחוף ל-`claude/fitness-app-trainers-gccazz` כרגיל ולקבל את הסיכון הזה כידוע ומקובל, במקום לחסום עבודה שוטפת עליו. `deploy.yml` הוחזר לטריגר על הענף הזה. **התיקון האמיתי — ניתוק ה-git integration בדשבורד Cloudflare (Workers & Pages → `yair-kanevsky-forge` → Settings → Build) — עדיין לא בוצע**, באחריות המשתמש. ראו CLAUDE.md's "Deployment" section לפרטים המלאים.
 
+- [~] **[2026-11-13] פיצול סטים (פיצ'ר 1 מתוך `planning/PLAN.md`)** — קוד ומיגרציה (`0013_split_sets.sql`) מוכנים ונבדקו מקומית (Postgres מקומי + האפליקציה מול שרת Supabase מדומה, כולל RLS). **טרם הורץ על ה-DB האמיתי וטרם עלה** — ממתין להחלטה על ניתוק ה-Workers Builds (ראו `planning/QUESTIONS.md` Q0.2). התכנון המלא של חמשת הפיצ'רים: `planning/`.
+
 ---
 
 ## רשימת המתנה — הערות להמשך

@@ -11,6 +11,8 @@
 
 export type UserRole = "trainer" | "trainee";
 export type ProgramStatus = "draft" | "published";
+/** migration 0013. 'backoff' exists in the DB for later; the UI offers warmup/working only for now. */
+export type SetType = "warmup" | "working" | "backoff";
 
 export interface Database {
   public: {
@@ -101,9 +103,13 @@ export interface Database {
           workout_id: string;
           exercise_id: string;
           order_index: number;
+          /** @deprecated legacy (pre-0013) — per-set targets live in workout_exercise_sets now. Not read or written by the app. */
           sets: number | null;
+          /** @deprecated legacy (pre-0013), see `sets`. */
           reps: string | null;
+          /** @deprecated legacy (pre-0013), see `sets`. */
           weight: string | null;
+          /** @deprecated legacy (pre-0013), see `sets`. */
           rpe: number | null;
           rest_seconds: number | null;
           instructions: string | null;
@@ -113,6 +119,59 @@ export interface Database {
           exercise_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["workout_exercises"]["Row"]>;
+        Relationships: [];
+      };
+      workout_exercise_sets: {
+        Row: {
+          id: string;
+          workout_exercise_id: string;
+          /** 1-based position within the exercise. */
+          set_index: number;
+          set_type: SetType;
+          reps_min: number | null;
+          reps_max: number | null;
+          /** Non-numeric reps target ("AMRAP", "30 שנ׳") — set when reps_min is null. */
+          reps_note: string | null;
+          weight_kg: number | null;
+          /** Non-numeric load ("משקל גוף") — set when weight_kg is null. */
+          weight_note: string | null;
+          rpe: number | null;
+          /** Training blocks (feature 2) — unused until then. */
+          is_manual_override: boolean;
+          progression_note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["workout_exercise_sets"]["Row"]> & {
+          workout_exercise_id: string;
+          set_index: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["workout_exercise_sets"]["Row"]>;
+        Relationships: [];
+      };
+      set_logs: {
+        Row: {
+          id: string;
+          workout_exercise_id: string;
+          /** null = an extra set beyond the plan (or its planned set was removed). */
+          workout_exercise_set_id: string | null;
+          trainee_id: string;
+          set_index: number;
+          weight_kg: number | null;
+          reps: number | null;
+          rpe: number | null;
+          status: "done" | "skipped";
+          /** 'legacy' = carried over by migration 0013 from the old one-value-per-exercise workout_logs. */
+          source: "trainee" | "trainer_session" | "legacy";
+          logged_by: string | null;
+          logged_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["set_logs"]["Row"]> & {
+          workout_exercise_id: string;
+          trainee_id: string;
+          set_index: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["set_logs"]["Row"]>;
         Relationships: [];
       };
       workout_logs: {

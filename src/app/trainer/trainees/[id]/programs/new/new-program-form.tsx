@@ -18,7 +18,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { addDays, dayName, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
-import { formatWeight } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionState = {};
@@ -37,10 +36,8 @@ const weekOptions = [0, 1, 2].map((offset) => {
 interface DuplicateExercise {
   id: string;
   name: string;
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
+  /** One-line summary of the planned sets, e.g. "4 × 8-10 · 80 ק"ג" (src/lib/sets.ts). */
+  summary: string;
   restSeconds: number | null;
   instructions: string | null;
 }
@@ -131,10 +128,7 @@ function PreviewModal({
                   <div key={ex.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
                     <p className="text-sm font-medium">{ex.name}</p>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
-                      {ex.sets != null && <span>{ex.sets} סטים</span>}
-                      {ex.reps && <span>{ex.reps} חזרות</span>}
-                      {formatWeight(ex.weight) && <span>{formatWeight(ex.weight)}</span>}
-                      {ex.rpe != null && <span>RPE {ex.rpe}</span>}
+                      <span>{ex.summary}</span>
                     </div>
                   </div>
                 ))}

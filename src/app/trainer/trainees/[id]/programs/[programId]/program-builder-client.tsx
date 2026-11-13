@@ -10,6 +10,7 @@ import { PublishToggle } from "./publish-toggle";
 import { WorkoutBuilder } from "./workout-builder";
 import { createWorkout, deleteWorkout, moveWorkoutToDay } from "./actions";
 import type { WorkoutExerciseFields } from "./actions";
+import type { PlannedSet } from "@/lib/sets";
 
 const MAX_WORKOUTS_PER_DAY = 2;
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -23,6 +24,7 @@ interface WorkoutData {
     exerciseName: string;
     muscleGroup: string | null;
     fields: WorkoutExerciseFields;
+    sets: PlannedSet[];
   }[];
 }
 
@@ -71,6 +73,7 @@ export function ProgramBuilderClient({
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ id: string; label: string; dayOfWeek: number } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const tempCounter = useRef(0);
 
@@ -123,14 +126,24 @@ export function ProgramBuilderClient({
 
   function handleDeleteWorkout(workoutId: string) {
     const index = sorted.findIndex((w) => w.id === workoutId);
+    const previous = workoutList;
     const next = workoutList.filter((w) => w.id !== workoutId);
     setWorkoutList(next);
+    setDeleteError(null);
     if (activeId === workoutId) {
       const nextSorted = sortWorkouts(next);
       setActiveId(nextSorted[Math.max(0, index - 1)]?.id ?? null);
     }
     startTransition(async () => {
       const result = await deleteWorkout(traineeId, programId, workoutId);
+      if (result.error) {
+        // Refused — the trainee already submitted or logged sets in this
+        // workout (see deleteWorkout). Bring it back, selected.
+        setWorkoutList(previous);
+        setActiveId(workoutId);
+        setDeleteError(result.error);
+        return;
+      }
       if (result.revertedToDraft) handleEdited();
     });
   }
@@ -281,6 +294,7 @@ export function ProgramBuilderClient({
       </div>
 
       {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+      {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
 
       {!readOnly && (
         <Modal

@@ -2,26 +2,33 @@
 
 import { useState, useTransition } from "react";
 import { Check } from "lucide-react";
-import { submitWorkout, type PerformanceEntry } from "./actions";
+import { submitWorkout, type ExerciseNoteEntry } from "./actions";
 import { Button } from "@/components/ui/button";
 import { WorkoutSubmittedModal } from "./workout-submitted-modal";
 
 /**
- * Submits the whole workout — optimistic. Reads entries() at click time
- * (a getter, not a prop value) so it always sees the latest draft even
- * though this button itself doesn't re-render on every keystroke. A
- * successful false→true submit also pops WorkoutSubmittedModal — a
- * branded confirmation a trainee scrolled past this button could easily
- * miss otherwise.
+ * Submits the whole workout — optimistic. The sets themselves are already
+ * saved one by one (logSet); before submitting, any set still waiting to
+ * be saved (no reception earlier) is retried first, and if some still
+ * can't reach the server the submission waits rather than marking a
+ * workout done whose numbers aren't all there. Reads the notes via a
+ * getter at click time so it always sees the latest draft. A successful
+ * false→true submit also pops WorkoutSubmittedModal — a branded
+ * confirmation a trainee scrolled past this button could easily miss.
  */
 export function SubmitWorkoutButton({
   workoutId,
   submitted: initialSubmitted,
-  getEntries,
+  disabled = false,
+  getNotes,
+  flushPending,
 }: {
   workoutId: string;
   submitted: boolean;
-  getEntries: () => PerformanceEntry[];
+  disabled?: boolean;
+  getNotes: () => ExerciseNoteEntry[];
+  /** Retries unsaved sets; resolves to how many are still unsaved. */
+  flushPending: () => Promise<number>;
 }) {
   const [submitted, setSubmitted] = useState(initialSubmitted);
   const [error, setError] = useState<string | undefined>();
@@ -30,15 +37,27 @@ export function SubmitWorkoutButton({
 
   function toggle() {
     const next = !submitted;
-    setSubmitted(next);
     setError(undefined);
     startTransition(async () => {
-      const result = await submitWorkout(workoutId, next, next ? getEntries() : []);
-      if (result.error) {
+      if (next) {
+        const stillPending = await flushPending();
+        if (stillPending > 0) {
+          setError("יש סטים שעדיין לא נשמרו (אין חיבור). נסו שוב כשהחיבור יחזור.");
+          return;
+        }
+      }
+      setSubmitted(next);
+      try {
+        const result = await submitWorkout(workoutId, next, next ? getNotes() : []);
+        if (result.error) {
+          setSubmitted(!next);
+          setError(result.error);
+        } else if (next) {
+          setShowSuccess(true);
+        }
+      } catch {
         setSubmitted(!next);
-        setError(result.error);
-      } else if (next) {
-        setShowSuccess(true);
+        setError("אין חיבור — נסו שוב בעוד רגע");
       }
     });
   }
@@ -50,7 +69,7 @@ export function SubmitWorkoutButton({
         type="button"
         variant={submitted ? "outline" : "default"}
         onClick={toggle}
-        disabled={pending}
+        disabled={pending || disabled}
         className="w-full"
       >
         <Check className="h-4 w-4" />

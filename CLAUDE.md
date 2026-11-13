@@ -55,6 +55,8 @@ src/components/ui/                   hand-built primitives (NOT shadcn, despite 
 src/components/                      AppShell, BrandMark, SignOutButton
 src/lib/supabase/                    client factories + hand-written Database types
 src/lib/week.ts                      calendar-week helpers (Sunday-start, Israeli convention)
+src/lib/sets.ts                      per-set parse/format helpers (migration 0013) — reps ranges, kg, summaries
+src/lib/previous-sets.ts             "last time" lookup per exercise + selectInChunks for long .in() lists
 src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
 src/middleware.ts + src/lib/supabase/middleware.ts   session refresh + role-based routing only, not an authorization boundary — deliberately still `middleware.ts`, not Next 16's renamed `proxy.ts` (see Known Gotchas)
 supabase/migrations/                 numbered, additive SQL migrations (see below)
@@ -79,15 +81,31 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   pages when data crosses trainer/trainee — e.g. a trainee logging a
   performance or submitting a workout also revalidates
   `/trainer/trainees/[id]`.
-- **Batch-on-submit + localStorage draft** (the trainee's per-exercise
-  performance entry, `src/lib/workout-draft.ts`): fields with no
-  per-field save button hold their value in local React state that's
-  mirrored into `localStorage` (keyed per `workoutId`) on every change, so
-  it survives a closed tab; nothing reaches the server until one bulk
-  action fires at the end (`submitWorkout` in `src/app/trainee/actions.ts`
-  turns the whole draft into one `workout_logs` insert). Reach for this
-  pattern — not a save button per row — wherever a trainee fills in
-  several small fields before one real "done" action.
+- **Per-set save + localStorage draft** (the trainee's performance entry,
+  `src/lib/workout-draft.ts`, since migration 0013): each set is saved to
+  the server on its own the moment the trainee taps ✓ (`logSet` in
+  `src/app/trainee/actions.ts` — an upsert on `set_logs`); typed-but-
+  unconfirmed values live in local React state mirrored into
+  `localStorage` (keyed per `workoutId`), so they survive a closed tab. A
+  set whose save can't reach the server (a thrown server action = no
+  reception) is kept in the draft as `pending` and retried on mount, on the
+  browser's `online` event, and before "הגש אימון" (`submitWorkout`, which
+  now only writes the exercise notes + `workout_completions`). This
+  replaced the earlier batch-on-submit design on purpose: the requirement
+  is that every set is submitted individually. For other multi-field
+  entry with one real "done" action and no per-item meaning, batch-on-
+  submit is still the simpler choice.
+- **Sets are rows, not columns** (migration 0013): `workout_exercise_sets`
+  holds the plan (one row per set: `reps_min`/`reps_max` or a `reps_note`,
+  `weight_kg` or a `weight_note`, `rpe`, `set_type`), `set_logs` holds what
+  was performed (matched to the plan by `set_index`). The old
+  `workout_exercises.sets/reps/weight/rpe` and `workout_logs.actual_sets`
+  are legacy — kept, never read or written by the app (a later migration
+  drops the columns). Parse/format everything through `src/lib/sets.ts`
+  (same parsing rules as the migration's backfill); "what did they do last
+  time" is `src/lib/previous-sets.ts`. Deleting an exercise, set or workout
+  that has recorded performance is refused in the Server Action (the
+  `on delete cascade` chain would otherwise destroy history).
 - **Draft/publish**: editing a published program auto-reverts it to draft
   (`revertToDraftIfPublished` in the program-builder's `actions.ts`) so a
   change never silently reaches a trainee who already saw the published
@@ -96,9 +114,9 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
 - **Real validation, not just HTML hints.** `min`/`max`/`required` on an
   `<input>` is a UX nicety only — every Server Action that writes
   sets/reps/RPE/etc. re-validates server-side and returns a friendly
-  Hebrew error on rejection (see `validateWorkoutExerciseFields` in the
-  program-builder's `actions.ts`). Matching DB CHECK/NOT NULL constraints
-  (migration `0007`) are the backstop, not the first line of defense.
+  Hebrew error on rejection (see `parseSetFields` in the
+  program-builder's `actions.ts`, built on `src/lib/sets.ts`). Matching DB CHECK/NOT NULL constraints
+  (migrations `0007`, `0013`) are the backstop, not the first line of defense.
 - **RLS pattern**: `public.is_trainer()` (SECURITY DEFINER) gates a
   trainer's "for all" policy per table; a trainee's policy is always
   scoped to `trainee_id = auth.uid()` and, for anything downstream of a
@@ -194,6 +212,7 @@ one-time setup walkthrough):
 10. `0010_soft_delete_programs.sql` — `programs.deleted_at`; deleting a program now sets this instead of a hard DELETE, so the `on delete cascade` chain down to `workout_logs`/`workout_completions` (migration 0001) never fires and a trainee's actual training history survives. Replaces the old `programs_trainee_week_key` unique constraint with a partial unique index (`where deleted_at is null`) so a soft-deleted week's slot is free again; RLS's trainee-facing SELECT policies on `programs`/`workouts`/`workout_exercises` also gained `deleted_at is null`.
 11. `0011_superadmin_readonly.sql` — `profiles.is_superadmin` (boolean, default false) + `is_superadmin()` helper + SELECT-only RLS policies on `profiles`/`programs`/`workouts`/`workout_exercises`/`workout_logs`/`workout_completions`. A read-only oversight account, orthogonal to `role` (stays `'trainee'` for this account, so `is_trainer()`'s write policies never apply) — see "Superadmin (read-only oversight)" below.
 12. `0012_workout_logs_unique.sql` — unique constraint on `workout_logs (workout_exercise_id, trainee_id)` (dedup'd first, for a database that already has duplicates from before this migration). Lets `submitWorkout` (`src/app/trainee/actions.ts`) upsert instead of always inserting — a trainee toggling submit off/on, or resubmitting, used to insert a fresh duplicate log row every time, which is what the trainee history page (`src/app/trainee/history/page.tsx`) was showing as repeated entries.
+13. `0013_split_sets.sql` — per-set records: `workout_exercise_sets` (planned) + `set_logs` (performed), RLS (trainee writes only to their own published, non-deleted program's exercises; trainer read-only on `set_logs` until the trainer-led session mode), backfill from the legacy columns (numbers parsed, anything else kept verbatim as `reps_note`/`weight_note`; each old `workout_logs.actual_sets` becomes ONE `set_logs` row with `source='legacy'`, not invented per-set rows). Legacy columns stay; `sets`/`reps` lose NOT NULL. Safe to re-run after deploy to backfill exercises the old code created in between.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

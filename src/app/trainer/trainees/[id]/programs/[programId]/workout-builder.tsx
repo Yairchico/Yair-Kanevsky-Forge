@@ -24,6 +24,7 @@ import {
 } from "./actions";
 import { WorkoutExerciseRow, WorkoutExerciseRowReadOnly } from "./workout-exercise-row";
 import { AddExercisePicker } from "./add-exercise-picker";
+import type { PlannedSet } from "@/lib/sets";
 
 interface CatalogExercise {
   id: string;
@@ -46,6 +47,7 @@ interface Item {
   exerciseName: string;
   muscleGroup: string | null;
   fields: WorkoutExerciseFields;
+  sets: PlannedSet[];
 }
 
 /**
@@ -83,6 +85,7 @@ export function WorkoutBuilder({
   const [items, setItems] = useState<Item[]>(() =>
     initialItems.map((it) => ({ ...it, key: it.id })),
   );
+  const [error, setError] = useState<string | null>(null);
   const tempCounter = useRef(0);
   const nextTempId = () => `temp-${(tempCounter.current += 1)}`;
 
@@ -107,25 +110,22 @@ export function WorkoutBuilder({
         id: tempId,
         exerciseName: ex.name,
         muscleGroup: ex.muscle_group,
-        // Matches addExerciseToWorkout's own DB defaults for a new row
-        // (sets/reps are required — see validateWorkoutExerciseFields) —
-        // this optimistic copy used to say reps: null, which didn't just
-        // look wrong for a moment, it stuck: the row's own fields state
-        // initializes from these on mount, and swapping in the id below
-        // (not the fields) once the real row comes back meant "reps" and
-        // its "לא מולא" validation error simply never went away, even
-        // though the actual saved row had "8-10" like any other new
-        // exercise. Any *other* field the trainer edited before then
-        // failed to save right along with it, since a row can't save
-        // anything while sets/reps are invalid.
-        fields: {
-          sets: 3,
-          reps: "8-10",
-          weight: null,
+        // Matches addExerciseToWorkout's own defaults (3 working sets of
+        // 8-10), so the row looks right while the server call is in flight.
+        // The placeholder sets have temp ids and stay disabled until the
+        // real row (and its real set ids) comes back below.
+        fields: { rest_seconds: null, instructions: null },
+        sets: [1, 2, 3].map((n) => ({
+          id: `${tempId}-set-${n}`,
+          setIndex: n,
+          setType: "working" as const,
+          repsMin: 8,
+          repsMax: 10,
+          repsNote: null,
+          weightKg: null,
+          weightNote: null,
           rpe: null,
-          rest_seconds: null,
-          instructions: null,
-        },
+        })),
       },
     ]);
 
@@ -145,16 +145,9 @@ export function WorkoutBuilder({
                   ...it,
                   id: row.id,
                   // Sync with whatever actually got saved, not just the id —
-                  // belt-and-suspenders alongside matching the defaults
-                  // above, in case the two ever drift again.
-                  fields: {
-                    sets: row.sets,
-                    reps: row.reps,
-                    weight: row.weight,
-                    rpe: row.rpe,
-                    rest_seconds: row.rest_seconds,
-                    instructions: row.instructions,
-                  },
+                  // the real set ids are needed to edit the sets at all.
+                  fields: { rest_seconds: row.rest_seconds, instructions: row.instructions },
+                  sets: row.sets,
                 }
               : it,
           ),
@@ -162,14 +155,26 @@ export function WorkoutBuilder({
         if (result.revertedToDraft) onEdited?.();
       } else {
         setItems((prev) => prev.filter((it) => it.id !== tempId));
+        setError(result.error ?? "שגיאה בהוספת התרגיל");
       }
     })();
   }
 
   function handleDelete(id: string) {
+    const index = items.findIndex((it) => it.id === id);
+    const removed = items[index];
+    if (!removed) return;
     setItems((prev) => prev.filter((it) => it.id !== id));
     void (async () => {
       const result = await deleteWorkoutExercise(traineeId, programId, id);
+      if (result.error) {
+        // Refused (e.g. the trainee already logged this exercise) — put it
+        // back where it was.
+        setItems((prev) => [...prev.slice(0, index), removed, ...prev.slice(index)]);
+        setError(result.error);
+        return;
+      }
+      setError(null);
       if (result.revertedToDraft) onEdited?.();
     })();
   }
@@ -182,7 +187,12 @@ export function WorkoutBuilder({
     const tempId = nextTempId();
     setItems((prev) => [
       ...prev.slice(0, index + 1),
-      { ...source, key: tempId, id: tempId },
+      {
+        ...source,
+        key: tempId,
+        id: tempId,
+        sets: source.sets.map((set) => ({ ...set, id: `${tempId}-set-${set.setIndex}` })),
+      },
       ...prev.slice(index + 1),
     ]);
 
@@ -196,14 +206,8 @@ export function WorkoutBuilder({
               ? {
                   ...it,
                   id: row.id,
-                  fields: {
-                    sets: row.sets,
-                    reps: row.reps,
-                    weight: row.weight,
-                    rpe: row.rpe,
-                    rest_seconds: row.rest_seconds,
-                    instructions: row.instructions,
-                  },
+                  fields: { rest_seconds: row.rest_seconds, instructions: row.instructions },
+                  sets: row.sets,
                 }
               : it,
           ),
@@ -211,6 +215,7 @@ export function WorkoutBuilder({
         if (result.revertedToDraft) onEdited?.();
       } else {
         setItems((prev) => prev.filter((it) => it.id !== tempId));
+        setError(result.error ?? "שגיאה בשכפול");
       }
     })();
   }
@@ -240,6 +245,11 @@ export function WorkoutBuilder({
 
   return (
     <div className="space-y-4">
+      {error && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           {readOnly ? "אין תרגילים באימון הזה." : "אין עדיין תרגילים באימון הזה. הוסף תרגיל מהרשימה למטה."}
@@ -256,6 +266,7 @@ export function WorkoutBuilder({
               exerciseName={it.exerciseName}
               muscleGroup={it.muscleGroup}
               fields={it.fields}
+              sets={it.sets}
             />
           ))}
         </div>
@@ -281,6 +292,7 @@ export function WorkoutBuilder({
                   exerciseName={it.exerciseName}
                   muscleGroup={it.muscleGroup}
                   initialFields={it.fields}
+                  initialSets={it.sets}
                   onDuplicate={() => handleDuplicate(it.id)}
                   onDelete={() => handleDelete(it.id)}
                   onEdited={onEdited}

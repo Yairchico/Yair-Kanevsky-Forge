@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { isReadOnlyViewer } from "@/lib/viewer";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 import { ProgramBuilderClient } from "./program-builder-client";
+import { PLANNED_SET_COLUMNS, toPlannedSet } from "@/lib/sets";
 
 export default async function ProgramBuilderPage({
   params,
@@ -43,21 +44,32 @@ export default async function ProgramBuilderPage({
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
 
-  const { data: workoutExercises } = await supabase
-    .from("workout_exercises")
-    .select(
-      "id, workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-    )
-    .in(
-      "workout_id",
-      workoutIds.length ? workoutIds : ["00000000-0000-0000-0000-000000000000"],
-    )
-    .order("order_index");
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const { data: exercises } = await supabase
-    .from("exercises")
-    .select("id, name, muscle_group, equipment, media_url")
-    .order("name");
+  const [{ data: workoutExercises }, { data: exercises }] = await Promise.all([
+    supabase
+      .from("workout_exercises")
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+      .in("workout_id", workoutIds.length ? workoutIds : noRows)
+      .order("order_index"),
+    supabase
+      .from("exercises")
+      .select("id, name, muscle_group, equipment, media_url")
+      .order("name"),
+  ]);
+
+  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+  const { data: plannedSets } = await supabase
+    .from("workout_exercise_sets")
+    .select(PLANNED_SET_COLUMNS)
+    .in("workout_exercise_id", workoutExerciseIds.length ? workoutExerciseIds : noRows)
+    .order("set_index");
+  const setsByWorkoutExerciseId = new Map<string, ReturnType<typeof toPlannedSet>[]>();
+  for (const row of plannedSets ?? []) {
+    const list = setsByWorkoutExerciseId.get(row.workout_exercise_id) ?? [];
+    list.push(toPlannedSet(row));
+    setsByWorkoutExerciseId.set(row.workout_exercise_id, list);
+  }
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
 
@@ -74,13 +86,10 @@ export default async function ProgramBuilderPage({
           exerciseName: exercise?.name ?? "תרגיל לא ידוע",
           muscleGroup: exercise?.muscle_group ?? null,
           fields: {
-            sets: we.sets,
-            reps: we.reps,
-            weight: we.weight,
-            rpe: we.rpe,
             rest_seconds: we.rest_seconds,
             instructions: we.instructions,
           },
+          sets: setsByWorkoutExerciseId.get(we.id) ?? [],
         };
       }),
   }));
