@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Dumbbell, Lock, Pin, Plus, RefreshCw } from "lucide-react";
+import { ArrowUp, Check, Dumbbell, Lock, Pin, Plus, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,8 @@ export interface TraineeExerciseData extends SetEntryExercise {
   restSeconds: number | null;
   /** The trainer's note for this program. */
   instructions: string | null;
+  /** Training blocks: how much the target went up since last time, e.g. "+2.5 ק״ג מהפעם הקודמת" (null: it didn't). */
+  jump?: string | null;
 }
 
 function SetEntryRow({
@@ -225,6 +227,13 @@ export function TraineeExerciseModal({
 
         {exercise.muscleGroup && (
           <p className="text-center text-base text-muted-foreground">{exercise.muscleGroup}</p>
+        )}
+
+        {exercise.jump && (
+          <p className="flex items-center justify-center gap-1 text-sm font-medium text-success">
+            <ArrowUp className="h-4 w-4" />
+            {exercise.jump}
+          </p>
         )}
 
         {exercise.videoUrl && <ExerciseVideo url={exercise.videoUrl} title={exercise.name} />}

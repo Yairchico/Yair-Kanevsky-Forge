@@ -45,6 +45,12 @@ export interface EditorItem {
   fields: ExerciseFields;
   sets: PlannedSet[];
   progression?: ProgressionRule;
+  /**
+   * Training blocks: this exercise's targets are computed from an earlier
+   * week (so its sets can be "automatic" or hand-set). False for an
+   * exercise with nothing before it in the block.
+   */
+  computed?: boolean;
 }
 
 export type InitialEditorItem = Omit<EditorItem, "key">;
@@ -306,7 +312,7 @@ export function ExerciseListEditor({
                   muscleGroup={it.muscleGroup}
                   libraryNote={it.libraryNote}
                   allowHideLibraryNote={allowHideLibraryNote}
-                  showOverrides={showOverrides}
+                  showOverrides={showOverrides && it.computed !== false}
                   initialFields={it.fields}
                   initialSets={it.sets}
                   footer={renderFooter?.(it, { replaceItem })}

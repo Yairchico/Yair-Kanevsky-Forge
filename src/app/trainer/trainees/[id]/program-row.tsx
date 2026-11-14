@@ -32,10 +32,13 @@ interface Program {
 export function ProgramRow({
   traineeId,
   program,
+  blockTag = null,
   readOnly = false,
 }: {
   traineeId: string;
   program: Program;
+  /** Set when the program is a week of a training block, e.g. "בלוק · שבוע 3". */
+  blockTag?: string | null;
   /** The read-only superadmin viewer (migration 0011) can still open the builder to look, just not delete. */
   readOnly?: boolean;
 }) {
@@ -60,6 +63,7 @@ export function ProgramRow({
           <p className="truncate font-medium">{program.title}</p>
           <p className="text-xs text-muted-foreground">
             {formatWeekLabel(weekStart)} · {formatWeekRange(weekStart)}
+            {blockTag ? ` · ${blockTag}` : ""}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">

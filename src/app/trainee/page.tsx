@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { rollForwardBlocks } from "@/lib/block-server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
@@ -42,6 +43,10 @@ export default async function TraineeHomePage() {
   // -8 weeks (streak) through +4 weeks (browsable).
   const streakWindowStartKey = toDateKey(addDays(currentWeekStart, -8 * 7));
   const browseEndKey = toDateKey(addDays(currentWeekStart, 4 * 7));
+
+  // Training blocks: the once-a-week maintenance first (it may publish this
+  // week's program), so the home screen already shows the result.
+  await rollForwardBlocks(supabase, user.id);
 
   const [{ data: profile }, { data: programs }] = await Promise.all([
     supabase.from("profiles").select("username, full_name").eq("id", user.id).single(),

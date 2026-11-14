@@ -66,6 +66,8 @@ export interface ProgramRef {
   weekStartDate: string;
   status: "draft" | "published";
   deletedAt: string | null;
+  /** The training block this week belongs to, if any (migration 0017). */
+  blockId: string | null;
 }
 
 /**
@@ -81,7 +83,7 @@ export async function programForWorkout(supabase: Supabase, workoutId: string): 
   if (!workout) return null;
   const { data: program } = await supabase
     .from("programs")
-    .select("id, trainee_id, week_start_date, status, deleted_at")
+    .select("id, trainee_id, week_start_date, status, deleted_at, block_id")
     .eq("id", workout.program_id)
     .maybeSingle();
   if (!program) return null;
@@ -92,6 +94,7 @@ export async function programForWorkout(supabase: Supabase, workoutId: string): 
     weekStartDate: program.week_start_date,
     status: program.status,
     deletedAt: program.deleted_at,
+    blockId: program.block_id,
   };
 }
 

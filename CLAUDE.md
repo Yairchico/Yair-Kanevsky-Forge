@@ -64,6 +64,10 @@ src/lib/use-set-entry.ts             the one state machine behind every set-entr
 src/lib/set-log-server.ts            server-side set logging shared by the trainee's actions and the trainer session (validation, saveSetLog, notes)
 src/lib/free-sessions.ts + free-session-data.ts   free-session row mappers (pure) and server-side loaders
 src/lib/require-trainer.ts           getTrainerContext(): the signed-in user iff they are the trainer (NOT the read-only superadmin)
+src/app/trainer/trainees/[id]/blocks/   training blocks (migration 0017): new/ = the create form, [blockId]/ = the exercise × week overview with every block/week action, actions.ts = thin wrappers around the SQL functions
+src/lib/blocks.ts                    block helpers shared by trainer and trainee screens: rule validation (validateRule), wording for a rule / for what the engine decided (describeRule, describeProgression, traineeJumpLabel), blockErrorMessage for BK001/BK002
+src/lib/block-server.ts              when the engine is asked to run from the app: applyBlockProgression (after any logging), rollForwardBlocks (weekly, lazily, before a page reads a trainee's programs)
+src/components/exercise-editor/progression-panel.tsx   the per-exercise rule editor + "why this week's targets" line, shown under an exercise in a block week's builder
 src/lib/sets.ts                      per-set parse/format helpers (migration 0013) — reps ranges, kg, summaries
 src/lib/previous-sets.ts             "last time" lookup per exercise + selectInChunks for long .in() lists
 src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
@@ -146,6 +150,30 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   `deleteTemplate`, finishing an empty session) ends in a server-side
   `redirect()` — returning normally would re-render that page into a 404,
   because every revalidating action refreshes the current route.
+- **Training blocks: the database computes, the app asks.** A block sits on
+  top of the weekly programs (each week is an ordinary program), and every
+  later week's targets are derived by `block_recompute_internal()` from the
+  last non-deload week before it that has the same exercise slot — its
+  targets and what was actually logged there. Don't reimplement any of it
+  in TypeScript; the app only decides *when* to ask: after every set
+  log/unlog/submit on a block workout (`applyBlockProgression`), once a week
+  lazily before reading a trainee's programs (`rollForwardBlocks` — time
+  passing alone turns "projected" into "skipped", and it's also where
+  auto-publish and auto-complete happen), and after a trainer edit that
+  changes a target or a rule. Things the engine never touches: a set with
+  `is_manual_override` (a target typed by hand in a week whose targets are
+  computed — `updateSet` sets the flag, "שחזר לאוטומטי" clears it), an
+  exercise with any `set_logs`, a submitted workout. Structure (workouts,
+  exercises, set count/type) does NOT propagate by itself: the trainer
+  presses "החל על השבועות הבאים" (`apply_block_structure`), which rebuilds
+  the later weeks that weren't started yet and reports the ones that were.
+  A week with recorded performance is "frozen" everywhere — never
+  restructured, moved, replaced or turned into a deload (`BK002`). Weights:
+  a percent step and a deload are rounded to the exercise's `rounding_kg`
+  for display while the chain continues from `weight_kg_exact`; a kg step on
+  a clean number stays exact. A system recompute never sends a published
+  week back to draft; a trainer's "apply structure" does (unless the block
+  auto-publishes).
 - **Israel time, explicitly.** Server code runs in UTC on Workers. Anything
   that asks "which week/day is it" uses `israelNow()` (`src/lib/week.ts`),
   and every date/time shown goes through `src/lib/format.ts` (which pins
@@ -248,6 +276,7 @@ one-time setup walkthrough):
 14. `0014_security_hardening.sql` — closes two privilege escalations found in the 2026-11-14 audit: a trainee could set `is_superadmin` on their own profile (0003's trigger only guarded `role`; the trainee UPDATE policy on `profiles` is now gone and the trigger covers `role`/`is_superadmin`/`id` for every app session plus `username`/`email`/`status` for non-trainers — direct SQL and the service role are exempt, detected by `auth.role()` being null/`service_role`), and `handle_new_user()` trusted `role` from sign-up metadata (now honoured only while no trainer exists). Also: trainee writes to `workout_logs`/`workout_completions`/`workout_exercise_completions` are limited to their own published, non-deleted program (as `set_logs` already was); `enforce_performance_owner()` triggers on all four performance tables require `trainee_id` to be the program's trainee and make `set_logs.source`/`logged_by` server-decided; superadmin SELECT on `workout_exercise_completions`. Independent of app code — safe on the old deployment.
 15. `0015_exercise_notes_and_video.sql` — `workout_exercises.hide_library_note` (the permanent note itself is the existing `exercises.instructions`, now editable in the library; the per-program note stays `workout_exercises.instructions` and is shown in addition) and `exercises.video_url` (a link only, CHECK https; parsed/embedded by `src/lib/video.ts`).
 16. `0016_trainer_sessions.sql` — trainer-led sessions. (a) The trainer may now WRITE `set_logs`/`workout_logs`/`workout_completions`/`workout_exercise_completions` ("for all" policies replace the read-only ones); `workout_completions` gains `source` (`trainee`/`trainer_session`), `completed_by`, `notes`; `enforce_performance_owner()` now also decides those on INSERT and freezes them on UPDATE (whoever submitted first stays on record). (b) Free sessions: `free_sessions` (`trainee_id` nullable = unassigned, `guest_label`, `template_id`), `free_session_exercises`, `free_session_sets` (one row = a target copied from a template, a performed set, or both). (c) Saved workouts: `session_templates` (soft delete), `session_template_exercises`, `session_template_sets`. RLS: trainer all, superadmin select, a trainee reads only free sessions assigned to them (never templates). SECURITY INVOKER functions that keep multi-row copies atomic: `start_free_session` (also sweeps abandoned empty sessions), `save_session_as_template`, `duplicate_session_template`.
+17. `0017_training_blocks.sql` — training blocks with automatic progression. `blocks` (per trainee; `weeks_count` ≤ 16, `status` active/completed, `default_deload_pct`, `auto_publish_next_week`, `rolled_through`; no stored start date — it's week 1's program date). A block week is an ordinary `programs` row tagged `block_id`/`block_week_index`/`is_deload`/`deload_pct`. `workouts.slot_key` and `workout_exercises.slot_key` identify "the same workout/exercise" across the weeks; the rule lives on `workout_exercises` (`progression_type` none/weight/reps/double, `weight_step_unit` kg/pct, steps, `reps_cap`, `progression_basis` actual/planned, `rounding_kg`) and means "how this exercise moves from THIS week to the next"; `progression_info` jsonb records why a week's targets are what they are; `workout_exercise_sets.weight_kg_exact` keeps the un-rounded weight of a percent chain (and the unused `progression_note` from 0013 is dropped). All logic is in SQL functions, every public one SECURITY DEFINER with its own caller check: the engine `block_recompute_internal` (not callable by API roles), and `create_block`, `apply_block_structure`, `recompute_block`, `set_exercise_progression`, `clear_set_override`, `shift_block`, `insert_block_deload`, `set_block_week_deload`, `end_block`, `delete_block`, `start_next_block` (trainer only) plus `apply_block_progression` and `block_roll_forward` (the workout's/block's trainee, or the trainer). Custom error codes `BK001` (week taken) / `BK002` (week already has recorded performance) carry the week's date in the message.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

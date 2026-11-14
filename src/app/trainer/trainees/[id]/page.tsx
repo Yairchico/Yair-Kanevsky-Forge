@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { Layers, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -17,7 +17,7 @@ import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekView } from "./trainee-week-view";
 import { ProgramRow } from "./program-row";
 import { cn } from "@/lib/utils";
-import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey, israelNow, formatWeekRange, parseDateKey } from "@/lib/week";
 import {
   PLANNED_SET_COLUMNS,
   SET_LOG_COLUMNS,
@@ -29,6 +29,7 @@ import {
 } from "@/lib/sets";
 import { selectInChunks } from "@/lib/previous-sets";
 import { loadFreeSessionList } from "@/lib/free-session-data";
+import { rollForwardBlocks } from "@/lib/block-server";
 import { formatShortDateTime, countExercises, countSets } from "@/lib/format";
 
 export default async function TraineeDetailPage({
@@ -43,9 +44,13 @@ export default async function TraineeDetailPage({
   } = await supabase.auth.getUser();
   const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
 
+  // Training blocks: the once-a-week maintenance first, so the targets and
+  // statuses read below are current. (Not for the read-only viewer.)
+  if (!readOnly) await rollForwardBlocks(supabase, id);
+
   // Independent of each other — fetched together instead of one after
   // another, which used to add up (this page was reported as slow to open).
-  const [{ data: trainee }, { data: programs }] = await Promise.all([
+  const [{ data: trainee }, { data: programs }, { data: blocks }] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, full_name, username, phone, email, status, created_at")
@@ -54,15 +59,40 @@ export default async function TraineeDetailPage({
       .single(),
     supabase
       .from("programs")
-      .select("id, title, status, week_start_date")
+      .select("id, title, status, week_start_date, block_id, block_week_index, is_deload")
       .eq("trainee_id", id)
       .is("deleted_at", null)
       .order("week_start_date", { ascending: false }),
+    supabase
+      .from("blocks")
+      .select("id, title, weeks_count, status, created_at")
+      .eq("trainee_id", id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (!trainee) notFound();
 
   const allPrograms = programs ?? [];
+  const currentWeekKey = toDateKey(getWeekStart(israelNow()));
+  const blockCards = (blocks ?? []).map((block) => {
+    const weeks = allPrograms
+      .filter((p) => p.block_id === block.id && p.block_week_index != null)
+      .sort((a, b) => (a.block_week_index ?? 0) - (b.block_week_index ?? 0));
+    const current = weeks.find((p) => p.week_start_date === currentWeekKey);
+    const lastIndex = Math.max(0, ...weeks.map((p) => p.block_week_index ?? 0));
+    const first = weeks[0];
+    const upcoming = first != null && first.week_start_date > currentWeekKey;
+    return {
+      id: block.id,
+      title: block.title,
+      active: block.status === "active",
+      lastIndex,
+      currentIndex: current?.block_week_index ?? null,
+      upcoming,
+      range: first ? formatWeekRange(parseDateKey(first.week_start_date)) : null,
+    };
+  });
   const eightWeeksAgo = toDateKey(addDays(getWeekStart(israelNow()), -8 * 7));
   // Reuses the same fetch above instead of a second, near-identical
   // `programs` query just to narrow the date range.
@@ -224,12 +254,81 @@ export default async function TraineeDetailPage({
               <p className="text-sm text-muted-foreground">עדיין אין תוכניות.</p>
             ) : (
               allPrograms.map((p) => (
-                <ProgramRow key={p.id} traineeId={id} program={p} readOnly={readOnly} />
+                <ProgramRow
+                  key={p.id}
+                  traineeId={id}
+                  program={p}
+                  blockTag={
+                    p.block_id && p.block_week_index != null
+                      ? `בלוק · שבוע ${p.block_week_index}${p.is_deload ? " · דילואד" : ""}`
+                      : null
+                  }
+                  readOnly={readOnly}
+                />
               ))
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Layers className="h-4 w-4 text-primary" />
+              בלוקים
+            </CardTitle>
+            <CardDescription>רצף שבועות שבו היעדים מתקדמים אוטומטית לפי הביצוע</CardDescription>
+          </div>
+          {!readOnly && (
+            <Link
+              href={`/trainer/trainees/${id}/blocks/new`}
+              className={cn(buttonVariants({ size: "sm", variant: "outline" }), "shrink-0")}
+            >
+              + בלוק חדש
+            </Link>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {blockCards.length === 0 ? (
+            <p className="text-sm text-muted-foreground">עדיין אין בלוקים.</p>
+          ) : (
+            blockCards.map((block) => (
+              <Link
+                key={block.id}
+                href={`/trainer/trainees/${id}/blocks/${block.id}`}
+                className="block rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">{block.title}</p>
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-xs font-medium",
+                      block.active ? "bg-success/15 text-success" : "bg-secondary text-secondary-foreground",
+                    )}
+                  >
+                    {!block.active
+                      ? "הסתיים"
+                      : block.currentIndex != null
+                        ? `שבוע ${block.currentIndex} מתוך ${block.lastIndex}`
+                        : block.upcoming
+                          ? `מתחיל ${block.range ?? ""}`
+                          : "פעיל"}
+                  </span>
+                </div>
+                {block.active && block.lastIndex > 0 && (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${((block.currentIndex ?? (block.upcoming ? 0 : block.lastIndex)) / block.lastIndex) * 100}%` }}
+                    />
+                  </div>
+                )}
+              </Link>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">

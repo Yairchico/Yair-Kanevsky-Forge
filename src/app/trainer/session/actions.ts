@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { applyBlockProgression } from "@/lib/block-server";
 import { NOT_TRAINER_ERROR, getTrainerContext } from "@/lib/require-trainer";
 import {
   STALE_WORKOUT_ERROR,
@@ -103,7 +104,11 @@ export async function logSetForTrainee(
     input,
     traineeId: program.traineeId,
   });
-  if (!result.error) revalidateSession(program.traineeId);
+  if (!result.error) {
+    // In a training block, what was just logged can change next week's targets.
+    if (program.blockId) await applyBlockProgression(ctx.supabase, program.workoutId);
+    revalidateSession(program.traineeId);
+  }
   return result;
 }
 
@@ -123,7 +128,10 @@ export async function unlogSetForTrainee(
     setIndex,
     traineeId: program.traineeId,
   });
-  if (!result.error) revalidateSession(program.traineeId);
+  if (!result.error) {
+    if (program.blockId) await applyBlockProgression(ctx.supabase, program.workoutId);
+    revalidateSession(program.traineeId);
+  }
   return result;
 }
 
@@ -193,6 +201,8 @@ export async function finishTraineeSession(
     }
   }
 
+  // Finishing settles what was (and wasn't) done in this workout.
+  if (program.blockId) await applyBlockProgression(ctx.supabase, workoutId);
   revalidateSession(program.traineeId);
   return { traineeId: program.traineeId };
 }

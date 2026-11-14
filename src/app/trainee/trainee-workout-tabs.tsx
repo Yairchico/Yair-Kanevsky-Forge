@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, ChevronLeft, History, Lock, RefreshCw } from "lucide-react";
+import { ArrowUp, Check, ChevronLeft, History, Lock, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getExerciseImage } from "@/lib/exercise-image";
@@ -216,6 +216,12 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
                   <p className="truncate text-sm text-muted-foreground">
                     {summarizeSets(ex.plannedSets)}
                   </p>
+                  {ex.jump && (
+                    <p className="flex items-center gap-1 truncate text-xs font-medium text-success">
+                      <ArrowUp className="h-3 w-3 shrink-0" />
+                      {ex.jump}
+                    </p>
+                  )}
                 </div>
                 <span
                   className={cn(

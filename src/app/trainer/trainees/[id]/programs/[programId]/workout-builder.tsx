@@ -5,18 +5,23 @@ import {
   ExerciseListEditor,
   type InitialEditorItem,
 } from "@/components/exercise-editor/exercise-list-editor";
-import type {
-  CatalogExercise,
-  EditedInfo,
-  ExerciseListApi,
+import { ProgressionPanel } from "@/components/exercise-editor/progression-panel";
+import {
+  DEFAULT_PROGRESSION,
+  type CatalogExercise,
+  type EditedInfo,
+  type ExerciseListApi,
 } from "@/lib/exercise-editor-types";
+import type { ProgressionInfo } from "@/lib/supabase/types";
 import {
   addExerciseToWorkout,
   addSet,
+  clearSetOverride,
   deleteSet,
   deleteWorkoutExercise,
   duplicateWorkoutExercise,
   reorderWorkoutExercises,
+  updateProgression,
   updateSet,
   updateWorkoutExercise,
 } from "./actions";
@@ -35,6 +40,8 @@ export function WorkoutBuilder({
   initialItems,
   catalog,
   disabled = false,
+  blockWeekIndex = null,
+  progressionInfo,
   onNewExercise,
   onEdited,
   readOnly = false,
@@ -48,6 +55,10 @@ export function WorkoutBuilder({
   catalog: CatalogExercise[];
   /** The workout itself is still being created — nothing can be added to it yet. */
   disabled?: boolean;
+  /** This program is week N of a training block (migration 0017): progression rules and hand-set badges are on. */
+  blockWeekIndex?: number | null;
+  /** By workout_exercises.id: what the block's computation decided for this week. */
+  progressionInfo?: Record<string, ProgressionInfo | null>;
   onNewExercise?: (exercise: CatalogExercise) => void;
   onEdited?: (info: EditedInfo) => void;
   /** The read-only superadmin viewer (migration 0011) — hides every mutation control, disables drag-reorder. */
@@ -63,9 +74,12 @@ export function WorkoutBuilder({
       addSet: (id) => addSet(traineeId, programId, id),
       updateSet: (setId, fields) => updateSet(traineeId, programId, setId, fields),
       deleteSet: (setId) => deleteSet(traineeId, programId, setId),
+      updateProgression: (id, rule) => updateProgression(traineeId, programId, id, rule),
+      clearSetOverride: (setId) => clearSetOverride(traineeId, programId, setId),
     }),
     [traineeId, programId, workoutId],
   );
+  const inBlock = blockWeekIndex != null;
 
   return (
     <ExerciseListEditor
@@ -74,6 +88,25 @@ export function WorkoutBuilder({
       initialItems={initialItems}
       catalog={catalog}
       allowHideLibraryNote
+      // Week 1 of a block is the trainer's own numbers; from week 2 on a
+      // set is either computed or set by hand.
+      showOverrides={inBlock && blockWeekIndex > 1}
+      renderFooter={
+        inBlock
+          ? (item, { replaceItem }) => (
+              <ProgressionPanel
+                rule={item.progression ?? DEFAULT_PROGRESSION}
+                info={progressionInfo?.[item.id] ?? null}
+                readOnly={readOnly || item.id.startsWith("temp-")}
+                onSave={async (rule) => {
+                  const result = await updateProgression(traineeId, programId, item.id, rule);
+                  if (result.row) replaceItem(result.row);
+                  return { error: result.error };
+                }}
+              />
+            )
+          : undefined
+      }
       disabled={disabled}
       readOnly={readOnly}
       emptyText={

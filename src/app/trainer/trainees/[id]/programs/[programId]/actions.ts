@@ -13,12 +13,13 @@ import {
 import type {
   ExerciseFields,
   ExerciseResult,
+  ProgressionRule,
   SetFields,
   SetResult,
 } from "@/lib/exercise-editor-types";
+import { RULE_COLUMNS, blockErrorMessage, ruleFromRow, validateRule } from "@/lib/blocks";
 
-const EXERCISE_ROW_COLUMNS =
-  "id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note";
+const EXERCISE_ROW_COLUMNS = `id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, ${RULE_COLUMNS}`;
 
 export type WorkoutExerciseFields = ExerciseFields;
 export type { SetFields };
@@ -84,6 +85,29 @@ async function hasRecordedHistory(supabase: Supabase, workoutExerciseIds: string
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
   revalidatePath(`/trainer/trainees/${traineeId}`);
+}
+
+/** The training block this program is a week of, if it is one (migration 0017). */
+async function blockWeekOf(
+  supabase: Supabase,
+  programId: string,
+): Promise<{ blockId: string; weekIndex: number } | null> {
+  const { data } = await supabase
+    .from("programs")
+    .select("block_id, block_week_index")
+    .eq("id", programId)
+    .maybeSingle();
+  return data?.block_id && data.block_week_index != null
+    ? { blockId: data.block_id, weekIndex: data.block_week_index }
+    : null;
+}
+
+/** A block's later weeks follow this one: other weeks' pages (and the block page, and the trainee) changed too. */
+function revalidateBlock(traineeId: string, blockId: string) {
+  revalidatePath(`/trainer/trainees/${traineeId}/blocks/${blockId}`);
+  revalidatePath("/trainer/trainees/[id]/programs/[programId]", "page");
+  revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
 }
 
 /**
@@ -294,7 +318,7 @@ export async function addExerciseToWorkout(
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return { row: { ...row, sets: (sets ?? []).map(toPlannedSet) }, revertedToDraft };
+  return { row: { ...row, sets: (sets ?? []).map(toPlannedSet), progression: ruleFromRow(row) }, revertedToDraft };
 }
 
 /** Exercise-level fields only (rest, the per-program note). Sets have their own actions below. */
@@ -398,7 +422,7 @@ export async function duplicateWorkoutExercise(
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
-  return { row: { ...row, sets: (sets ?? []).map(toPlannedSet) }, revertedToDraft };
+  return { row: { ...row, sets: (sets ?? []).map(toPlannedSet), progression: ruleFromRow(row) }, revertedToDraft };
 }
 
 /** Appends a set, copying the last set's targets (the usual "one more of the same"). */
@@ -451,9 +475,49 @@ export async function updateSet(
   }
 
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("workout_exercise_sets")
+    .select("workout_exercise_id, reps_min, reps_max, reps_note, weight_kg, weight_note")
+    .eq("id", setId)
+    .maybeSingle();
+  if (!before) return { error: "הסט לא נמצא" };
+
+  // Did the TARGET change (reps / weight), as opposed to only the type or RPE?
+  const next = parsed.values;
+  const sameNumber = (a: number | string | null, b: number | null) =>
+    a == null || b == null ? a == null && b == null : Number(a) === b;
+  const targetChanged =
+    !sameNumber(before.reps_min, next.reps_min) ||
+    !sameNumber(before.reps_max, next.reps_max) ||
+    (before.reps_note ?? null) !== next.reps_note ||
+    !sameNumber(before.weight_kg, next.weight_kg) ||
+    (before.weight_note ?? null) !== next.weight_note;
+
+  // In a training block a target typed by hand is the trainer's decision:
+  // where the exercise's targets are computed from an earlier week, the set
+  // is marked so the automatic progression never overwrites it (and the
+  // weeks after it are computed FROM it). An exercise with nothing before
+  // it in the block — all of week 1, or one added later — is the trainer's
+  // own numbers to begin with; progression_info is what tells them apart.
+  const block = targetChanged ? await blockWeekOf(supabase, programId) : null;
+  let isComputed = false;
+  if (block) {
+    const { data: exercise } = await supabase
+      .from("workout_exercises")
+      .select("progression_info")
+      .eq("id", before.workout_exercise_id)
+      .maybeSingle();
+    isComputed = exercise?.progression_info != null;
+  }
+
   const { data, error } = await supabase
     .from("workout_exercise_sets")
-    .update(parsed.values)
+    .update({
+      ...next,
+      // Whatever was hidden behind a rounded weight is replaced by what was typed.
+      ...(targetChanged ? { weight_kg_exact: null } : {}),
+      ...(isComputed ? { is_manual_override: true } : {}),
+    })
     .eq("id", setId)
     .select(PLANNED_SET_COLUMNS)
     .single();
@@ -462,6 +526,79 @@ export async function updateSet(
     return { error: "שגיאה בשמירת הסט" };
   }
 
+  if (block) {
+    await supabase.rpc("recompute_block", { p_block_id: block.blockId, p_from_index: block.weekIndex + 1 });
+    revalidateBlock(traineeId, block.blockId);
+  }
+
+  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
+  revalidateBuilder(traineeId, programId);
+  return { set: toPlannedSet(data), revertedToDraft };
+}
+
+/**
+ * Training blocks: how an exercise moves from this week to the next
+ * ("+2.5 ק״ג", "+2.6%", "+חזרה", double progression). Applies to this week
+ * and every later week of the block, and the later weeks are recomputed.
+ * It doesn't change anything the trainee sees in THIS week, so a published
+ * program stays published.
+ */
+export async function updateProgression(
+  traineeId: string,
+  programId: string,
+  workoutExerciseId: string,
+  rule: ProgressionRule,
+): Promise<ActionResult> {
+  const validated = validateRule(rule);
+  if ("error" in validated) return { error: validated.error };
+  const r = validated.rule;
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_exercise_progression", {
+    p_workout_exercise_id: workoutExerciseId,
+    p_type: r.type,
+    p_unit: r.unit,
+    p_step_kg: r.stepKg,
+    p_step_pct: r.stepPct,
+    p_reps_step: r.repsStep,
+    p_reps_cap: r.repsCap,
+    p_basis: r.basis,
+    p_rounding_kg: r.roundingKg,
+  });
+  if (error) return { error: blockErrorMessage(error, "שגיאה בשמירת הקפיצה") };
+
+  const { data: row } = await supabase
+    .from("workout_exercises")
+    .select(EXERCISE_ROW_COLUMNS)
+    .eq("id", workoutExerciseId)
+    .single();
+  if (!row) return { error: "התרגיל לא נמצא" };
+
+  const block = await blockWeekOf(supabase, programId);
+  if (block) revalidateBlock(traineeId, block.blockId);
+  revalidateBuilder(traineeId, programId);
+  return { row: { ...row, sets: await loadSets(supabase, workoutExerciseId), progression: ruleFromRow(row) } };
+}
+
+/** "שחזר לאוטומטי": a hand-set target goes back to following the block's computation. */
+export async function clearSetOverride(
+  traineeId: string,
+  programId: string,
+  setId: string,
+): Promise<SetResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("clear_set_override", { p_set_id: setId });
+  if (error) return { error: blockErrorMessage(error, "שגיאה בשחזור הסט") };
+
+  const { data } = await supabase
+    .from("workout_exercise_sets")
+    .select(PLANNED_SET_COLUMNS)
+    .eq("id", setId)
+    .single();
+  if (!data) return { error: "הסט לא נמצא" };
+
+  const block = await blockWeekOf(supabase, programId);
+  if (block) revalidateBlock(traineeId, block.blockId);
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
   revalidateBuilder(traineeId, programId);
   return { set: toPlannedSet(data), revertedToDraft };

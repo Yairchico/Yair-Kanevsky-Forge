@@ -14,6 +14,34 @@ export type ProgramStatus = "draft" | "published";
 /** migration 0013. 'backoff' exists in the DB for later; the UI offers warmup/working only for now. */
 export type SetType = "warmup" | "working" | "backoff";
 
+/**
+ * workout_exercises.progression_info (migration 0017): how a block week's
+ * targets for one exercise were derived from the week before. Absent keys
+ * mean "not applicable" (the function strips nulls).
+ */
+export interface ProgressionInfo {
+  /**
+   * advanced: the base week was completed (or the rule doesn't look at
+   * performance); projected: not decided yet, assuming success; repeated:
+   * done but short of the targets; skipped: not done at all; deload: a
+   * deload week; none: no rule, the base week's targets carried over.
+   */
+  outcome: "advanced" | "projected" | "repeated" | "skipped" | "deload" | "none";
+  /** The block week these targets were computed from. */
+  base_week: number;
+  /** Working sets completed at target in the base week, out of `total`. */
+  completed?: number;
+  total?: number;
+  /** Change of the first working set vs. the base week (displayed weight / minimum reps). */
+  delta_kg?: number;
+  delta_reps?: number;
+  /** The exact weight, when the displayed one is rounded from it. */
+  exact_kg?: number;
+  /** Double progression: reps went back to where the block started (with a weight step). */
+  reset_reps?: boolean;
+  deload_pct?: number;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -73,6 +101,13 @@ export interface Database {
           updated_at: string;
           /** Soft-delete marker (migration 0010) — set instead of a hard DELETE, so history under it survives. */
           deleted_at: string | null;
+          /** The training block this week belongs to, if any (migration 0017). */
+          block_id: string | null;
+          /** 1-based week number inside the block. Only meaningful with block_id. */
+          block_week_index: number | null;
+          is_deload: boolean;
+          /** null = the block's default_deload_pct. */
+          deload_pct: number | null;
         };
         Insert: Partial<Database["public"]["Tables"]["programs"]["Row"]> & {
           trainee_id: string;
@@ -92,6 +127,8 @@ export interface Database {
           order_index: number;
           title: string | null;
           notes: string | null;
+          /** "The same workout" across the weeks of a block (migration 0017). */
+          slot_key: string;
         };
         Insert: Partial<Database["public"]["Tables"]["workouts"]["Row"]> & {
           program_id: string;
@@ -119,6 +156,19 @@ export interface Database {
           instructions: string | null;
           /** Don't show the exercise's permanent note (exercises.instructions) in this program (migration 0015). */
           hide_library_note: boolean;
+          /** "The same exercise" across the weeks of a block (migration 0017). */
+          slot_key: string;
+          /** How this exercise moves from this week to the next one in its block. */
+          progression_type: "none" | "weight" | "reps" | "double";
+          weight_step_unit: "kg" | "pct";
+          weight_step_kg: number | null;
+          weight_step_pct: number | null;
+          reps_step: number | null;
+          reps_cap: number | null;
+          progression_basis: "actual" | "planned";
+          rounding_kg: number;
+          /** Why this week's targets are what they are — written by block_recompute_internal(). */
+          progression_info: ProgressionInfo | null;
         };
         Insert: Partial<Database["public"]["Tables"]["workout_exercises"]["Row"]> & {
           workout_id: string;
@@ -144,7 +194,8 @@ export interface Database {
           rpe: number | null;
           /** Training blocks (feature 2) — unused until then. */
           is_manual_override: boolean;
-          progression_note: string | null;
+          /** The weight before rounding, when it differs from weight_kg (percent progression, migration 0017). */
+          weight_kg_exact: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -319,6 +370,31 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["free_session_exercises"]["Row"]>;
         Relationships: [];
       };
+      blocks: {
+        Row: {
+          id: string;
+          trainee_id: string;
+          title: string;
+          weeks_count: number;
+          status: "active" | "completed";
+          default_deload_pct: number;
+          auto_publish_next_week: boolean;
+          notes: string | null;
+          /** The week (its Sunday) up to which block_roll_forward() already ran. */
+          rolled_through: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["blocks"]["Row"]> & {
+          trainee_id: string;
+          title: string;
+          weeks_count: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["blocks"]["Row"]>;
+        Relationships: [];
+      };
       free_session_sets: {
         Row: {
           id: string;
@@ -363,6 +439,92 @@ export interface Database {
       };
       duplicate_session_template: {
         Args: { p_template_id: string };
+        Returns: string;
+      };
+      // ---- training blocks (migration 0017). All SECURITY DEFINER with their own caller checks.
+      /** Errors: BK001 "WEEK_TAKEN <date>", BK002 "WEEK_HAS_PERFORMANCE <date>". */
+      create_block: {
+        Args: {
+          p_trainee_id: string;
+          p_title: string;
+          p_start_week: string;
+          p_weeks_count: number;
+          p_deload_weeks?: number[];
+          p_deload_pct?: number;
+          p_source_program_id?: string | null;
+          p_use_performed?: boolean;
+          p_replace_existing?: boolean;
+          p_auto_publish?: boolean;
+        };
+        Returns: string;
+      };
+      /** Returns { updated: number[]; frozen: number[] } — block week numbers. */
+      apply_block_structure: {
+        Args: { p_program_id: string };
+        Returns: { updated: number[]; frozen: number[] };
+      };
+      recompute_block: {
+        Args: { p_block_id: string; p_from_index?: number };
+        Returns: undefined;
+      };
+      /** Callable by the workout's trainee or the trainer. */
+      apply_block_progression: {
+        Args: { p_workout_id: string };
+        Returns: undefined;
+      };
+      /** Callable by the block's trainee or the trainer. */
+      block_roll_forward: {
+        Args: { p_block_id: string };
+        Returns: undefined;
+      };
+      set_exercise_progression: {
+        Args: {
+          p_workout_exercise_id: string;
+          p_type: string;
+          p_unit: string;
+          p_step_kg: number | null;
+          p_step_pct: number | null;
+          p_reps_step: number | null;
+          p_reps_cap: number | null;
+          p_basis: string;
+          p_rounding_kg: number;
+        };
+        Returns: undefined;
+      };
+      clear_set_override: {
+        Args: { p_set_id: string };
+        Returns: undefined;
+      };
+      shift_block: {
+        Args: { p_block_id: string; p_from_index: number };
+        Returns: undefined;
+      };
+      insert_block_deload: {
+        Args: { p_block_id: string; p_after_index: number; p_deload_pct?: number | null };
+        Returns: string;
+      };
+      set_block_week_deload: {
+        Args: { p_program_id: string; p_is_deload: boolean; p_deload_pct?: number | null };
+        Returns: undefined;
+      };
+      end_block: {
+        Args: { p_block_id: string; p_remove_future?: boolean };
+        Returns: undefined;
+      };
+      delete_block: {
+        Args: { p_block_id: string };
+        Returns: undefined;
+      };
+      start_next_block: {
+        Args: {
+          p_block_id: string;
+          p_title: string;
+          p_weeks_count: number;
+          p_deload_weeks?: number[];
+          p_deload_pct?: number;
+          p_use_performed?: boolean;
+          p_replace_existing?: boolean;
+        };
         Returns: string;
       };
     };

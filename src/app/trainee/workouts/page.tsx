@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { rollForwardBlocks } from "@/lib/block-server";
+import { traineeJumpLabel } from "@/lib/blocks";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
@@ -54,16 +56,23 @@ export default async function TraineeWorkoutsPage({
   const weekKeys = WEEK_OFFSETS.map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const [{ data: profile }, { data: programs }] = await Promise.all([
+  // Training blocks: the once-a-week maintenance first (it may publish this
+  // week's program or re-derive its targets), so what's read below is current.
+  await rollForwardBlocks(supabase, user.id);
+
+  const [{ data: profile }, { data: programs }, { data: blocks }] = await Promise.all([
     supabase.from("profiles").select("username").eq("id", user.id).single(),
     supabase
       .from("programs")
-      .select("id, title, week_start_date")
+      .select("id, title, week_start_date, block_id, block_week_index, is_deload")
       .eq("trainee_id", user.id)
       .eq("status", "published")
       .is("deleted_at", null)
       .in("week_start_date", weekKeys),
+    // RLS: only this trainee's own blocks.
+    supabase.from("blocks").select("id, weeks_count").is("deleted_at", null),
   ]);
+  const blockWeeks = new Map((blocks ?? []).map((b) => [b.id, b.weeks_count]));
 
   const publishedPrograms = programs ?? [];
   const programIds = publishedPrograms.map((p) => p.id);
@@ -90,7 +99,7 @@ export default async function TraineeWorkoutsPage({
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note")
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, progression_info")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase.from("exercises").select("id, name, muscle_group, media_url, instructions, video_url"),
@@ -183,6 +192,8 @@ export default async function TraineeWorkoutsPage({
               instructions: we.instructions,
               done: doneExerciseIds.has(we.id),
               initialNote: noteByWe.get(we.id) ?? null,
+              // In a training block: only THAT the target went up, and by how much.
+              jump: traineeJumpLabel(we.progression_info),
             };
           }),
       }));
@@ -193,7 +204,16 @@ export default async function TraineeWorkoutsPage({
     const program = programByWeekKey.get(weekKey);
     return {
       weekStartDate: weekKey,
-      program: program ? { title: program.title, workouts: workoutsForProgram(program.id) } : null,
+      program: program
+        ? {
+            title: program.title,
+            blockLabel:
+              program.block_id && program.block_week_index != null && blockWeeks.has(program.block_id)
+                ? `שבוע ${program.block_week_index} מתוך ${blockWeeks.get(program.block_id)}${program.is_deload ? " · שבוע דילואד" : ""}`
+                : null,
+            workouts: workoutsForProgram(program.id),
+          }
+        : null,
     };
   });
 

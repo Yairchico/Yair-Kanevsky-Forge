@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { applyBlockProgression } from "@/lib/block-server";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import {
@@ -97,7 +98,11 @@ export async function logSet(
   if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
 
   const result = await saveSetLog(supabase, { workoutExerciseId, setIndex, input, traineeId: user.id });
-  if (!result.error) revalidateTraineeAndTrainer();
+  if (!result.error) {
+    // In a training block, what was just logged can change next week's targets.
+    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
+    revalidateTraineeAndTrainer();
+  }
   return result;
 }
 
@@ -117,7 +122,10 @@ export async function unlogSet(
   if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
 
   const result = await deleteSetLog(supabase, { workoutExerciseId, setIndex, traineeId: user.id });
-  if (!result.error) revalidateTraineeAndTrainer();
+  if (!result.error) {
+    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
+    revalidateTraineeAndTrainer();
+  }
   return result;
 }
 
@@ -177,6 +185,8 @@ export async function submitWorkout(
       .eq("trainee_id", user.id);
   }
 
+  // Submitting settles what was (and wasn't) done; un-submitting reopens it.
+  if (program.blockId) await applyBlockProgression(supabase, workoutId);
   revalidateTraineeAndTrainer();
   return {};
 }

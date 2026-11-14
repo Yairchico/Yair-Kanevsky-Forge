@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { CalendarDays, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, Layers, Plus, Trash2 } from "lucide-react";
+import { applyBlockStructure } from "../../blocks/actions";
+import { blockWeekLabel } from "@/lib/blocks";
+import type { ProgressionInfo } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { dayName } from "@/lib/week";
 import { Modal } from "@/components/ui/modal";
@@ -20,6 +24,21 @@ export interface WorkoutData {
   dayOfWeek: number;
   orderIndex: number;
   items: InitialEditorItem[];
+}
+
+/** The training block this program is a week of (migration 0017). */
+export interface BuilderBlock {
+  id: string;
+  title: string;
+  weeksCount: number;
+  weekIndex: number;
+  isDeload: boolean;
+  /** The percentage in effect for this week if it is a deload. */
+  deloadPct: number;
+  active: boolean;
+  hasLaterWeeks: boolean;
+  /** Some later week's workouts/exercises/sets no longer match this week's. */
+  laterDiffer: boolean;
 }
 
 /**
@@ -47,6 +66,8 @@ export function ProgramBuilderClient({
   initialIsPublished,
   workouts,
   catalog,
+  block = null,
+  progressionInfo,
   readOnly = false,
 }: {
   traineeId: string;
@@ -55,6 +76,9 @@ export function ProgramBuilderClient({
   initialIsPublished: boolean;
   workouts: WorkoutData[];
   catalog: CatalogExercise[];
+  block?: BuilderBlock | null;
+  /** By workout_exercises.id: what the block's computation decided for this week. */
+  progressionInfo?: Record<string, ProgressionInfo | null>;
   /** The read-only superadmin viewer (migration 0011) — hides every mutation control. */
   readOnly?: boolean;
 }) {
@@ -72,6 +96,38 @@ export function ProgramBuilderClient({
   const [pending, startTransition] = useTransition();
   const tempCounter = useRef(0);
 
+  // ---- training block: this week's structure vs. the weeks after it
+  const [structureChanged, setStructureChanged] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyDone, setApplyDone] = useState<string | null>(null);
+  const [applying, startApply] = useTransition();
+  const laterDiffer = Boolean(block?.laterDiffer) || structureChanged;
+
+  function handleApplyStructure() {
+    setApplyError(null);
+    startApply(async () => {
+      try {
+        const result = await applyBlockStructure(traineeId, programId);
+        if (result.error) {
+          setApplyError(result.error);
+          return;
+        }
+        const updated = result.updated ?? [];
+        const frozen = result.frozen ?? [];
+        const parts = [
+          updated.length ? `עודכנו: ${updated.map((n) => `שבוע ${n}`).join(", ")}.` : "לא היה שבוע לעדכן.",
+          frozen.length ? `${frozen.map((n) => `שבוע ${n}`).join(", ")} כבר התחיל ולא שונה.` : "",
+        ];
+        setApplyDone(parts.filter(Boolean).join(" "));
+        setStructureChanged(false);
+        setApplyOpen(false);
+      } catch {
+        setApplyError("אין חיבור — נסו שוב בעוד רגע");
+      }
+    });
+  }
+
   const sorted = sortWorkouts(workoutList);
   const activeWorkout = sorted.find((w) => w.id === activeId) ?? sorted[0];
 
@@ -80,6 +136,12 @@ export function ProgramBuilderClient({
     // (it was published a moment ago). Structural edits to the workout list
     // itself call this with no info after checking the same flag.
     if (isPublished && (!info || info.revertedToDraft)) setIsPublished(false);
+    // Workouts, exercises or sets were added/removed/moved: in a block, the
+    // weeks after this one no longer have the same structure.
+    if (block?.active && (!info || info.structural)) {
+      setStructureChanged(true);
+      setApplyDone(null);
+    }
   }
 
   // A trainer creating a new exercise from inside one workout's picker
@@ -116,6 +178,7 @@ export function ProgramBuilderClient({
           prev.map((w) => (w.id === tempId ? { ...w, id: result.workout!.id } : w)),
         );
         setActiveId((cur) => (cur === tempId ? result.workout!.id : cur));
+        if (block?.active) setStructureChanged(true);
       } else {
         setWorkoutList((prev) => prev.filter((w) => w.id !== tempId));
         setActiveId((cur) => (cur === tempId ? (sorted[0]?.id ?? null) : cur));
@@ -147,6 +210,7 @@ export function ProgramBuilderClient({
       setWorkoutList((prev) => prev.filter((w) => w.id !== workoutId));
       setActiveId((current) => (current === workoutId ? fallbackId : current));
       if (result.revertedToDraft) handleEdited();
+      if (block?.active) setStructureChanged(true);
     });
   }
 
@@ -179,6 +243,7 @@ export function ProgramBuilderClient({
           ),
         );
         if (result.revertedToDraft) handleEdited();
+        if (block?.active) setStructureChanged(true);
       } else {
         setWorkoutList((prev) =>
           prev.map((w) =>
@@ -217,6 +282,17 @@ export function ProgramBuilderClient({
           <span className="text-sm text-muted-foreground">
             תוכנית עבור {traineeName}
           </span>
+          {block && (
+            <Link
+              href={`/trainer/trainees/${traineeId}/blocks/${block.id}`}
+              className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              {blockWeekLabel(block.title, block.weekIndex, block.weeksCount)}
+              {block.isDeload ? ` · דילואד ${block.deloadPct}%` : ""}
+              {block.active ? "" : " · הבלוק הסתיים"}
+            </Link>
+          )}
         </div>
         {!readOnly && (
           <PublishToggle
@@ -227,6 +303,33 @@ export function ProgramBuilderClient({
           />
         )}
       </div>
+
+      {block && block.active && block.hasLaterWeeks && !readOnly && (
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm",
+            laterDiffer ? "border-warning/50 bg-warning/10" : "border-border",
+          )}
+        >
+          <p className={laterDiffer ? undefined : "text-muted-foreground"}>
+            {laterDiffer
+              ? "האימונים, התרגילים או הסטים של השבוע הזה שונים מהשבועות הבאים בבלוק."
+              : "השבועות הבאים בבלוק בנויים כמו השבוע הזה, והיעדים שלהם מחושבים אוטומטית."}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant={laterDiffer ? "default" : "outline"}
+            onClick={() => {
+              setApplyError(null);
+              setApplyOpen(true);
+            }}
+          >
+            החל על השבועות הבאים
+          </Button>
+        </div>
+      )}
+      {applyDone && <p className="text-sm text-success">{applyDone}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         {sorted.map((w) => {
@@ -366,6 +469,30 @@ export function ProgramBuilderClient({
         </Modal>
       )}
 
+      <Modal open={applyOpen} onClose={() => setApplyOpen(false)} title="החלת המבנה על השבועות הבאים">
+        <div className="space-y-3">
+          <p className="text-sm">
+            כל שבוע שבא אחרי השבוע הזה בבלוק יקבל את אותם אימונים, תרגילים, סטים וקפיצות, והיעדים שלו יחושבו
+            מחדש.
+          </p>
+          <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
+            <li>יעדים שקבעתם ידנית בשבועות הבאים נשמרים.</li>
+            <li>שבוע שהמתאמן כבר התחיל לבצע לא משתנה.</li>
+            <li>שבוע שכבר פורסם חוזר לטיוטה, כדי שתבדקו אותו לפני שהמתאמן רואה.</li>
+            <li>שינויים אחרים שעשיתם רק בשבועות הבאים (תרגיל שהוחלף, סט שנוסף) יוחלפו במבנה של השבוע הזה.</li>
+          </ul>
+          {applyError && <p className="text-sm text-destructive">{applyError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setApplyOpen(false)}>
+              ביטול
+            </Button>
+            <Button type="button" onClick={handleApplyStructure} disabled={applying}>
+              {applying ? "מעדכן…" : "החל על השבועות הבאים"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
@@ -407,6 +534,10 @@ export function ProgramBuilderClient({
             listId={w.key}
             initialItems={w.items}
             catalog={catalogList}
+            // A block that has ended no longer computes anything: its weeks
+            // are edited like any ordinary program.
+            blockWeekIndex={block?.active ? block.weekIndex : null}
+            progressionInfo={progressionInfo}
             disabled={w.id.startsWith("temp-")}
             onNewExercise={handleNewExercise}
             onEdited={handleEdited}
