@@ -58,6 +58,12 @@ src/lib/week.ts                      calendar-week helpers (Sunday-start, Israel
 src/components/exercise-editor/      the shared exercise/set editor (rows, set table, add-exercise picker) — used by the program builder and the saved-workout editor through an injected ExerciseListApi (src/lib/exercise-editor-types.ts)
 src/components/exercise-video.tsx    click-to-load video player for exercises.video_url
 src/lib/video.ts                     validates a pasted video link and BUILDS the embed URL from the video id (never embeds the pasted text)
+src/app/trainer/session/             trainer-led sessions (migration 0016): the picker (page.tsx), [workoutId]/ = live session on a trainee's planned workout, free/[sessionId]/ = free session (live runner while open, summary once finished), templates/ = saved workouts (list + editor on the shared exercise editor)
+src/components/session/              the live session UI shared by both kinds of session: SessionFrame (header, chips, bottom bar), SessionExercisePanel, SessionSetRow (−/+ steppers)
+src/lib/use-set-entry.ts             the one state machine behind every set-entry screen (trainee workout, trainer session, free session): screen = server copy + unsaved edits; pending-retry queue
+src/lib/set-log-server.ts            server-side set logging shared by the trainee's actions and the trainer session (validation, saveSetLog, notes)
+src/lib/free-sessions.ts + free-session-data.ts   free-session row mappers (pure) and server-side loaders
+src/lib/require-trainer.ts           getTrainerContext(): the signed-in user iff they are the trainer (NOT the read-only superadmin)
 src/lib/sets.ts                      per-set parse/format helpers (migration 0013) — reps ranges, kg, summaries
 src/lib/previous-sets.ts             "last time" lookup per exercise + selectInChunks for long .in() lists
 src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
@@ -124,6 +130,29 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   trainer's "for all" policy per table; a trainee's policy is always
   scoped to `trainee_id = auth.uid()` and, for anything downstream of a
   program, `status = 'published'`.
+- **Trainer-led sessions write as the trainee.** A session on a planned
+  workout (`src/app/trainer/session/[workoutId]`) stores exactly what the
+  trainee's own logging would — `set_logs`/`workout_logs`/
+  `workout_completions` under the TRAINEE's id — so history, "last time" and
+  block progression need no special case; a DB trigger stamps who actually
+  entered it (`source`, `logged_by`, `completed_by`), never the client.
+  Starting a session on a draft program publishes it first. A *free*
+  session can't live in those tables (they hang off a program and a
+  trainee), hence its own three tables; assigning it to a trainee only ever
+  moves it between histories — it never touches the weekly plan or a
+  block's progression. Trainer-only Server Actions start with
+  `getTrainerContext()` (the superadmin is not the trainer); an action that
+  deletes the thing the current page shows (`deleteFreeSession`,
+  `deleteTemplate`, finishing an empty session) ends in a server-side
+  `redirect()` — returning normally would re-render that page into a 404,
+  because every revalidating action refreshes the current route.
+- **Israel time, explicitly.** Server code runs in UTC on Workers. Anything
+  that asks "which week/day is it" uses `israelNow()` (`src/lib/week.ts`),
+  and every date/time shown goes through `src/lib/format.ts` (which pins
+  `timeZone: "Asia/Jerusalem"`), never a bare `new Date()` /
+  `toLocaleString()` — those gave the wrong "current week" for the first
+  hours of an Israeli Sunday and times 2–3 hours off on server-rendered
+  pages. No module-level "today" either (it freezes at module load).
 - **Calendar weeks.** `programs.week_start_date` is the Sunday starting
   that week (`src/lib/week.ts`'s `getWeekStart`); one program per
   `(trainee_id, week_start_date)`. Each `workouts` row belongs to a
@@ -218,6 +247,7 @@ one-time setup walkthrough):
 13. `0013_split_sets.sql` — per-set records: `workout_exercise_sets` (planned) + `set_logs` (performed), RLS (trainee writes only to their own published, non-deleted program's exercises; trainer read-only on `set_logs` until the trainer-led session mode), backfill from the legacy columns (numbers parsed, anything else kept verbatim as `reps_note`/`weight_note`; each old `workout_logs.actual_sets` becomes ONE `set_logs` row with `source='legacy'`, not invented per-set rows). Legacy columns stay; `sets`/`reps` lose NOT NULL. Safe to re-run after deploy to backfill exercises the old code created in between.
 14. `0014_security_hardening.sql` — closes two privilege escalations found in the 2026-11-14 audit: a trainee could set `is_superadmin` on their own profile (0003's trigger only guarded `role`; the trainee UPDATE policy on `profiles` is now gone and the trigger covers `role`/`is_superadmin`/`id` for every app session plus `username`/`email`/`status` for non-trainers — direct SQL and the service role are exempt, detected by `auth.role()` being null/`service_role`), and `handle_new_user()` trusted `role` from sign-up metadata (now honoured only while no trainer exists). Also: trainee writes to `workout_logs`/`workout_completions`/`workout_exercise_completions` are limited to their own published, non-deleted program (as `set_logs` already was); `enforce_performance_owner()` triggers on all four performance tables require `trainee_id` to be the program's trainee and make `set_logs.source`/`logged_by` server-decided; superadmin SELECT on `workout_exercise_completions`. Independent of app code — safe on the old deployment.
 15. `0015_exercise_notes_and_video.sql` — `workout_exercises.hide_library_note` (the permanent note itself is the existing `exercises.instructions`, now editable in the library; the per-program note stays `workout_exercises.instructions` and is shown in addition) and `exercises.video_url` (a link only, CHECK https; parsed/embedded by `src/lib/video.ts`).
+16. `0016_trainer_sessions.sql` — trainer-led sessions. (a) The trainer may now WRITE `set_logs`/`workout_logs`/`workout_completions`/`workout_exercise_completions` ("for all" policies replace the read-only ones); `workout_completions` gains `source` (`trainee`/`trainer_session`), `completed_by`, `notes`; `enforce_performance_owner()` now also decides those on INSERT and freezes them on UPDATE (whoever submitted first stays on record). (b) Free sessions: `free_sessions` (`trainee_id` nullable = unassigned, `guest_label`, `template_id`), `free_session_exercises`, `free_session_sets` (one row = a target copied from a template, a performed set, or both). (c) Saved workouts: `session_templates` (soft delete), `session_template_exercises`, `session_template_sets`. RLS: trainer all, superadmin select, a trainee reads only free sessions assigned to them (never templates). SECURITY INVOKER functions that keep multi-row copies atomic: `start_free_session` (also sweeps abandoned empty sessions), `save_session_as_template`, `duplicate_session_template`.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית

@@ -198,9 +198,9 @@ export function useSetEntry({
   /** False = view only (a locked week): nothing can be changed. */
   editable?: boolean;
   /**
-   * Free sessions, where nothing is planned: always keep one open row after
-   * the last logged set, and let an empty row mean "same as the previous
-   * set" rather than "as planned".
+   * Free sessions. An exercise with nothing planned always keeps one open
+   * row after its last logged set, and a row beyond the plan that's left
+   * empty means "same as the previous set".
    */
   openEnded?: boolean;
   onToast?: (message: string) => void;
@@ -350,7 +350,7 @@ export function useSetEntry({
     const loggedIndexes = Object.keys(logged[exercise.id] ?? {}).map(Number);
     const draftIndexes = Object.keys(draft[exercise.id]?.sets ?? {}).map(Number);
     let maxIndex = Math.max(maxPlanned + (draft[exercise.id]?.extraSets ?? 0), ...loggedIndexes, ...draftIndexes, 0);
-    if (openEnded) {
+    if (openEnded && planned.length === 0) {
       const lastDone = Math.max(
         ...loggedIndexes,
         ...draftIndexes.filter((i) => draft[exercise.id]?.sets[i]?.status === "pending"),
@@ -612,13 +612,20 @@ export function useSetEntry({
       router.refresh();
     }
   });
+  // Closing the tab with sets that never reached the server: ask first. They
+  // stay in localStorage either way, but they're only retried from here.
+  const onBeforeUnload = useEffectEvent((event: BeforeUnloadEvent) => {
+    if (pendingCount > 0) event.preventDefault();
+  });
   useEffect(() => {
     lastRefresh.current = Date.now();
     onOnline();
     window.addEventListener("online", onOnline);
+    window.addEventListener("beforeunload", onBeforeUnload);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);

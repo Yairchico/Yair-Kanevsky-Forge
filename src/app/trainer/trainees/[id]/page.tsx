@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -16,7 +17,7 @@ import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekView } from "./trainee-week-view";
 import { ProgramRow } from "./program-row";
 import { cn } from "@/lib/utils";
-import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import {
   PLANNED_SET_COLUMNS,
   SET_LOG_COLUMNS,
@@ -27,6 +28,8 @@ import {
   type PlannedSet,
 } from "@/lib/sets";
 import { selectInChunks } from "@/lib/previous-sets";
+import { loadFreeSessionList } from "@/lib/free-session-data";
+import { formatShortDateTime, countExercises, countSets } from "@/lib/format";
 
 export default async function TraineeDetailPage({
   params,
@@ -60,7 +63,7 @@ export default async function TraineeDetailPage({
   if (!trainee) notFound();
 
   const allPrograms = programs ?? [];
-  const eightWeeksAgo = toDateKey(addDays(getWeekStart(new Date()), -8 * 7));
+  const eightWeeksAgo = toDateKey(addDays(getWeekStart(israelNow()), -8 * 7));
   // Reuses the same fetch above instead of a second, near-identical
   // `programs` query just to narrow the date range.
   const recentPrograms = allPrograms.filter((p) => p.week_start_date >= eightWeeksAgo);
@@ -91,7 +94,7 @@ export default async function TraineeDetailPage({
     supabase.from("exercises").select("id, name, muscle_group"),
     supabase
       .from("workout_completions")
-      .select("workout_id, completed_at")
+      .select("workout_id, completed_at, source, notes")
       .eq("trainee_id", id)
       .in("workout_id", workoutIds.length ? workoutIds : noRows),
     supabase
@@ -124,10 +127,13 @@ export default async function TraineeDetailPage({
     ),
   ]);
 
-  const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
-  const submissionByWorkoutId = new Map(
-    (workoutCompletions ?? []).map((c) => [c.workout_id, c.completed_at]),
+  // Free sessions the trainer assigned to this trainee (migration 0016).
+  const freeSessions = (await loadFreeSessionList(supabase, { traineeId: id, limit: 12 })).filter(
+    (session) => session.setCount > 0 || !session.finishedAt,
   );
+
+  const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
+  const submissionByWorkoutId = new Map((workoutCompletions ?? []).map((c) => [c.workout_id, c]));
   const doneExerciseIds = new Set(
     (exerciseCompletions ?? []).map((c) => c.workout_exercise_id),
   );
@@ -158,7 +164,9 @@ export default async function TraineeDetailPage({
         id: w.id,
         dayOfWeek: w.day_of_week,
         orderIndex: w.order_index,
-        submittedAt: submissionByWorkoutId.get(w.id) ?? null,
+        submittedAt: submissionByWorkoutId.get(w.id)?.completed_at ?? null,
+        submittedBy: submissionByWorkoutId.get(w.id)?.source ?? null,
+        sessionNote: submissionByWorkoutId.get(w.id)?.notes ?? null,
         exercises: (workoutExercises ?? [])
           .filter((we) => we.workout_id === w.id)
           .map((we) => {
@@ -224,9 +232,20 @@ export default async function TraineeDetailPage({
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>התוכנית השבועית</CardTitle>
-          <CardDescription>מה שהמתאמן סימן, ביצע בפועל והגיש (קריאה בלבד)</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <div>
+            <CardTitle>התוכנית השבועית</CardTitle>
+            <CardDescription>מה שהמתאמן סימן, ביצע בפועל והגיש (קריאה בלבד)</CardDescription>
+          </div>
+          {!readOnly && (
+            <Link
+              href={`/trainer/session?trainee=${id}`}
+              className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
+            >
+              <Play className="h-4 w-4" />
+              אימון אישי
+            </Link>
+          )}
         </CardHeader>
         <CardContent>
           {!weeks.length ? (
@@ -236,6 +255,38 @@ export default async function TraineeDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {freeSessions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">אימונים חופשיים</CardTitle>
+            <CardDescription>
+              אימונים עם המאמן שלא מהתוכנית השבועית. מופיעים בהיסטוריה של {trainee.full_name}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {freeSessions.map((session) => (
+              <Link
+                key={session.id}
+                href={`/trainer/session/free/${session.id}`}
+                className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+              >
+                <span className="truncate font-medium">
+                  {session.guestLabel?.trim() || "אימון חופשי"}
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · {countExercises(session.exerciseCount)} · {countSets(session.setCount)}
+                    {session.finishedAt ? "" : " · לא הסתיים"}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {formatShortDateTime(session.startedAt)}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {!readOnly && (
         <Card>

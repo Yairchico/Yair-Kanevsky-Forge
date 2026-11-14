@@ -203,6 +203,11 @@ export interface Database {
           workout_id: string;
           trainee_id: string;
           completed_at: string;
+          /** Who submitted it first — decided by a DB trigger (migration 0016), never by the client. */
+          source: "trainee" | "trainer_session";
+          completed_by: string | null;
+          /** The overall note of a trainer-led session. */
+          notes: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["workout_completions"]["Row"]> & {
           workout_id: string;
@@ -229,12 +234,136 @@ export interface Database {
         >;
         Relationships: [];
       };
+      session_templates: {
+        Row: {
+          id: string;
+          title: string;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["session_templates"]["Row"]> & { title: string };
+        Update: Partial<Database["public"]["Tables"]["session_templates"]["Row"]>;
+        Relationships: [];
+      };
+      session_template_exercises: {
+        Row: {
+          id: string;
+          template_id: string;
+          exercise_id: string;
+          order_index: number;
+          rest_seconds: number | null;
+          instructions: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["session_template_exercises"]["Row"]> & {
+          template_id: string;
+          exercise_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["session_template_exercises"]["Row"]>;
+        Relationships: [];
+      };
+      session_template_sets: {
+        Row: {
+          id: string;
+          template_exercise_id: string;
+          set_index: number;
+          set_type: SetType;
+          reps_min: number | null;
+          reps_max: number | null;
+          reps_note: string | null;
+          weight_kg: number | null;
+          weight_note: string | null;
+          rpe: number | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["session_template_sets"]["Row"]> & {
+          template_exercise_id: string;
+          set_index: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["session_template_sets"]["Row"]>;
+        Relationships: [];
+      };
+      free_sessions: {
+        Row: {
+          id: string;
+          /** null = not assigned to anyone. */
+          trainee_id: string | null;
+          guest_label: string | null;
+          template_id: string | null;
+          started_at: string;
+          finished_at: string | null;
+          notes: string | null;
+          created_by: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["free_sessions"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["free_sessions"]["Row"]>;
+        Relationships: [];
+      };
+      free_session_exercises: {
+        Row: {
+          id: string;
+          session_id: string;
+          exercise_id: string;
+          order_index: number;
+          rest_seconds: number | null;
+          /** From the template the session was started from. */
+          instructions: string | null;
+          /** Typed during the session. */
+          notes: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["free_session_exercises"]["Row"]> & {
+          session_id: string;
+          exercise_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["free_session_exercises"]["Row"]>;
+        Relationships: [];
+      };
+      free_session_sets: {
+        Row: {
+          id: string;
+          session_exercise_id: string;
+          set_index: number;
+          set_type: SetType;
+          target_reps_min: number | null;
+          target_reps_max: number | null;
+          target_reps_note: string | null;
+          target_weight_kg: number | null;
+          target_weight_note: string | null;
+          target_rpe: number | null;
+          weight_kg: number | null;
+          reps: number | null;
+          rpe: number | null;
+          /** null = planned but not performed. */
+          logged_at: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["free_session_sets"]["Row"]> & {
+          session_exercise_id: string;
+          set_index: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["free_session_sets"]["Row"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
       email_for_username: {
         Args: { p_username: string };
         Returns: string | null;
+      };
+      /** Creates a free session, copying a saved workout's exercises + targets into it (migration 0016). */
+      start_free_session: {
+        Args: { p_template_id?: string | null; p_trainee_id?: string | null; p_guest_label?: string | null };
+        Returns: string;
+      };
+      /** New template from what a session performed (p_title), or update an existing one (p_template_id). */
+      save_session_as_template: {
+        Args: { p_session_id: string; p_title?: string | null; p_template_id?: string | null };
+        Returns: string;
+      };
+      duplicate_session_template: {
+        Args: { p_template_id: string };
+        Returns: string;
       };
     };
   };

@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { ArrowLeft, CalendarCheck, Dumbbell, Users } from "lucide-react";
+import { ArrowLeft, BookmarkCheck, CalendarCheck, Dumbbell, Play, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getWeekStart, toDateKey, dayName } from "@/lib/week";
+import { getWeekStart, toDateKey, dayName, israelNow } from "@/lib/week";
 import { formatShortDateTime } from "@/lib/format";
+import { loadFreeSessionList } from "@/lib/free-session-data";
+import { isSessionStale } from "@/lib/free-sessions";
+import { cn } from "@/lib/utils";
 
 export default async function TrainerHomePage() {
   const supabase = await createClient();
@@ -12,7 +15,7 @@ export default async function TrainerHomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const currentWeekKey = toDateKey(getWeekStart(new Date()));
+  const currentWeekKey = toDateKey(getWeekStart(israelNow()));
 
   const [
     { data: profile },
@@ -20,6 +23,7 @@ export default async function TrainerHomePage() {
     { count: exerciseCount },
     { data: currentWeekPrograms },
     { data: recentCompletions },
+    freeSessionList,
   ] = await Promise.all([
     user
       ? supabase.from("profiles").select("username, is_superadmin").eq("id", user.id).single()
@@ -33,10 +37,16 @@ export default async function TrainerHomePage() {
       .is("deleted_at", null),
     supabase
       .from("workout_completions")
-      .select("workout_id, trainee_id, completed_at")
+      .select("workout_id, trainee_id, completed_at, source")
       .order("completed_at", { ascending: false })
       .limit(6),
+    // Free sessions (migration 0016) — the trainer and the read-only viewer see all of them.
+    loadFreeSessionList(supabase, { limit: 12 }),
   ]);
+
+  const isReadOnly = profile?.is_superadmin === true;
+  // Sessions in which nothing was performed aren't listed anywhere.
+  const freeSessions = freeSessionList.filter((session) => session.setCount > 0);
 
   const traineeCount = trainees?.length ?? 0;
   const traineeNameById = new Map((trainees ?? []).map((t) => [t.id, t.full_name]));
@@ -59,8 +69,61 @@ export default async function TrainerHomePage() {
     );
   const dayOfWeekByWorkoutId = new Map((completionWorkouts ?? []).map((w) => [w.id, w.day_of_week]));
 
+  // "פעילות אחרונה": submitted workouts and finished free sessions, together by time.
+  const activity = [
+    ...(recentCompletions ?? []).map((c) => ({
+      key: `${c.workout_id}-${c.trainee_id}`,
+      href: `/trainer/trainees/${c.trainee_id}`,
+      at: c.completed_at,
+      who: traineeNameById.get(c.trainee_id) ?? "מתאמן",
+      what: dayName(dayOfWeekByWorkoutId.get(c.workout_id) ?? 0),
+      tag: c.source === "trainer_session" ? "אימון אישי" : null,
+    })),
+    ...freeSessions
+      .filter((session) => session.finishedAt != null || isSessionStale(session.startedAt))
+      .map((session) => ({
+        key: `free-${session.id}`,
+        href: `/trainer/session/free/${session.id}`,
+        at: session.startedAt,
+        who:
+          (session.traineeId ? traineeNameById.get(session.traineeId) : null) ??
+          (session.guestLabel?.trim() || "ללא שם"),
+        what: "אימון חופשי",
+        tag: null,
+      })),
+  ]
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
+    .slice(0, 6);
+
   return (
-    <AppShell title="אזור מאמן" username={profile?.username} readOnly={profile?.is_superadmin === true}>
+    <AppShell title="אזור מאמן" username={profile?.username} readOnly={isReadOnly}>
+      {!isReadOnly && (
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <Link href="/trainer/session">
+            <Card className="h-full border-primary bg-primary text-primary-foreground transition-opacity hover:opacity-95">
+              <CardContent className="flex items-center gap-4 p-5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15">
+                  <Play className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg font-bold">התחל אימון אישי</p>
+                  <p className="text-sm opacity-90">מתאמן מולך? תעד משקלים וחזרות בזמן אמת</p>
+                </div>
+                <ArrowLeft className="h-5 w-5 shrink-0" />
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/trainer/session/templates">
+            <Card className="h-full transition-shadow hover:shadow-sm">
+              <CardContent className="flex h-full items-center gap-3 p-5">
+                <BookmarkCheck className="h-5 w-5 shrink-0 text-primary" />
+                <p className="font-semibold">אימונים שמורים</p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-4">
@@ -130,33 +193,76 @@ export default async function TrainerHomePage() {
             <CalendarCheck className="h-4 w-4 text-primary" />
             פעילות אחרונה
           </CardTitle>
-          <CardDescription>אימונים שהוגשו לאחרונה, מכל המתאמנים</CardDescription>
+          <CardDescription>אימונים שהוגשו או תועדו לאחרונה, מכל המתאמנים</CardDescription>
         </CardHeader>
         <CardContent className="space-y-1">
-          {!recentCompletions?.length ? (
+          {activity.length === 0 ? (
             <p className="text-sm text-muted-foreground">אין עדיין אימונים שהוגשו.</p>
           ) : (
-            recentCompletions.map((c) => (
+            activity.map((item) => (
               <Link
-                key={`${c.workout_id}-${c.trainee_id}`}
-                href={`/trainer/trainees/${c.trainee_id}`}
+                key={item.key}
+                href={item.href}
                 className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
               >
                 <span className="truncate font-medium">
-                  {traineeNameById.get(c.trainee_id) ?? "מתאמן"}
-                  <span className="font-normal text-muted-foreground">
-                    {" "}
-                    · {dayName(dayOfWeekByWorkoutId.get(c.workout_id) ?? 0)}
-                  </span>
+                  {item.who}
+                  <span className="font-normal text-muted-foreground"> · {item.what}</span>
+                  {item.tag && (
+                    <span className="ms-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                      {item.tag}
+                    </span>
+                  )}
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatShortDateTime(c.completed_at)}
-                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatShortDateTime(item.at)}</span>
               </Link>
             ))
           )}
         </CardContent>
       </Card>
+
+      {freeSessions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">אימונים חופשיים</CardTitle>
+            <CardDescription>ללא מתאמן, או ששויכו למתאמן</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {freeSessions.slice(0, 8).map((session) => {
+              const assignedTo = session.traineeId ? traineeNameById.get(session.traineeId) : null;
+              return (
+                <Link
+                  key={session.id}
+                  href={`/trainer/session/free/${session.id}`}
+                  className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">
+                      {assignedTo ?? (session.guestLabel?.trim() || "ללא שם")}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                        assignedTo ? "bg-success/15 text-success" : "bg-secondary text-secondary-foreground",
+                      )}
+                    >
+                      {assignedTo ? "שויך" : "לא משויך"}
+                    </span>
+                    {!session.finishedAt && (
+                      <span className="shrink-0 rounded-full bg-warning/20 px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
+                        לא הסתיים
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {formatShortDateTime(session.startedAt)}
+                  </span>
+                </Link>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
     </AppShell>
   );
 }

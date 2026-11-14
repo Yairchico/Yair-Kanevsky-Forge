@@ -4,14 +4,9 @@ import { Check } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import {
-  SET_TYPE_LABEL,
-  formatLoggedSet,
-  formatSetTarget,
-  isSetTargetMet,
-  type LoggedSet,
-  type PlannedSet,
-} from "@/lib/sets";
+import { SetsTable } from "@/components/sets-table";
+import { formatShortDateTime } from "@/lib/format";
+import type { LoggedSet, PlannedSet } from "@/lib/sets";
 
 export interface WorkoutDetailExercise {
   id: string;
@@ -34,85 +29,11 @@ export interface WorkoutDetailData {
   dayOfWeek: number;
   orderIndex: number;
   submittedAt: string | null;
+  /** Who submitted it: the trainee, or the trainer in a personal session (migration 0016). */
+  submittedBy: "trainee" | "trainer_session" | null;
+  /** The trainer's overall note from a personal session. */
+  sessionNote: string | null;
   exercises: WorkoutDetailExercise[];
-}
-
-/**
- * Planned vs. performed, one row per set (planned sets first, then any
- * extras the trainee added). `targetsOnly` drops the performed columns —
- * for an exercise logged before sets were split, whose single old value is
- * shown separately, so its sets don't each read "לא בוצע".
- */
-function SetsTable({
-  planned,
-  logged,
-  targetsOnly = false,
-}: {
-  planned: PlannedSet[];
-  logged: LoggedSet[];
-  targetsOnly?: boolean;
-}) {
-  const plannedByIndex = new Map(planned.map((s) => [s.setIndex, s]));
-  const loggedByIndex = new Map(logged.map((s) => [s.setIndex, s]));
-  const indexes = [...new Set([...plannedByIndex.keys(), ...loggedByIndex.keys()])].sort((a, b) => a - b);
-  if (indexes.length === 0) return null;
-
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="text-[11px] text-muted-foreground">
-          <th className="w-8 pb-0.5 text-center font-normal">סט</th>
-          <th className="pb-0.5 text-start font-normal">יעד</th>
-          {!targetsOnly && <th className="pb-0.5 text-start font-normal">בפועל</th>}
-          {!targetsOnly && <th className="w-14 pb-0.5" />}
-        </tr>
-      </thead>
-      <tbody>
-        {indexes.map((index) => {
-          const target = plannedByIndex.get(index);
-          const log = loggedByIndex.get(index);
-          const met = log ? isSetTargetMet(target, log) : false;
-          return (
-            <tr key={index} className="border-t border-border">
-              <td className="py-1 text-center text-xs font-bold text-muted-foreground">{index}</td>
-              <td className="py-1">
-                <span dir="ltr">{target ? formatSetTarget(target) : "—"}</span>
-                {target?.setType === "warmup" && (
-                  <span className="ms-1 text-[11px] text-muted-foreground">({SET_TYPE_LABEL.warmup})</span>
-                )}
-                {!target && <span className="ms-1 text-[11px] text-muted-foreground">(סט נוסף)</span>}
-              </td>
-              {!targetsOnly && (
-                <td className="py-1 font-medium">
-                  {log ? <span dir="ltr">{formatLoggedSet(log)}</span> : <span className="text-muted-foreground">—</span>}
-                  {log?.rpe != null && <span className="ms-1 text-[11px] text-muted-foreground">RPE {log.rpe}</span>}
-                </td>
-              )}
-              {!targetsOnly && (
-                <td
-                  className={cn(
-                    "py-1 text-xs",
-                    !log ? "text-muted-foreground" : met ? "text-success" : "text-warning-foreground",
-                  )}
-                >
-                  {!log ? "לא בוצע" : met ? "✓" : "פחות מהיעד"}
-                </td>
-              )}
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function formatSubmittedAt(iso: string) {
-  return new Date(iso).toLocaleString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /**
@@ -138,11 +59,16 @@ export function WorkoutDetailModal({
         <div className="flex flex-wrap items-center gap-2">
           {workout.submittedAt ? (
             <span className="rounded-full bg-success/15 px-3 py-1 text-sm font-medium text-success">
-              הוגש · {formatSubmittedAt(workout.submittedAt)}
+              הוגש · {formatShortDateTime(workout.submittedAt)}
             </span>
           ) : (
             <span className="rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
               טרם הוגש
+            </span>
+          )}
+          {workout.submittedBy === "trainer_session" && (
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+              אימון אישי עם המאמן
             </span>
           )}
           {workout.exercises.length > 0 && (
@@ -151,6 +77,13 @@ export function WorkoutDetailModal({
             </span>
           )}
         </div>
+
+        {workout.sessionNote && (
+          <p className="rounded-md bg-muted/60 px-3 py-2 text-sm whitespace-pre-line">
+            <span className="text-muted-foreground">הערה כללית: </span>
+            {workout.sessionNote}
+          </p>
+        )}
 
         {workout.exercises.length === 0 ? (
           <p className="text-base text-muted-foreground">אין תרגילים באימון זה.</p>
@@ -177,7 +110,7 @@ export function WorkoutDetailModal({
                     <SetsTable
                       planned={ex.plannedSets}
                       logged={ex.loggedSets}
-                      targetsOnly={Boolean(ex.legacyActual)}
+                      mode={ex.legacyActual ? "targets" : "both"}
                     />
                     {ex.legacyActual && (
                       <p className="text-sm">
@@ -190,7 +123,9 @@ export function WorkoutDetailModal({
                     )}
                     {ex.note && (
                       <p className="text-sm">
-                        <span className="text-muted-foreground">הערת המתאמן: </span>
+                        <span className="text-muted-foreground">
+                          {workout.submittedBy === "trainer_session" ? "הערה לתרגיל: " : "הערת המתאמן: "}
+                        </span>
                         {ex.note}
                       </p>
                     )}

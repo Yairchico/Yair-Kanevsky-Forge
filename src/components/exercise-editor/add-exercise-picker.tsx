@@ -108,9 +108,12 @@ function InlineCreateExercise({
 export function AddExercisePicker({
   exercises,
   onAdd,
+  plain = false,
 }: {
   exercises: Exercise[];
   onAdd: (exerciseId: string, newExercise?: NewExercise) => void;
+  /** No card around it — for use inside something that already is one (a dialog). */
+  plain?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
@@ -127,80 +130,86 @@ export function AddExercisePicker({
       .slice(0, 20);
   }, [q, exercises]);
 
+  const body = (
+    <>
+      <Input
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setCreating(false);
+        }}
+        placeholder="חיפוש תרגיל…"
+      />
+
+      {creating ? (
+        <InlineCreateExercise
+          initialName={q}
+          onCancel={() => setCreating(false)}
+          onCreated={(exercise) => {
+            setCreating(false);
+            setQ("");
+            onAdd(exercise.id, exercise);
+          }}
+        />
+      ) : (
+        <div className="space-y-1">
+          {filtered.length === 0 ? (
+            <div className="space-y-2 text-center">
+              <p className="text-sm text-muted-foreground">לא נמצאו תרגילים.</p>
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                הוספת תרגיל
+              </button>
+            </div>
+          ) : (
+            filtered.map((ex) => (
+              // A <div> (not a <button>) since the thumbnail inside is its
+              // own click target (enlarge) — a button can't nest a button.
+              <div
+                key={ex.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onAdd(ex.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onAdd(ex.id);
+                }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
+              >
+                <span onClick={(e) => e.stopPropagation()}>
+                  <ExercisePhoto
+                    src={getExerciseImage(ex)}
+                    className="h-9 w-9 rounded-md bg-primary/10"
+                  />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{ex.name}</p>
+                  {ex.muscle_group && (
+                    <p className="text-xs text-muted-foreground">
+                      {ex.muscle_group}
+                    </p>
+                  )}
+                </div>
+                <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  if (plain) return <div className="space-y-3">{body}</div>;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">ספריית תרגילים</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <Input
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setCreating(false);
-          }}
-          placeholder="חיפוש תרגיל…"
-        />
-
-        {creating ? (
-          <InlineCreateExercise
-            initialName={q}
-            onCancel={() => setCreating(false)}
-            onCreated={(exercise) => {
-              setCreating(false);
-              setQ("");
-              onAdd(exercise.id, exercise);
-            }}
-          />
-        ) : (
-          <div className="space-y-1">
-            {filtered.length === 0 ? (
-              <div className="space-y-2 text-center">
-                <p className="text-sm text-muted-foreground">לא נמצאו תרגילים.</p>
-                <button
-                  type="button"
-                  onClick={() => setCreating(true)}
-                  className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  הוספת תרגיל
-                </button>
-              </div>
-            ) : (
-              filtered.map((ex) => (
-                // A <div> (not a <button>) since the thumbnail inside is its
-                // own click target (enlarge) — a button can't nest a button.
-                <div
-                  key={ex.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onAdd(ex.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") onAdd(ex.id);
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
-                >
-                  <span onClick={(e) => e.stopPropagation()}>
-                    <ExercisePhoto
-                      src={getExerciseImage(ex)}
-                      className="h-9 w-9 rounded-md bg-primary/10"
-                    />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{ex.name}</p>
-                    {ex.muscle_group && (
-                      <p className="text-xs text-muted-foreground">
-                        {ex.muscle_group}
-                      </p>
-                    )}
-                  </div>
-                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </CardContent>
+      <CardContent className="space-y-3">{body}</CardContent>
     </Card>
   );
 }

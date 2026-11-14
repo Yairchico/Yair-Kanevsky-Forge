@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
-import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import { HomeDashboard, type BrowsableWeek } from "./home-dashboard";
 
 /**
@@ -35,7 +35,7 @@ export default async function TraineeHomePage() {
     );
   }
 
-  const currentWeekStart = getWeekStart(new Date());
+  const currentWeekStart = getWeekStart(israelNow());
   const currentWeekKey = toDateKey(currentWeekStart);
   // Streak needs deeper history than the browsable range (WEEK_OFFSETS
   // only reaches -4 weeks back) — one combined fetch covering both, from

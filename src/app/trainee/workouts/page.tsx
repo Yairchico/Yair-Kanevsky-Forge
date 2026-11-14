@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
-import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import { TraineeWeekBrowser, type WeekSlot } from "../trainee-week-browser";
 import {
   PLANNED_SET_COLUMNS,
@@ -50,7 +50,7 @@ export default async function TraineeWorkoutsPage({
     );
   }
 
-  const currentWeekStart = getWeekStart(new Date());
+  const currentWeekStart = getWeekStart(israelNow());
   const weekKeys = WEEK_OFFSETS.map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
@@ -130,7 +130,7 @@ export default async function TraineeWorkoutsPage({
     getPreviousPerformance(
       supabase,
       user.id,
-      (workoutExercises ?? []).map((we) => ({ workoutExerciseId: we.id, exerciseId: we.exercise_id })),
+      (workoutExercises ?? []).map((we) => ({ key: we.id, exerciseId: we.exercise_id })),
     ),
   ]);
 

@@ -3,7 +3,7 @@ import { PLANNED_SET_COLUMNS, summarizeSets, toPlannedSet, type PlannedSet } fro
 import { selectInChunks } from "@/lib/previous-sets";
 import { createClient } from "@/lib/supabase/server";
 import { isReadOnlyViewer } from "@/lib/viewer";
-import { addDays, getWeekStart, toDateKey } from "@/lib/week";
+import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import { NewProgramForm } from "./new-program-form";
 
 export default async function NewProgramPage({
@@ -39,7 +39,7 @@ export default async function NewProgramPage({
   // (workouts + exercises), not just a list, so the trainer can preview a
   // program's contents client-side with no extra round trip when they
   // expand one.
-  const currentWeekStart = getWeekStart(new Date());
+  const currentWeekStart = getWeekStart(israelNow());
   const monthAgoKey = toDateKey(addDays(currentWeekStart, -35));
   const currentWeekKey = toDateKey(currentWeekStart);
   const noRows = ["00000000-0000-0000-0000-000000000000"];
@@ -133,6 +133,7 @@ export default async function NewProgramPage({
     <NewProgramForm
       traineeId={trainee.id}
       traineeName={trainee.full_name}
+      currentWeekKey={currentWeekKey}
       duplicateCandidates={duplicateCandidates}
       existingProgramByWeek={existingProgramByWeek}
     />

@@ -13,8 +13,28 @@ import {
   toPlannedSet,
   type LoggedSet,
 } from "@/lib/sets";
+import { loadExercisesOfSessions, loadFreeSessionList } from "@/lib/free-session-data";
+import { isSessionStale } from "@/lib/free-sessions";
 import { selectInChunks } from "@/lib/previous-sets";
 import { dayName } from "@/lib/week";
+
+interface HistoryEntry {
+  key: string;
+  /** When it happened: the submission time, or when a free session started. */
+  at: string;
+  label: string;
+  /** Set when the trainer ran it (a session from the plan, or a free session). */
+  tag: string | null;
+  /** The trainer's overall note on the session. */
+  trainerNote: string | null;
+  exercises: {
+    id: string;
+    name: string;
+    sets: (LoggedSet & { met: boolean })[];
+    legacy: string | null;
+    notes: string | null;
+  }[];
+}
 
 /**
  * A log of submitted workouts — one card per workout_completions row
@@ -25,6 +45,11 @@ import { dayName } from "@/lib/week";
  * log rows keyed by their own performed_at) is what keeps this a clean
  * "here's what you submitted, and when" list instead of a pile of
  * near-duplicate entries.
+ *
+ * Two more things land here since the trainer-led sessions (migration
+ * 0016): a workout from the plan that the trainer ran is tagged "אימון אישי
+ * עם המאמן", and free sessions the trainer assigned to this trainee are
+ * listed alongside, tagged "אימון חופשי עם המאמן".
  */
 export default async function TraineeHistoryPage() {
   const supabase = await createClient();
@@ -48,12 +73,35 @@ export default async function TraineeHistoryPage() {
   monthAgo.setDate(monthAgo.getDate() - 30);
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const { data: completions } = await supabase
-    .from("workout_completions")
-    .select("workout_id, completed_at")
-    .eq("trainee_id", user.id)
-    .gte("completed_at", monthAgo.toISOString())
-    .order("completed_at", { ascending: false });
+  const [{ data: completions }, freeSessionList] = await Promise.all([
+    supabase
+      .from("workout_completions")
+      .select("workout_id, completed_at, source, notes")
+      .eq("trainee_id", user.id)
+      .gte("completed_at", monthAgo.toISOString())
+      .order("completed_at", { ascending: false }),
+    loadFreeSessionList(supabase, { traineeId: user.id, limit: 30 }),
+  ]);
+
+  // A free session counts once it's over: finished, or left open long
+  // enough that it clearly isn't in progress any more. Empty ones never do.
+  const freeSessions = freeSessionList.filter(
+    (session) =>
+      session.setCount > 0 &&
+      session.startedAt >= monthAgo.toISOString() &&
+      (session.finishedAt != null || isSessionStale(session.startedAt)),
+  );
+  const [freeExercisesBySession, { data: freeSessionRows }] = await Promise.all([
+    loadExercisesOfSessions(
+      supabase,
+      freeSessions.map((session) => session.id),
+    ),
+    supabase
+      .from("free_sessions")
+      .select("id, notes")
+      .in("id", freeSessions.length ? freeSessions.map((session) => session.id) : noRows),
+  ]);
+  const freeSessionNote = new Map((freeSessionRows ?? []).map((row) => [row.id, row.notes]));
 
   const workoutIds = [...new Set((completions ?? []).map((c) => c.workout_id))];
 
@@ -115,8 +163,8 @@ export default async function TraineeHistoryPage() {
   const exerciseNameById = new Map((exercises ?? []).map((e) => [e.id, e.name]));
   const logByWorkoutExerciseId = new Map((logs ?? []).map((l) => [l.workout_exercise_id, l]));
 
-  const history = (completions ?? [])
-    .map((completion) => {
+  const planHistory: HistoryEntry[] = (completions ?? [])
+    .map((completion): HistoryEntry | null => {
       // A workout the trainer later deleted (or unpublished — RLS scopes
       // a trainee's own SELECT on workouts to published, non-deleted
       // programs) won't resolve here; skip it rather than show a broken row.
@@ -146,39 +194,78 @@ export default async function TraineeHistoryPage() {
         .filter((ex): ex is NonNullable<typeof ex> => ex !== null);
 
       const programTitle = programTitleById.get(workout.program_id);
+      const byTrainer = completion.source === "trainer_session";
       return {
-        workoutId: completion.workout_id,
-        completedAt: completion.completed_at,
+        key: completion.workout_id,
+        at: completion.completed_at,
         label: programTitle ? `${dayName(workout.day_of_week)} · ${programTitle}` : dayName(workout.day_of_week),
+        tag: byTrainer ? "אימון אישי עם המאמן" : null,
+        trainerNote: byTrainer ? completion.notes : null,
         exercises: exercisesForWorkout,
       };
     })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    .filter((entry): entry is HistoryEntry => entry !== null);
+
+  const freeHistory: HistoryEntry[] = freeSessions.map((session) => ({
+    key: `free-${session.id}`,
+    at: session.startedAt,
+    label: "אימון חופשי",
+    tag: "אימון חופשי עם המאמן",
+    trainerNote: freeSessionNote.get(session.id) ?? null,
+    exercises: (freeExercisesBySession.get(session.id) ?? [])
+      .filter((ex) => ex.loggedSets.length > 0)
+      .map((ex) => ({
+        id: ex.id,
+        name: ex.name,
+        sets: ex.loggedSets.map((set) => ({
+          ...set,
+          met: isSetTargetMet(
+            ex.plannedSets.find((planned) => planned.setIndex === set.setIndex),
+            set,
+          ),
+        })),
+        legacy: null,
+        notes: ex.initialNote,
+      })),
+  }));
+
+  const history = [...planHistory, ...freeHistory].sort((a, b) => (a.at < b.at ? 1 : -1));
 
   return (
     <AppShell title="היסטוריה" backHref="/trainee">
-      <p className="text-base text-muted-foreground">אימונים שהוגשו ב-30 הימים האחרונים.</p>
+      <p className="text-base text-muted-foreground">אימונים מ-30 הימים האחרונים.</p>
 
       {history.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>אין עדיין היסטוריה</CardTitle>
             <CardDescription className="text-base">
-              כשתגיש אימון, הוא יופיע כאן.
+              כשתגיש אימון, או כשהמאמן יתעד אימון איתך, הוא יופיע כאן.
             </CardDescription>
           </CardHeader>
         </Card>
       ) : (
         <div className="space-y-3">
           {history.map((entry) => (
-            <Card key={entry.workoutId}>
+            <Card key={entry.key}>
               <CardContent className="space-y-2.5 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <p className="text-base font-semibold">{entry.label}</p>
-                  <span className="text-sm text-muted-foreground">
-                    {formatShortDateTime(entry.completedAt)}
-                  </span>
+                  <p className="flex flex-wrap items-center gap-2 text-base font-semibold">
+                    {entry.label}
+                    {entry.tag && (
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                        {entry.tag}
+                      </span>
+                    )}
+                  </p>
+                  <span className="text-sm text-muted-foreground">{formatShortDateTime(entry.at)}</span>
                 </div>
+                {entry.trainerNote && (
+                  <p className="rounded-md bg-muted/60 px-2.5 py-1.5 text-sm whitespace-pre-line">
+                    <span className="text-muted-foreground">הערת המאמן: </span>
+                    {entry.trainerNote}
+                  </p>
+                )}
 
                 {entry.exercises.length === 0 ? (
                   <p className="text-sm text-muted-foreground">האימון הוגש ללא פרטי ביצוע.</p>

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey, APP_TIME_ZONE, israelNow } from "@/lib/week";
 
 export interface BrowsableWeekWorkout {
   id: string;
@@ -73,11 +73,14 @@ export function HomeDashboard({
 }) {
   const [activeIndex, setActiveIndex] = useState(() => Math.floor(weeks.length / 2));
 
-  const now = new Date();
-  const todayLabel = now.toLocaleDateString("he-IL", {
+  // Israel time on purpose: this renders on the server (UTC) first, and a
+  // greeting or date that differs from the browser's would be a mismatch.
+  const now = israelNow();
+  const todayLabel = new Date().toLocaleDateString("he-IL", {
     weekday: "long",
     day: "numeric",
     month: "long",
+    timeZone: APP_TIME_ZONE,
   });
 
   const activeWeek = weeks[activeIndex];

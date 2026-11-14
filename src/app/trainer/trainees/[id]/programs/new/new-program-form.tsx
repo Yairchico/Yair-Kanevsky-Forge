@@ -17,21 +17,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { addDays, dayName, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey, toDateKey } from "@/lib/week";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionState = {};
 
-const today = new Date();
-const currentWeekStart = getWeekStart(today);
-const weekOptions = [0, 1, 2].map((offset) => {
-  const start = addDays(currentWeekStart, offset * 7);
-  return {
-    key: toDateKey(start),
-    label: formatWeekLabel(start, today),
-    range: formatWeekRange(start),
-  };
-});
+/**
+ * The three weeks a new program can be created for: this week and the two
+ * after it. Built from the server's idea of the current week (a prop), not
+ * from a module-level `new Date()` — that would be frozen at whatever
+ * moment the module happened to load, on a server that stays up for days.
+ */
+function buildWeekOptions(currentWeekKey: string) {
+  const currentWeekStart = parseDateKey(currentWeekKey);
+  return [0, 1, 2].map((offset) => {
+    const start = addDays(currentWeekStart, offset * 7);
+    return {
+      key: toDateKey(start),
+      label: formatWeekLabel(start, currentWeekStart),
+      range: formatWeekRange(start),
+    };
+  });
+}
 
 interface DuplicateExercise {
   id: string;
@@ -272,18 +279,22 @@ function DuplicateWeekPicker({
 export function NewProgramForm({
   traineeId,
   traineeName,
+  currentWeekKey,
   duplicateCandidates,
   existingProgramByWeek,
 }: {
   traineeId: string;
   traineeName: string;
+  /** week_start_date of the current week, in Israel time. */
+  currentWeekKey: string;
   duplicateCandidates: DuplicateCandidate[];
   /** The 3 selectable weeks (this week, +1, +2) that already have a program — keyed by week_start_date. */
   existingProgramByWeek: Record<string, { id: string; title: string }>;
 }) {
   const action = createProgram.bind(null, traineeId);
   const [state, formAction, pending] = useActionState(action, initialState);
-  const [week, setWeek] = useState(weekOptions[0].key);
+  const weekOptions = buildWeekOptions(currentWeekKey);
+  const [week, setWeek] = useState(currentWeekKey);
   const [duplicateEnabled, setDuplicateEnabled] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
