@@ -74,6 +74,7 @@ src/lib/format.ts                    tiny display-formatting helpers usable from
 src/middleware.ts + src/lib/supabase/middleware.ts   session refresh + role-based routing only, not an authorization boundary — deliberately still `middleware.ts`, not Next 16's renamed `proxy.ts` (see Known Gotchas)
 supabase/migrations/                 numbered, additive SQL migrations (see below)
 supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
+supabase/tests/                      SQL suites run against a throwaway local Postgres (run.sh): RLS / privilege checks per role and the block engine — see Verification
 .github/workflows/deploy.yml         the real deploy path (see Deployment)
 ```
 
@@ -133,7 +134,13 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
 - **RLS pattern**: `public.is_trainer()` (SECURITY DEFINER) gates a
   trainer's "for all" policy per table; a trainee's policy is always
   scoped to `trainee_id = auth.uid()` and, for anything downstream of a
-  program, `status = 'published'`.
+  program, `status = 'published'`. A trainee's *writes* of performance
+  additionally go through `trainee_can_log()` (migration 0018): this week,
+  last week or a future one — the same rule as `isEditableWeek` in
+  `src/app/trainee/actions.ts`, which stays as the friendly first check.
+  When the app enforces a rule about who may change what, ask whether a
+  direct PostgREST call with the user's own token could skip it; if so the
+  rule belongs in a policy or trigger too.
 - **Trainer-led sessions write as the trainee.** A session on a planned
   workout (`src/app/trainer/session/[workoutId]`) stores exactly what the
   trainee's own logging would — `set_logs`/`workout_logs`/
@@ -277,6 +284,7 @@ one-time setup walkthrough):
 15. `0015_exercise_notes_and_video.sql` — `workout_exercises.hide_library_note` (the permanent note itself is the existing `exercises.instructions`, now editable in the library; the per-program note stays `workout_exercises.instructions` and is shown in addition) and `exercises.video_url` (a link only, CHECK https; parsed/embedded by `src/lib/video.ts`).
 16. `0016_trainer_sessions.sql` — trainer-led sessions. (a) The trainer may now WRITE `set_logs`/`workout_logs`/`workout_completions`/`workout_exercise_completions` ("for all" policies replace the read-only ones); `workout_completions` gains `source` (`trainee`/`trainer_session`), `completed_by`, `notes`; `enforce_performance_owner()` now also decides those on INSERT and freezes them on UPDATE (whoever submitted first stays on record). (b) Free sessions: `free_sessions` (`trainee_id` nullable = unassigned, `guest_label`, `template_id`), `free_session_exercises`, `free_session_sets` (one row = a target copied from a template, a performed set, or both). (c) Saved workouts: `session_templates` (soft delete), `session_template_exercises`, `session_template_sets`. RLS: trainer all, superadmin select, a trainee reads only free sessions assigned to them (never templates). SECURITY INVOKER functions that keep multi-row copies atomic: `start_free_session` (also sweeps abandoned empty sessions), `save_session_as_template`, `duplicate_session_template`.
 17. `0017_training_blocks.sql` — training blocks with automatic progression. `blocks` (per trainee; `weeks_count` ≤ 16, `status` active/completed, `default_deload_pct`, `auto_publish_next_week`, `rolled_through`; no stored start date — it's week 1's program date). A block week is an ordinary `programs` row tagged `block_id`/`block_week_index`/`is_deload`/`deload_pct`. `workouts.slot_key` and `workout_exercises.slot_key` identify "the same workout/exercise" across the weeks; the rule lives on `workout_exercises` (`progression_type` none/weight/reps/double, `weight_step_unit` kg/pct, steps, `reps_cap`, `progression_basis` actual/planned, `rounding_kg`) and means "how this exercise moves from THIS week to the next"; `progression_info` jsonb records why a week's targets are what they are; `workout_exercise_sets.weight_kg_exact` keeps the un-rounded weight of a percent chain (and the unused `progression_note` from 0013 is dropped). All logic is in SQL functions, every public one SECURITY DEFINER with its own caller check: the engine `block_recompute_internal` (not callable by API roles), and `create_block`, `apply_block_structure`, `recompute_block`, `set_exercise_progression`, `clear_set_override`, `shift_block`, `insert_block_deload`, `set_block_week_deload`, `end_block`, `delete_block`, `start_next_block` (trainer only) plus `apply_block_progression` and `block_roll_forward` (the workout's/block's trainee, or the trainer). Custom error codes `BK001` (week taken) / `BK002` (week already has recorded performance) carry the week's date in the message.
+18. `0018_week_lock_and_atomic_copy.sql` — (a) the trainee's week lock in RLS, not only in the app: `trainee_can_log(workout_id)` / `trainee_can_log_exercise(workout_exercise_id)` (own, published, non-deleted program, week ≥ last week in Israel time) now gate the trainee's INSERT, UPDATE *and* DELETE on all four performance tables (DELETE used to be just "your own row"); the trainer's policies are untouched. (b) `copy_program_structure(p_from, p_to)` — "שכפול שבוע" as one transaction (`duplicateProgramContents` is a single RPC now). Needs 0014 and 0017.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית
@@ -291,6 +299,21 @@ cp .env.example .env.local && npm run build   # placeholder env is enough for a 
 npm run cf:build                              # OpenNext/Cloudflare-specific build — catches issues `next build` alone won't
 rm .env.local                                 # never commit this
 ```
+**When a migration, a policy or a SQL function changes, also run the SQL
+suites** — a wrong policy is invisible to `tsc` and `next build`:
+
+```bash
+PGHOST=/tmp PGPORT=5432 PGUSER=postgres supabase/tests/run.sh   # needs any local Postgres 15+ (apt-get install postgresql works here)
+```
+Each suite gets a fresh database with every migration applied (0013+
+twice, to prove they're re-runnable) and then acts as the trainer, a
+trainee, another trainee and the read-only viewer, asserting what each is
+allowed and denied — plus the whole block-progression engine. Add the
+check there first when changing any of that (`supabase/tests/README.md`).
+The screens were also driven end to end in the 2026-11 work (Playwright
+against `next dev` and a small PostgREST stand-in over that same local
+database); that part was scratch tooling and is not in the repo.
+
 `.github/workflows/ci.yml` runs these same checks (lint, `next typegen` +
 `tsc`, `cf:build` with `.env.example` placeholders) on every push and PR —
 no secrets, deploys nothing, and does **not** gate Cloudflare's own
@@ -298,9 +321,9 @@ git-connected production build (see Deployment). Still run them locally
 first; CI is the safety net, not the first check.
 
 This sandbox cannot reach the live `*.workers.dev` deployment or a real
-Supabase project — these four commands are the full extent of what can be
-verified here. Live behavior needs the user to check and report back;
-don't claim to have tested something you couldn't have.
+Supabase project — the commands above (and a local Postgres) are the full
+extent of what can be verified here. Live behavior needs the user to check
+and report back; don't claim to have tested something you couldn't have.
 
 Commit messages: never pass one containing backticks/special shell chars
 through `git commit -m "..."` — bash will try to interpret them. Write the

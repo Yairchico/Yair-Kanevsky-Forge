@@ -441,6 +441,11 @@ export interface Database {
         Args: { p_template_id: string };
         Returns: string;
       };
+      /** Copies a program's workouts, exercises and planned sets into an empty program, atomically (migration 0018). Trainer only. */
+      copy_program_structure: {
+        Args: { p_from: string; p_to: string };
+        Returns: undefined;
+      };
       // ---- training blocks (migration 0017). All SECURITY DEFINER with their own caller checks.
       /** Errors: BK001 "WEEK_TAKEN <date>", BK002 "WEEK_HAS_PERFORMANCE <date>". */
       create_block: {

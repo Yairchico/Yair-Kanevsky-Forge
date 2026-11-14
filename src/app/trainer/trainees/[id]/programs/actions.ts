@@ -12,119 +12,25 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * Deep-copies one program's entire structure (every workout, every
- * workout_exercise on it, and every planned set under those — migration
- * 0013 — with reps/weight/RPE targets, rest and instructions) into
- * another, freshly-created program. Used by "שכפול שבוע": the new program
- * is always created as a draft, so the trainer reviews the copy before
- * publishing it.
+ * workout_exercise on it, and every planned set under those, with
+ * reps/weight/RPE targets, rest and instructions) into another,
+ * freshly-created program. Used by "שכפול שבוע": the new program is always
+ * created as a draft, so the trainer reviews the copy before publishing it.
+ *
+ * One database function, i.e. one transaction (migration 0018): this used
+ * to be dozens of separate inserts from here, and a failure halfway left a
+ * half-copied program behind.
  */
 async function duplicateProgramContents(
   supabase: Supabase,
   fromProgramId: string,
   toProgramId: string,
 ): Promise<string | null> {
-  const { data: sourceWorkouts } = await supabase
-    .from("workouts")
-    .select("id, day_of_week, order_index")
-    .eq("program_id", fromProgramId)
-    .order("day_of_week")
-    .order("order_index");
-
-  if (!sourceWorkouts?.length) return null;
-
-  // Inserted one at a time (not a single batch insert) so each source
-  // workout's new id is captured directly from its own insert response.
-  // This used to be a batch insert with old->new ids reconstructed
-  // afterwards via a (day_of_week, order_index) composite key — but that
-  // key isn't actually guaranteed unique per program: createWorkout could
-  // (before its own fix) assign a new workout the same order_index as an
-  // existing one on the same day, and a Map can't hold two entries under
-  // one key, so one side of that collision silently mapped to the wrong
-  // new workout (or to undefined) and its exercises came out wrong or
-  // failed to copy at all.
-  const oldToNewWorkoutId = new Map<string, string>();
-  for (const w of sourceWorkouts) {
-    const { data: newWorkout, error: workoutError } = await supabase
-      .from("workouts")
-      .insert({ program_id: toProgramId, day_of_week: w.day_of_week, order_index: w.order_index })
-      .select("id")
-      .single();
-
-    if (workoutError || !newWorkout) {
-      return "שגיאה בשכפול האימונים";
-    }
-    oldToNewWorkoutId.set(w.id, newWorkout.id);
-  }
-
-  const { data: sourceExercises } = await supabase
-    .from("workout_exercises")
-    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note")
-    .in(
-      "workout_id",
-      sourceWorkouts.map((w) => w.id),
-    )
-    .order("order_index");
-
-  if (!sourceExercises?.length) return null;
-
-  const { data: sourceSets } = await supabase
-    .from("workout_exercise_sets")
-    .select(
-      "workout_exercise_id, set_index, set_type, reps_min, reps_max, reps_note, weight_kg, weight_note, rpe",
-    )
-    .in(
-      "workout_exercise_id",
-      sourceExercises.map((we) => we.id),
-    );
-
-  // One insert per exercise, same reasoning as the workouts above: each
-  // exercise's new id comes straight from its own insert, so its sets
-  // (migration 0013) can be attached without reconstructing a mapping.
-  for (const we of sourceExercises) {
-    const { data: newExercise, error: exerciseError } = await supabase
-      .from("workout_exercises")
-      .insert({
-        workout_id: oldToNewWorkoutId.get(we.workout_id)!,
-        exercise_id: we.exercise_id,
-        order_index: we.order_index,
-        rest_seconds: we.rest_seconds,
-        instructions: we.instructions,
-        hide_library_note: we.hide_library_note,
-      })
-      .select("id")
-      .single();
-
-    if (exerciseError || !newExercise) {
-      return "שגיאה בשכפול התרגילים";
-    }
-
-    const sets = (sourceSets ?? []).filter((s) => s.workout_exercise_id === we.id);
-    // A legacy exercise with no sets yet (shouldn't happen after migration
-    // 0013's backfill) gets the same default a newly-added exercise does.
-    const rows = sets.length
-      ? sets.map(({ workout_exercise_id: _from, ...set }) => {
-          void _from;
-          return { ...set, workout_exercise_id: newExercise.id };
-        })
-      : [1, 2, 3].map((n) => ({
-          workout_exercise_id: newExercise.id,
-          set_index: n,
-          set_type: "working" as const,
-          reps_min: 8,
-          reps_max: 10,
-          reps_note: null,
-          weight_kg: null,
-          weight_note: null,
-          rpe: null,
-        }));
-
-    const { error: setsError } = await supabase.from("workout_exercise_sets").insert(rows);
-    if (setsError) {
-      return "שגיאה בשכפול הסטים";
-    }
-  }
-
-  return null;
+  const { error } = await supabase.rpc("copy_program_structure", {
+    p_from: fromProgramId,
+    p_to: toProgramId,
+  });
+  return error ? "שגיאה בשכפול התוכנית" : null;
 }
 
 export async function createProgram(
