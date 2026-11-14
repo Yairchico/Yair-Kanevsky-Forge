@@ -180,15 +180,35 @@ alter table public.workout_exercises
   add column if not exists slot_key uuid,                      -- "אותו תרגיל" לאורך שבועות הבלוק
   add column if not exists progression_type text not null default 'none'
     check (progression_type in ('none','weight','reps','double')),
-  add column if not exists weight_step_kg numeric(5,2),        -- ‎+2.5 / +5
+  add column if not exists weight_step_unit text not null default 'kg'
+    check (weight_step_unit in ('kg','pct')),                  -- קפיצה בק"ג קבועים, או באחוזים מהמשקל
+  add column if not exists weight_step_kg numeric(5,2),        -- ‎+2.5 / +5   (כש-unit = 'kg')
+  add column if not exists weight_step_pct numeric(4,2)        -- ‎+2.6 = ‎+2.6%   (כש-unit = 'pct')
+    check (weight_step_pct is null or (weight_step_pct > 0 and weight_step_pct <= 25)),
   add column if not exists reps_step smallint,                 -- ‎+1 / +2
   add column if not exists reps_cap smallint,                  -- בקפיצה כפולה (double): עד כמה חזרות לפני שמעלים משקל
   add column if not exists progression_basis text not null default 'actual'
     check (progression_basis in ('actual','planned')),         -- לפי ביצוע בפועל, או קפיצה לינארית בכל מקרה
   add column if not exists rounding_kg numeric(4,2) not null default 2.5;
 create index if not exists workout_exercises_slot_key_idx on public.workout_exercises (slot_key);
+
+-- המשקל המדויק לפני עיגול, כדי שקפיצה באחוזים תצטבר נכון (ראו למטה):
+alter table public.workout_exercise_sets
+  add column if not exists weight_kg_exact numeric(8,3);       -- null = זהה ל-weight_kg
 ```
-(`is_manual_override` ו-`progression_note` על `workout_exercise_sets` נוספים כבר בפיצ'ר 1.)
+(`is_manual_override` ו-`progression_note` על `workout_exercise_sets` נוספים כבר בפיצ'ר 1. ‏`weight_kg_exact` נוסף כאן, במיגרציית הבלוקים, ולא ב-0013.)
+
+**קפיצה באחוזים.** המאמן בוחר לכל תרגיל אם הקפיצה במשקל היא בק"ג (‎+2.5) או באחוזים (‎+2.6%). המשקל שהמתאמן רואה תמיד מעוגל למשקל שאפשר להרכיב בחדר כושר (`rounding_kg`, ברירת מחדל 2.5 ק"ג). החישוב עצמו נעשה על המשקל **המדויק** (`weight_kg_exact`), לא על המעוגל. בלי זה, אחוז קטן על משקל קטן לא יזוז לעולם: 2.6% מ-40 ק"ג זה ‎+1.04, שמתעגל חזרה ל-40, וכך גם בשבוע שאחריו. עם צבירה על המדויק:
+
+| שבוע | מדויק | מוצג (עיגול ל-2.5) |
+|---|---|---|
+| 1 | 40.00 | 40 |
+| 2 | 41.04 | 40 |
+| 3 | 42.11 | 42.5 |
+| 4 | 43.20 | 42.5 |
+| 5 | 44.32 | 45 |
+
+ובמשקלים גבוהים זה מתנהג כמו שמצפים: 100 ← 102.6 (מוצג 102.5), 140 ← 143.64 (מוצג 142.5). שבוע שבו המשקל המוצג לא השתנה למרות הצלחה מקבל הערה ברורה: "‎+2.6% (41.04 ק"ג), מעוגל ל-40 — הקפיצה תורגש בשבוע הבא". אם המאמן מעדיף שכל הצלחה תזיז את המשקל לפחות בצעד אחד של 2.5, זו אפשרות חלופית (שאלה Q2.12).
 
 **למה החוק נשמר על `workout_exercises` של כל שבוע ולא בטבלה נפרדת?** כך המאמן יכול לשנות את הקפיצה משבוע 3 והלאה, למשל להעביר מ-+5 ל-+2.5, בלי לגעת בשבועות שכבר עברו. החוק מועתק קדימה יחד עם השורה. `slot_key` הוא מה שמקשר בין "סקוואט, אימון א'" בשבוע 2 לבין אותו סקוואט בשבוע 3.
 
@@ -204,13 +224,15 @@ actuals  = set_logs של prev לאותו slot
   אם אין ביצוע בכלל (דילוג)        → חזרה על היעד, progression_note = "לא בוצע, הקפיצה נדחתה"
   אם success = false                → חזרה על היעד, progression_note = "השלים 3/4, חוזרים על המשקל"
   אם success = true:
-    weight: weight_kg += weight_step_kg
+    weight (ק"ג):     exact += weight_step_kg
+    weight (אחוזים):  exact = exact × (1 + weight_step_pct / 100)
     reps:   reps_min/max += reps_step
     double: אם reps_max + reps_step ≤ reps_cap → מוסיפים חזרות
-            אחרת → weight_kg += step ו-reps חוזרים לערך ההתחלתי של הבלוק
-  עיגול: round(weight_kg / rounding_kg) * rounding_kg
+            אחרת → קפיצת משקל (בק"ג או באחוזים, כמו למעלה) ו-reps חוזרים לערך ההתחלתי של הבלוק
+  exact של שבוע ראשון / של סט שנדרס ידנית = weight_kg שלו
+  weight_kg (מוצג) = round(exact / rounding_kg) × rounding_kg      ← עיגול לקרוב (Q2.11)
 
-דילואד: sets_target = targets(prev) עם weight_kg × deload_pct/100 (מעוגל). אותו מספר סטים, או פחות (Q2.5).
+דילואד: sets_target = targets(prev) עם exact × deload_pct/100, מעוגל באותה שיטה. ה-exact של הדילואד לא נכנס לשרשרת. אותו מספר סטים, או פחות (Q2.5).
          השבוע שאחרי הדילואד מחושב מה-prev שלפני הדילואד, כך שהדילואד "שקוף" לשרשרת.
 סט עם is_manual_override = true לא משתנה לעולם.
 שבוע שכבר יש בו set_logs לאותו slot "קפוא", ולא מחשבים אותו מחדש.
@@ -260,7 +282,10 @@ actuals  = set_logs של prev לאותו slot
 | **המאמן עורך את שבוע 1 אחרי שהשבועות נוצרו** | כפתור "חשב מחדש שבועות עתידיים": מחשב מחדש כל מה שלא נדרס ולא קפוא |
 | **שבוע דילואד** | `is_deload = true`. המשקלים הם `deload_pct` (ברירת מחדל 60%) מהשבוע הקודם, מעוגלים. הביצוע בדילואד **לא** משפיע על השבוע שאחריו, שמחושב מהשבוע שלפני הדילואד. שבוע דילואד שנוסף באמצע מזיז את המשך הבלוק (Q2.5) |
 | **תרגיל בלי משקל מספרי** (משקל גוף, גומייה) | אפשר רק קפיצת חזרות. בבילדר, אפשרות "משקל" מושבתת עם הסבר |
-| **עיגול** | `rounding_kg` לכל תרגיל: 2.5 לבר, ‏1 או 2 למשקולות יד. 82.3 מעוגל ל-82.5 |
+| **עיגול** | `rounding_kg` לכל תרגיל: 2.5 לבר, ‏1 או 2 למשקולות יד. 82.3 מעוגל ל-82.5. בכל סוגי הקפיצה (ק"ג, אחוזים, דילואד) מה שמוצג ונשמר ב-`weight_kg` תמיד מעוגל, והחישוב ממשיך מ-`weight_kg_exact` |
+| **קפיצה באחוזים שלא מזיזה את המשקל המוצג** (2.6% מ-40) | ההתקדמות נצברת ב-exact ומופיעה בשבוע שבו היא חוצה חצי צעד עיגול. ההערה בתא מסבירה למה המספר לא זז. חלופה: מינימום צעד אחד בכל הצלחה (Q2.12) |
+| **המאמן דורס משקל בבלוק עם קפיצה באחוזים** | ה-exact מתאפס לערך הידני, והאחוזים ממשיכים ממנו |
+| **שינוי מק"ג לאחוזים באמצע בלוק** | מותר. האחוזים מחושבים מה-exact של השבוע הקודם, כך שאין קפיצה פתאומית |
 | **השבוע הבא כבר פורסם** | החישוב מעדכן אותו (המתאמן עוד לא ביצע אותו), אבל **לא** מחזיר אותו לטיוטה, כי זה עדכון מערכת ולא עריכה של המאמן. שבוע שכבר התחיל קפוא |
 | **בלוק נגמר** | הסטטוס הופך ל-completed. בדף הבלוק: "התחל בלוק חדש", ששבוע 1 שלו נבנה מהיעדים או מהביצוע של השבוע האחרון |
 | **מחיקת תוכנית אחת מתוך בלוק** | מחיקה רכה, כמו היום. השרשרת מדלגת עליה, והשבוע הבא מחושב מהשבוע הקיים הקודם |

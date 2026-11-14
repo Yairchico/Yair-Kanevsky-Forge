@@ -152,11 +152,17 @@
               <div class="flex overflow-hidden rounded-md border border-border text-xs">
                 <span class="px-2.5 py-1.5">ללא</span><span class="bg-primary px-2.5 py-1.5 text-primary-foreground">משקל</span><span class="px-2.5 py-1.5">חזרות</span><span class="px-2.5 py-1.5">כפולה</span>
               </div>
-              <label class="flex flex-col gap-0.5"><span class="text-[10px] text-muted-foreground">צעד (ק"ג)</span><input value="2.5" class="h-8 rounded-md border border-input bg-card px-2 text-sm w-16 text-center"></label>
+              <label class="flex flex-col gap-0.5"><span class="text-[10px] text-muted-foreground">צעד</span>
+                <span class="flex items-center gap-1">
+                  <input value="2.6" class="h-8 rounded-md border border-input bg-card px-2 text-sm w-14 text-center">
+                  <span class="flex overflow-hidden rounded-md border border-border text-xs"><span class="px-2 py-1.5">ק"ג</span><span class="bg-primary px-2 py-1.5 text-primary-foreground">%</span></span>
+                </span>
+              </label>
               <label class="flex flex-col gap-0.5"><span class="text-[10px] text-muted-foreground">עיגול ל-</span><input value="2.5" class="h-8 rounded-md border border-input bg-card px-2 text-sm w-14 text-center"></label>
               <label class="flex flex-col gap-0.5"><span class="text-[10px] text-muted-foreground">לפי</span><select class="h-8 rounded-md border border-input bg-card px-2 text-sm"><option>ביצוע בפועל</option><option>תכנון (תמיד קופץ)</option></select></label>
             </div>
-            <p class="text-xs text-muted-foreground">השבוע: ‎+2.5 מ-80 ק"ג (בשבוע 2 השלים 4/4 סטים). סט 5 נדרס ידנית ל-85.</p>
+            <p class="text-xs text-muted-foreground">השבוע: <bdi dir="ltr">+2.6%</bdi> מ-80 ק"ג = 82.08, מעוגל ל-82.5 (בשבוע 2 השלים 4/4 סטים). סט 5 נדרס ידנית ל-85.</p>
+            <p class="text-[11px] text-muted-foreground">באחוזים: המשקל המוצג תמיד מעוגל לכפולה של "עיגול ל-", והחישוב ממשיך מהמשקל המדויק, כך שגם אחוז קטן נצבר משבוע לשבוע.</p>
           </div>
 
           <!-- existing per-row fields -->
