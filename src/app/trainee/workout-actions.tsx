@@ -22,6 +22,7 @@ export function SubmitWorkoutButton({
   disabled = false,
   getNotes,
   flushPending,
+  onSubmitted,
 }: {
   workoutId: string;
   submitted: boolean;
@@ -29,8 +30,17 @@ export function SubmitWorkoutButton({
   getNotes: () => ExerciseNoteEntry[];
   /** Retries unsaved sets; resolves to how many are still unsaved. */
   flushPending: () => Promise<number>;
+  /** The notes reached the server with a successful submit. */
+  onSubmitted?: () => void;
 }) {
   const [submitted, setSubmitted] = useState(initialSubmitted);
+  // The server's answer can change under an open tab (the trainer finished
+  // this workout in a session) — follow it when the page data refreshes.
+  const [syncedProp, setSyncedProp] = useState(initialSubmitted);
+  if (initialSubmitted !== syncedProp) {
+    setSyncedProp(initialSubmitted);
+    setSubmitted(initialSubmitted);
+  }
   const [error, setError] = useState<string | undefined>();
   const [showSuccess, setShowSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -53,6 +63,7 @@ export function SubmitWorkoutButton({
           setSubmitted(!next);
           setError(result.error);
         } else if (next) {
+          onSubmitted?.();
           setShowSuccess(true);
         }
       } catch {

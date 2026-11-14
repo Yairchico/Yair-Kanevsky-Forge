@@ -10,56 +10,35 @@ import { cn } from "@/lib/utils";
 import { getExerciseImage } from "@/lib/exercise-image";
 import {
   SET_TYPE_LABEL,
-  formatKg,
   formatLoggedSet,
   formatSetTarget,
-  isSetTargetMet,
   type LoggedSet,
   type PlannedSet,
 } from "@/lib/sets";
 import type { PreviousPerformance } from "@/lib/previous-sets";
-import { EMPTY_SET_DRAFT, type ExerciseDraft, type SetDraft } from "@/lib/workout-draft";
+import type { SetDraft } from "@/lib/workout-draft";
+import type { SetEntry, SetEntryExercise, SetRowState } from "@/lib/use-set-entry";
 
-export interface TraineeExerciseData {
-  id: string;
+export interface TraineeExerciseData extends SetEntryExercise {
   name: string;
   muscleGroup: string | null;
   imageUrl: string | null;
   videoUrl: string | null;
   /** The exercise's permanent note from the library (null when it has none, or it's hidden in this program). */
   permanentNote: string | null;
-  plannedSets: PlannedSet[];
-  loggedSets: LoggedSet[];
   previous: PreviousPerformance | null;
   restSeconds: number | null;
+  /** The trainer's note for this program. */
   instructions: string | null;
 }
-
-/** The set rows to show: every planned set, then any extras (logged or added) beyond the plan. */
-export function setIndexesFor(
-  exercise: Pick<TraineeExerciseData, "plannedSets">,
-  logged: Record<number, LoggedSet>,
-  extraSets: number,
-): number[] {
-  const plannedIndexes = exercise.plannedSets.map((s) => s.setIndex);
-  const maxPlanned = plannedIndexes.length ? Math.max(...plannedIndexes) : 0;
-  const loggedExtra = Object.keys(logged)
-    .map(Number)
-    .filter((i) => i > maxPlanned);
-  const maxExtra = Math.max(maxPlanned + extraSets, ...loggedExtra, maxPlanned);
-  const indexes = [...plannedIndexes];
-  for (let i = maxPlanned + 1; i <= maxExtra; i += 1) indexes.push(i);
-  return indexes;
-}
-
-type RowState = "logged" | "logged-short" | "pending" | "changed" | "open";
 
 function SetEntryRow({
   setIndex,
   planned,
   previous,
-  draft,
-  logged,
+  values,
+  placeholder,
+  state,
   saving,
   editable,
   isNext,
@@ -69,32 +48,19 @@ function SetEntryRow({
   setIndex: number;
   planned: PlannedSet | undefined;
   previous: LoggedSet | undefined;
-  draft: SetDraft;
-  logged: LoggedSet | undefined;
+  values: SetDraft;
+  placeholder: { weight: string; reps: string; rpe: string };
+  state: SetRowState;
   saving: boolean;
   editable: boolean;
   isNext: boolean;
-  onChange: (next: Partial<SetDraft>) => void;
+  onChange: (next: Partial<Pick<SetDraft, "weight" | "reps" | "rpe">>) => void;
   onConfirm: () => void;
 }) {
-  const pending = draft.status === "pending";
-  const changed =
-    Boolean(logged) &&
-    !pending &&
-    ((draft.weight.trim() !== "" && Number(draft.weight.replace(",", ".")) !== (logged!.weightKg ?? NaN)) ||
-      (draft.reps.trim() !== "" && Number(draft.reps) !== (logged!.reps ?? NaN)));
-
-  const state: RowState = pending
-    ? "pending"
-    : changed
-      ? "changed"
-      : logged
-        ? isSetTargetMet(planned, logged)
-          ? "logged"
-          : "logged-short"
-        : "open";
-
-  const showRpe = planned?.rpe != null || logged?.rpe != null;
+  // RPE is asked for only where the trainer set an RPE target, or one was
+  // already recorded — it's optional noise otherwise.
+  const showRpe = planned?.rpe != null || values.rpe.trim() !== "";
+  const saved = state === "logged" || state === "logged-short";
 
   return (
     <div
@@ -134,8 +100,8 @@ function SetEntryRow({
             inputMode="decimal"
             aria-label={`משקל בסט ${setIndex}`}
             disabled={!editable}
-            value={draft.weight}
-            placeholder={planned?.weightKg != null ? formatKg(planned.weightKg) : "—"}
+            value={values.weight}
+            placeholder={placeholder.weight}
             onChange={(e) => onChange({ weight: e.target.value })}
             className="h-10 w-16 rounded-md px-1.5 text-center text-base"
           />
@@ -146,8 +112,8 @@ function SetEntryRow({
             inputMode="numeric"
             aria-label={`חזרות בסט ${setIndex}`}
             disabled={!editable}
-            value={draft.reps}
-            placeholder={planned?.repsMin != null ? String(planned.repsMin) : ""}
+            value={values.reps}
+            placeholder={placeholder.reps}
             onChange={(e) => onChange({ reps: e.target.value })}
             className="h-10 w-12 rounded-md px-1 text-center text-base"
           />
@@ -159,8 +125,8 @@ function SetEntryRow({
               inputMode="decimal"
               aria-label={`RPE בסט ${setIndex}`}
               disabled={!editable}
-              value={draft.rpe}
-              placeholder={planned?.rpe != null ? String(planned.rpe) : ""}
+              value={values.rpe}
+              placeholder={placeholder.rpe}
               onChange={(e) => onChange({ rpe: e.target.value })}
               className="h-10 w-11 rounded-md px-1 text-center text-base"
             />
@@ -170,8 +136,8 @@ function SetEntryRow({
           type="button"
           onClick={onConfirm}
           disabled={!editable || saving}
-          aria-label={state === "logged" || state === "logged-short" ? `ביטול סט ${setIndex}` : `אישור סט ${setIndex}`}
-          aria-pressed={state === "logged" || state === "logged-short"}
+          aria-label={saved ? `ביטול סט ${setIndex}` : `אישור סט ${setIndex}`}
+          aria-pressed={saved}
           className={cn(
             "mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
             state === "logged" && "border-success bg-success text-success-foreground",
@@ -202,41 +168,26 @@ function SetEntryRow({
 
 /**
  * The exercise popup opened from a trainee's workout card: the trainer's
- * guidance (rest, per-program instructions), the exercise's image and
- * general description, and one row per set (migration 0013) — the set's
- * own target, what the trainee did on this exercise last time, and the
- * fields for what they actually do now. Tapping ✓ saves that one set to
- * the server right away (logSet); tapping it again un-confirms it. Typed
- * but unconfirmed values, and sets that couldn't be saved yet, live in
- * the localStorage draft (src/lib/workout-draft.ts) owned by the parent.
+ * guidance (the exercise's permanent note, the note for this program, rest),
+ * the exercise's image and demo video, and one row per set — the set's own
+ * target, what the trainee did on this exercise last time, and the fields
+ * for what they actually do now. Tapping ✓ saves that one set to the server
+ * right away; tapping it again un-confirms it. All of the entry state lives
+ * in useSetEntry (src/lib/use-set-entry.ts), owned by the workout panel.
  */
 export function TraineeExerciseModal({
   exercise,
+  entry,
   done,
-  draft,
-  logged,
-  savingSetIndexes,
-  error,
   editable,
-  onSetChange,
-  onConfirmSet,
-  onAddExtraSet,
-  onNotesChange,
   onToggleDone,
   onClose,
   onToast,
 }: {
   exercise: TraineeExerciseData;
+  entry: SetEntry;
   done: boolean;
-  draft: ExerciseDraft;
-  logged: Record<number, LoggedSet>;
-  savingSetIndexes: Set<number>;
-  error: string | null;
   editable: boolean;
-  onSetChange: (setIndex: number, next: Partial<SetDraft>) => void;
-  onConfirmSet: (setIndex: number) => void;
-  onAddExtraSet: () => void;
-  onNotesChange: (notes: string) => void;
   onToggleDone: (next: boolean) => void;
   onClose: () => void;
   onToast: (message: string) => void;
@@ -247,11 +198,10 @@ export function TraineeExerciseModal({
     media_url: exercise.imageUrl,
   });
 
-  const indexes = setIndexesFor(exercise, logged, draft.extraSets);
-  const plannedByIndex = new Map(exercise.plannedSets.map((s) => [s.setIndex, s]));
+  const indexes = entry.indexesFor(exercise);
   const previousByIndex = new Map((exercise.previous?.sets ?? []).map((s) => [s.setIndex, s]));
-  const loggedCount = indexes.filter((i) => logged[i] || draft.sets[i]?.status === "pending").length;
-  const nextOpen = indexes.find((i) => !logged[i] && draft.sets[i]?.status !== "pending");
+  const nextOpen = indexes.find((i) => entry.stateFor(exercise, i) === "open");
+  const error = entry.errors[exercise.id] ?? null;
 
   function handleToggleDone() {
     const next = !done;
@@ -308,7 +258,7 @@ export function TraineeExerciseModal({
               {editable ? "סטים · כל סט נשמר כשמאשרים ✓" : "סטים"}
             </p>
             <p className="text-sm font-medium">
-              {loggedCount}/{indexes.length}
+              {entry.loggedCountFor(exercise)}/{indexes.length}
             </p>
           </div>
 
@@ -323,15 +273,16 @@ export function TraineeExerciseModal({
             <SetEntryRow
               key={setIndex}
               setIndex={setIndex}
-              planned={plannedByIndex.get(setIndex)}
+              planned={entry.plannedFor(exercise, setIndex)}
               previous={previousByIndex.get(setIndex)}
-              draft={draft.sets[setIndex] ?? EMPTY_SET_DRAFT}
-              logged={logged[setIndex]}
-              saving={savingSetIndexes.has(setIndex)}
+              values={entry.valuesFor(exercise.id, setIndex)}
+              placeholder={entry.placeholderFor(exercise, setIndex)}
+              state={entry.stateFor(exercise, setIndex)}
+              saving={entry.isSaving(exercise.id, setIndex)}
               editable={editable}
               isNext={setIndex === nextOpen}
-              onChange={(next) => onSetChange(setIndex, next)}
-              onConfirm={() => onConfirmSet(setIndex)}
+              onChange={(next) => entry.changeSet(exercise.id, setIndex, next)}
+              onConfirm={() => entry.confirmSet(exercise, setIndex)}
             />
           ))}
 
@@ -340,7 +291,7 @@ export function TraineeExerciseModal({
           {editable && (
             <button
               type="button"
-              onClick={onAddExtraSet}
+              onClick={() => entry.addExtraSet(exercise.id)}
               className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
@@ -352,9 +303,10 @@ export function TraineeExerciseModal({
         <div className="space-y-1">
           <Label className="text-sm">הערה לתרגיל (אופציונלי · נשמרת בהגשת האימון)</Label>
           <Input
-            value={draft.notes}
+            value={entry.noteFor(exercise)}
             disabled={!editable}
-            onChange={(e) => onNotesChange(e.target.value)}
+            maxLength={1000}
+            onChange={(e) => entry.setNote(exercise.id, e.target.value)}
             placeholder="איך הרגשת, שינויים וכו׳"
           />
         </div>
