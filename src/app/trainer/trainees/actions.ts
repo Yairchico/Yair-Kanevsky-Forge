@@ -148,6 +148,33 @@ export async function updateTrainee(
     return { error: "אין הרשאה לבצע פעולה זו" };
   }
 
+  // The target has to be a trainee — this form never edits the trainer's
+  // own account or the read-only superadmin.
+  const { data: target } = await auth.supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", traineeId)
+    .maybeSingle();
+  if (target?.role !== "trainee") {
+    return { error: "המתאמן לא נמצא" };
+  }
+
+  // Checked BEFORE the auth email is changed below: the two writes aren't
+  // one transaction, and a username collision used to be discovered only
+  // on the second one — leaving the auth user with the new email while
+  // profiles.email (what login resolves a username to, see
+  // email_for_username in migration 0004) still held the old one, i.e. a
+  // trainee who could no longer sign in.
+  const { data: usernameOwner } = await auth.supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .neq("id", traineeId)
+    .maybeSingle();
+  if (usernameOwner) {
+    return { error: "שם המשתמש הזה כבר תפוס" };
+  }
+
   // Auth still needs *an* email under the hood (see createTrainee) — an
   // emptied field falls back to the placeholder rather than leaving the
   // real auth user without one.
@@ -233,6 +260,21 @@ export async function deleteTrainee(traineeId: string): Promise<ActionState> {
   const auth = await requireTrainer();
   if (!auth.ok) {
     return { error: "אין הרשאה לבצע פעולה זו" };
+  }
+
+  // The admin client below bypasses RLS and deletes whatever id it's given
+  // — so make sure that id is a trainee. Without this, a crafted call with
+  // the trainer's own id (or the superadmin's) would delete that account.
+  if (traineeId === auth.user.id) {
+    return { error: "אי אפשר למחוק את החשבון של עצמך" };
+  }
+  const { data: target } = await auth.supabase
+    .from("profiles")
+    .select("role, is_superadmin")
+    .eq("id", traineeId)
+    .maybeSingle();
+  if (target?.role !== "trainee" || target.is_superadmin) {
+    return { error: "המתאמן לא נמצא" };
   }
 
   try {

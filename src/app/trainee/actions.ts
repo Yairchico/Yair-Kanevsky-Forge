@@ -24,6 +24,11 @@ function revalidateTraineeAndTrainer() {
 const STALE_WORKOUT_ERROR =
   "האימון עודכן על ידי המאמן בינתיים — רענן/י את הדף ונסה/י שוב";
 
+/** 23503 = the row it points at is gone; 42501 = RLS says the program is no longer the trainee's published one. */
+function isStaleError(code: string | undefined): boolean {
+  return code === "23503" || code === "42501";
+}
+
 const LOCKED_WEEK_ERROR = "אפשר לעדכן רק אימונים מהשבוע הנוכחי ומהשבוע הקודם";
 
 /**
@@ -199,7 +204,7 @@ export async function logSet(
 
   if (error || !row) {
     return {
-      error: error?.code === "23503" || error?.code === "42501" ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הסט",
+      error: isStaleError(error?.code) ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הסט",
     };
   }
 
@@ -316,7 +321,7 @@ export async function submitWorkout(
         { onConflict: "workout_exercise_id,trainee_id" },
       );
       if (error) {
-        return { error: error.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בשמירת ההערות" };
+        return { error: isStaleError(error.code) ? STALE_WORKOUT_ERROR : "שגיאה בשמירת ההערות" };
       }
     }
 
@@ -336,7 +341,7 @@ export async function submitWorkout(
       );
     if (completionError) {
       return {
-        error: completionError.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בהגשת האימון",
+        error: isStaleError(completionError.code) ? STALE_WORKOUT_ERROR : "שגיאה בהגשת האימון",
       };
     }
   } else {

@@ -11,6 +11,7 @@ export interface CreateExerciseState {
 }
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 /**
  * Shared by createExercise, updateExerciseImage and createExerciseInline: an
@@ -27,8 +28,11 @@ async function resolveMediaUrl(
   const file = formData.get("image_file");
 
   if (file instanceof File && file.size > 0) {
-    if (!file.type.startsWith("image/")) {
-      return { error: "יש להעלות קובץ תמונה" };
+    // An explicit allowlist rather than "image/*": SVG is an image type
+    // too, and an SVG can carry script — harmless inside an <img>, but the
+    // bucket is public, so the file is also reachable by direct link.
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      return { error: "יש להעלות תמונה מסוג JPG, PNG, WebP או GIF" };
     }
     if (file.size > MAX_IMAGE_BYTES) {
       return { error: "התמונה גדולה מדי (מקסימום 5MB)" };
@@ -223,7 +227,7 @@ export async function deleteExercise(exerciseId: string): Promise<DeleteExercise
     return {
       error:
         error.code === "23503"
-          ? "אי אפשר למחוק תרגיל שנמצא בשימוש בתוכנית קיימת"
+          ? "אי אפשר למחוק תרגיל שנמצא בשימוש (בתוכנית, באימון אישי או באימון שמור)"
           : "שגיאה במחיקת התרגיל",
     };
   }
