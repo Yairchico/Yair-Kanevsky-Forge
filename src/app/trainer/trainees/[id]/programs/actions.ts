@@ -10,6 +10,17 @@ export interface ActionState {
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
+/** A real calendar date in 'YYYY-MM-DD' form that falls on a Sunday. */
+function isWeekStart(dateKey: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return false;
+  const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d && date.getUTCDay() === 0
+  );
+}
+
 /**
  * Deep-copies one program's entire structure (every workout, every
  * workout_exercise on it, and every planned set under those, with
@@ -50,8 +61,17 @@ export async function createProgram(
   if (!title) {
     return { error: "נא להזין שם לתוכנית" };
   }
+  if (title.length > 120) {
+    return { error: "שם התוכנית ארוך מדי (עד 120 תווים)" };
+  }
   if (!weekStartDate) {
     return { error: "נא לבחור שבוע" };
+  }
+  // The form only offers Sundays, but the value arrives from the client: a
+  // program whose week starts on any other day belongs to no week on any
+  // screen. (Also a CHECK constraint since migration 0018.)
+  if (!isWeekStart(weekStartDate)) {
+    return { error: "השבוע שנבחר לא תקין" };
   }
 
   const supabase = await createClient();

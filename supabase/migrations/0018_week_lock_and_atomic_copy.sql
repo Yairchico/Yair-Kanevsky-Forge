@@ -15,6 +15,11 @@
 --    exercises and sets with dozens of separate requests; a failure halfway
 --    left a half-copied program behind. It's one function call now.
 --
+-- 3. A program's week really is a week. programs.week_start_date is "the
+--    Sunday that starts the week" by convention only; nothing stopped a
+--    Wednesday from being stored, and such a program belongs to no week any
+--    screen shows while still existing.
+--
 -- Safely re-runnable. Needs migrations 0014 and 0017.
 
 -- ---------------------------------------------------------------------------
@@ -123,3 +128,25 @@ $$;
 
 revoke execute on function public.copy_program_structure(uuid, uuid) from public, anon;
 grant execute on function public.copy_program_structure(uuid, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3. A program's week starts on a Sunday
+-- ---------------------------------------------------------------------------
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'programs_week_starts_on_sunday') then
+    -- NOT VALID: enforced for every row written from now on, without the
+    -- migration failing on a legacy row (migration 0006 normalized the
+    -- existing ones to Sundays, so there shouldn't be any).
+    alter table public.programs
+      add constraint programs_week_starts_on_sunday
+      check (extract(dow from week_start_date) = 0) not valid;
+  end if;
+
+  begin
+    alter table public.programs validate constraint programs_week_starts_on_sunday;
+  exception when check_violation then
+    raise notice 'programs_week_starts_on_sunday: some existing programs do not start on a Sunday; the rule applies to new and changed rows only. Find them with: select id, trainee_id, week_start_date from public.programs where extract(dow from week_start_date) <> 0;';
+  end;
+end $$;

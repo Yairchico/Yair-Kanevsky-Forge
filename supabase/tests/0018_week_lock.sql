@@ -83,4 +83,13 @@ reset role;
 select pg_temp.eq('the copy has the workouts, exercises and sets', (select count(*)::text from workouts where program_id = '10000000-0000-0000-0000-000000000009') || '/' || (select count(*)::text from workout_exercises we join workouts w on w.id = we.workout_id where w.program_id = '10000000-0000-0000-0000-000000000009') || '/' || (select count(*)::text from workout_exercise_sets s join workout_exercises we on we.id = s.workout_exercise_id join workouts w on w.id = we.workout_id where w.program_id = '10000000-0000-0000-0000-000000000009'), '1/1/2');
 select pg_temp.eq('…as a program of its own: new slots, nothing hand-set, no hidden exact weight', (select (we.slot_key <> (select slot_key from workout_exercises where id = '30000000-0000-0000-0000-000000000003'))::text || ':' || bool_or(s.is_manual_override)::text || ':' || count(s.weight_kg_exact)::text from workout_exercise_sets s join workout_exercises we on we.id = s.workout_exercise_id join workouts w on w.id = we.workout_id where w.program_id = '10000000-0000-0000-0000-000000000009' group by we.slot_key), 'true:false:0');
 select pg_temp.eq('…and no performance came along', (select count(*)::text from set_logs l join workout_exercises we on we.id = l.workout_exercise_id join workouts w on w.id = we.workout_id where w.program_id = '10000000-0000-0000-0000-000000000009'), '0');
+-- ===== a program's week starts on a Sunday
+set role authenticated;
+select pg_temp.as_user(:'COACH');
+select pg_temp.expect('a program cannot start mid-week', format($q$insert into programs (trainee_id, title, week_start_date) values (%L, 'bad', %L::date + 24)$q$, :'T2', :'wk'), 'DENIED');
+select pg_temp.expect('an existing program cannot be moved off a Sunday', $q$update programs set week_start_date = week_start_date + 1 where id = '10000000-0000-0000-0000-000000000005'$q$, 'DENIED');
+select pg_temp.expect('a Sunday is fine', format($q$insert into programs (trainee_id, title, week_start_date) values (%L, 'good', %L::date + 21)$q$, :'T2', :'wk'), 'ROWS:1');
+reset role;
+select pg_temp.eq('the Sunday rule is validated for existing rows too', (select convalidated::text from pg_constraint where conname = 'programs_week_starts_on_sunday'), 'true');
+
 select pg_temp.eq('all public tables have RLS enabled', (select count(*)::text from pg_tables where schemaname = 'public' and not rowsecurity), '0');
