@@ -223,7 +223,7 @@ line to README's numbered run-order list under "עדכון סכימה + ספרי
 ```bash
 npx tsc --noEmit
 npx eslint .
-cp .env.example .env.local && npm run build   # placeholder env is enough for a build check
+cp .env.example .env.local && npm run build   # placeholder env is enough for a build check (and required: next.config.ts refuses to build without a Supabase URL)
 npm run cf:build                              # OpenNext/Cloudflare-specific build — catches issues `next build` alone won't
 rm .env.local                                 # never commit this
 ```
@@ -280,6 +280,30 @@ that happens: don't assume "it only auto-deploys to staging" is true for
 any push here, and don't act surprised or re-litigate this if a change
 shows up on the production URL — it's expected until the dashboard setting
 is fixed.
+
+**Two build guards in `next.config.ts` (2026-11-14) make the above
+survivable.** Both run only for a real `next build` (not `next dev`, lint,
+`tsc` or `next typegen`), and both fail the build loudly instead of
+shipping something broken:
+
+1. *Workers Builds branch guard.* Cloudflare injects `WORKERS_CI=1` and
+   `WORKERS_CI_BRANCH=<pushed branch>` into its builds. If `WORKERS_CI` is
+   set and the branch is not `PRODUCTION_BRANCH`
+   (`claude/fitness-app-trainers-gccazz`), the config throws, the build
+   fails, and Cloudflare never reaches its deploy step — so pushing a
+   feature branch can no longer put unreviewed code (or code that needs a
+   migration nobody ran yet) on the live site. It fails closed when the
+   branch is missing. GitHub Actions doesn't set `WORKERS_CI`, so `ci.yml`
+   and both deploy workflows are unaffected. A push to the production
+   branch itself still deploys exactly as before — that part of the ⚠️
+   above is unchanged until the dashboard integration is disconnected. If
+   the production branch is ever renamed, update the constant or every
+   Cloudflare build will (safely) fail.
+2. *Supabase env guard.* A build with a missing/blank
+   `NEXT_PUBLIC_SUPABASE_URL` (not `http(s)://…`) or
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` throws. This is the staging outage from
+   Known Gotchas turned into a failed workflow instead of a Worker that
+   500s on every request.
 
 Both workflows re-apply every secret with `wrangler secret put` (staging
 adds `--env staging`) — piped non-interactively from GitHub's encrypted
