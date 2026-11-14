@@ -3,47 +3,27 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
+  DEFAULT_NEW_SETS,
   PLANNED_SET_COLUMNS,
-  parseRepsInput,
-  parseWeightInput,
+  parseSetFieldsInput,
+  plannedSetValues,
   toPlannedSet,
   type PlannedSet,
 } from "@/lib/sets";
+import type {
+  ExerciseFields,
+  ExerciseResult,
+  SetFields,
+  SetResult,
+} from "@/lib/exercise-editor-types";
 
-/** Exercise-level fields — sets/reps/weight/RPE are per set now (migration 0013, see SetFields). */
-export interface WorkoutExerciseFields {
-  rest_seconds: number | null;
-  instructions: string | null;
-}
+const EXERCISE_ROW_COLUMNS =
+  "id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note";
 
-/** What the trainer edits on one planned set. reps/weight are raw text, parsed by src/lib/sets.ts. */
-export interface SetFields {
-  set_type: "warmup" | "working";
-  reps: string;
-  weight: string;
-  rpe: number | null;
-}
-
-export interface WorkoutExerciseRow extends WorkoutExerciseFields {
-  id: string;
-  workout_id: string;
-  exercise_id: string;
-  order_index: number;
-  sets: PlannedSet[];
-}
-
-export interface ActionResult {
-  error?: string;
-  row?: WorkoutExerciseRow;
-  /** True when this edit just reverted a published program back to draft. */
-  revertedToDraft?: boolean;
-}
-
-export interface SetResult {
-  error?: string;
-  set?: PlannedSet;
-  revertedToDraft?: boolean;
-}
+export type WorkoutExerciseFields = ExerciseFields;
+export type { SetFields };
+export type ActionResult = ExerciseResult;
+export type { SetResult };
 
 export interface WorkoutResult {
   error?: string;
@@ -55,63 +35,20 @@ const MAX_SETS_PER_EXERCISE = 20;
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-/** A new exercise starts with sane, immediately-valid defaults: 3 working sets of 8-10. */
-const DEFAULT_NEW_SETS = [1, 2, 3].map((n) => ({
-  set_index: n,
-  set_type: "working" as const,
-  reps_min: 8,
-  reps_max: 10,
-}));
-
 const HAS_HISTORY_ERROR =
   "למתאמן יש ביצוע מתועד כאן, ולכן אי אפשר למחוק. כדי לא לאבד היסטוריה, אפשר לערוך במקום למחוק.";
 
 function validateExerciseFields(fields: WorkoutExerciseFields): string | null {
-  if (fields.rest_seconds != null && (!Number.isFinite(fields.rest_seconds) || fields.rest_seconds < 0)) {
+  if (
+    fields.rest_seconds != null &&
+    (!Number.isInteger(fields.rest_seconds) || fields.rest_seconds < 0 || fields.rest_seconds > 3600)
+  ) {
     return "זמן מנוחה לא תקין";
   }
-  return null;
-}
-
-/**
- * Real validation, not just the inputs' HTML hints: every set needs a reps
- * target (a number, a range like 8-10, or a short note such as AMRAP), a
- * weight that's a number of kg or a short note, and an RPE within 1-10.
- * Mirrored by migration 0013's CHECK constraints as the backstop.
- */
-function parseSetFields(
-  fields: SetFields,
-):
-  | { error: string }
-  | {
-      values: {
-        set_type: "warmup" | "working";
-        reps_min: number | null;
-        reps_max: number | null;
-        reps_note: string | null;
-        weight_kg: number | null;
-        weight_note: string | null;
-        rpe: number | null;
-      };
-    } {
-  const reps = parseRepsInput(fields.reps ?? "");
-  if ("error" in reps) return { error: reps.error };
-  const weight = parseWeightInput(fields.weight ?? "");
-  if ("error" in weight) return { error: weight.error };
-  if (fields.rpe != null && (!Number.isFinite(fields.rpe) || fields.rpe < 1 || fields.rpe > 10)) {
-    return { error: "RPE חייב להיות בין 1 ל-10" };
+  if (fields.instructions && fields.instructions.length > 1000) {
+    return "ההערה ארוכה מדי";
   }
-  return {
-    values: {
-      set_type: fields.set_type === "warmup" ? "warmup" : "working",
-      reps_min: reps.repsMin,
-      reps_max: reps.repsMax,
-      reps_note: reps.repsNote,
-      weight_kg: weight.weightKg,
-      weight_note: weight.weightNote,
-      rpe: fields.rpe,
-    },
-  };
+  return null;
 }
 
 async function loadSets(supabase: Supabase, workoutExerciseId: string): Promise<PlannedSet[]> {
@@ -336,7 +273,7 @@ export async function addExerciseToWorkout(
   const { data: row, error } = await supabase
     .from("workout_exercises")
     .insert({ workout_id: workoutId, exercise_id: exerciseId, order_index: count ?? 0 })
-    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+    .select(EXERCISE_ROW_COLUMNS)
     .single();
 
   if (error || !row) {
@@ -378,6 +315,7 @@ export async function updateWorkoutExercise(
     .update({
       rest_seconds: fields.rest_seconds,
       instructions: fields.instructions?.trim() || null,
+      hide_library_note: fields.hide_library_note === true,
     })
     .eq("id", id);
 
@@ -420,7 +358,7 @@ export async function duplicateWorkoutExercise(
   const supabase = await createClient();
   const { data: original } = await supabase
     .from("workout_exercises")
-    .select("workout_id, exercise_id, rest_seconds, instructions")
+    .select("workout_id, exercise_id, rest_seconds, instructions, hide_library_note")
     .eq("id", id)
     .single();
   if (!original) return { error: "התרגיל לא נמצא" };
@@ -433,7 +371,7 @@ export async function duplicateWorkoutExercise(
   const { data: row, error } = await supabase
     .from("workout_exercises")
     .insert({ ...original, order_index: count ?? 0 })
-    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+    .select(EXERCISE_ROW_COLUMNS)
     .single();
 
   if (error || !row) {
@@ -445,15 +383,9 @@ export async function duplicateWorkoutExercise(
     .from("workout_exercise_sets")
     .insert(
       sourceSets.map((set) => ({
+        ...plannedSetValues(set),
         workout_exercise_id: row.id,
         set_index: set.setIndex,
-        set_type: set.setType,
-        reps_min: set.repsMin,
-        reps_max: set.repsMax,
-        reps_note: set.repsNote,
-        weight_kg: set.weightKg,
-        weight_note: set.weightNote,
-        rpe: set.rpe,
       })),
     )
     .select(PLANNED_SET_COLUMNS)
@@ -513,7 +445,7 @@ export async function updateSet(
   setId: string,
   fields: SetFields,
 ): Promise<SetResult> {
-  const parsed = parseSetFields(fields);
+  const parsed = parseSetFieldsInput(fields);
   if ("error" in parsed) {
     return { error: parsed.error };
   }

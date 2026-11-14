@@ -1,17 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, ChevronUp, Copy, GripVertical, Plus, Trash2, X } from "lucide-react";
-import {
-  addSet,
-  deleteSet,
-  updateSet,
-  updateWorkoutExercise,
-  type SetFields,
-  type WorkoutExerciseFields,
-} from "./actions";
+import { ChevronDown, ChevronUp, Copy, GripVertical, Lock, Pin, Plus, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -22,6 +14,12 @@ import {
   weightInputValue,
   type PlannedSet,
 } from "@/lib/sets";
+import type {
+  EditedInfo,
+  ExerciseFields,
+  ExerciseListApi,
+  SetFields,
+} from "@/lib/exercise-editor-types";
 
 function MiniField({
   label,
@@ -52,6 +50,41 @@ function toSetFields(set: PlannedSet): SetFields {
   };
 }
 
+/** The permanent note of the exercise (from the library), as shown inside a row. */
+function LibraryNote({
+  note,
+  hidden,
+  onToggleHidden,
+}: {
+  note: string;
+  hidden: boolean;
+  /** Omit to render the note without the "hide here" option. */
+  onToggleHidden?: (next: boolean) => void;
+}) {
+  return (
+    <div className="mt-2 rounded-md bg-muted/60 px-2 py-1.5 text-xs">
+      <p className="flex items-center gap-1 font-semibold text-muted-foreground">
+        <Pin className="h-3 w-3" />
+        הערה קבועה (מהספרייה)
+      </p>
+      <p className={cn("mt-0.5 whitespace-pre-line", hidden && "text-muted-foreground line-through")}>
+        {note}
+      </p>
+      {onToggleHidden && (
+        <label className="mt-1 flex w-fit cursor-pointer items-center gap-1.5 text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={hidden}
+            onChange={(e) => onToggleHidden(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-border accent-primary"
+          />
+          הסתר מהמתאמן בתוכנית הזו
+        </label>
+      )}
+    </div>
+  );
+}
+
 /**
  * One planned set as an editable table row. Same save-on-blur pattern as
  * the exercise's own fields: local state while typing, one updateSet per
@@ -59,37 +92,40 @@ function toSetFields(set: PlannedSet): SetFields {
  * the last one that saved, and the error is shown under the table.
  */
 function SetRow({
-  traineeId,
-  programId,
+  api,
   set,
   disabled,
   canDelete,
+  showOverride,
   onSaved,
   onDelete,
   onError,
 }: {
-  traineeId: string;
-  programId: string;
+  api: ExerciseListApi;
   set: PlannedSet;
   disabled: boolean;
   canDelete: boolean;
-  onSaved: (set: PlannedSet, revertedToDraft: boolean) => void;
+  /** Training-block weeks: show whether this set is automatic or hand-set. */
+  showOverride: boolean;
+  onSaved: (set: PlannedSet, info: EditedInfo) => void;
   onDelete: () => void;
   onError: (message: string | null) => void;
 }) {
   const [fields, setFields] = useState<SetFields>(() => toSetFields(set));
   const lastValid = useRef(fields);
+  const [restoring, setRestoring] = useState(false);
 
   async function save(next: SetFields) {
     setFields(next);
+    const typeChanged = next.set_type !== lastValid.current.set_type;
     const unchanged =
-      next.set_type === lastValid.current.set_type &&
+      !typeChanged &&
       next.reps.trim() === lastValid.current.reps.trim() &&
       next.weight.trim() === lastValid.current.weight.trim() &&
       next.rpe === lastValid.current.rpe;
     if (unchanged) return;
 
-    const result = await updateSet(traineeId, programId, set.id, next);
+    const result = await api.updateSet(set.id, next);
     if (result.error || !result.set) {
       onError(result.error ?? "שגיאה בשמירת הסט");
       setFields(lastValid.current);
@@ -100,7 +136,23 @@ function SetRow({
     const normalized = toSetFields(result.set);
     lastValid.current = normalized;
     setFields(normalized);
-    onSaved(result.set, Boolean(result.revertedToDraft));
+    onSaved(result.set, { revertedToDraft: Boolean(result.revertedToDraft), structural: typeChanged });
+  }
+
+  async function restoreAutomatic() {
+    if (!api.clearSetOverride) return;
+    setRestoring(true);
+    const result = await api.clearSetOverride(set.id);
+    setRestoring(false);
+    if (result.error || !result.set) {
+      onError(result.error ?? "שגיאה בשחזור הסט");
+      return;
+    }
+    onError(null);
+    const normalized = toSetFields(result.set);
+    lastValid.current = normalized;
+    setFields(normalized);
+    onSaved(result.set, { revertedToDraft: Boolean(result.revertedToDraft), structural: false });
   }
 
   return (
@@ -134,7 +186,7 @@ function SetRow({
         <Input
           aria-label={`משקל בסט ${set.setIndex}`}
           title={fields.weight}
-          className={cn(cellInput, "w-20")}
+          className={cn(cellInput, "w-20", showOverride && set.isManualOverride && "border-warning bg-warning/10")}
           inputMode="decimal"
           placeholder="—"
           disabled={disabled}
@@ -159,6 +211,28 @@ function SetRow({
           onBlur={() => void save(fields)}
         />
       </td>
+      {showOverride && (
+        <td className="py-1 pe-1.5 text-[11px]">
+          {set.isManualOverride ? (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full bg-warning/20 px-1.5 py-0.5 font-medium text-warning-foreground">
+                <Lock className="h-3 w-3" />
+                ידני
+              </span>
+              <button
+                type="button"
+                onClick={() => void restoreAutomatic()}
+                disabled={disabled || restoring}
+                className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                {restoring ? "משחזר…" : "שחזר לאוטומטי"}
+              </button>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">אוטומטי</span>
+          )}
+        </td>
+      )}
       <td className="py-1 text-end">
         <button
           type="button"
@@ -176,40 +250,52 @@ function SetRow({
 
 /**
  * A compact "flow" node: numbered badge + connecting line on the side, a
- * card with the exercise name, its planned sets (migration 0013: one row
- * per set, each with its own reps/weight/RPE), and the exercise-level
- * fields (rest, a note for this program). Every field saves itself on blur
- * — no page refresh; onEdited fires so the parent can flip the program's
- * "פורסם" badge to "טיוטה" immediately, matching the server-side
- * auto-revert-to-draft. The set table can be collapsed to a one-line
- * summary.
+ * card with the exercise name, its planned sets (one row per set, each with
+ * its own reps/weight/RPE), and the exercise-level fields (rest, a note for
+ * this program). Every field saves itself on blur — no page refresh;
+ * onEdited fires so the owner can react (the program builder flips its
+ * "פורסם" badge to "טיוטה", matching the server-side auto-revert-to-draft).
+ * The set table can be collapsed to a one-line summary.
+ *
+ * Owner-agnostic: everything it saves goes through `api`, so the weekly
+ * program builder and the saved-workout editor share this exact component.
  */
-export function WorkoutExerciseRow({
-  traineeId,
-  programId,
+export function ExerciseRow({
+  api,
   id,
   index,
   count,
   exerciseName,
   muscleGroup,
+  libraryNote,
+  allowHideLibraryNote,
+  showOverrides = false,
   initialFields,
   initialSets,
+  footer,
   onDuplicate,
   onDelete,
   onEdited,
 }: {
-  traineeId: string;
-  programId: string;
+  api: ExerciseListApi;
   id: string;
   index: number;
   count: number;
   exerciseName: string;
   muscleGroup: string | null;
-  initialFields: WorkoutExerciseFields;
+  /** The exercise's permanent note from the library, if it has one. */
+  libraryNote: string | null;
+  /** Offer "hide the permanent note in this program" (the program builder; not templates). */
+  allowHideLibraryNote: boolean;
+  /** Training-block weeks after the first: mark hand-set targets. */
+  showOverrides?: boolean;
+  initialFields: ExerciseFields;
   initialSets: PlannedSet[];
+  /** Extra controls under the fields (the training-block progression rule). */
+  footer?: ReactNode;
   onDuplicate: () => void;
   onDelete: () => void;
-  onEdited?: () => void;
+  onEdited?: (info: EditedInfo) => void;
 }) {
   const [fields, setFields] = useState(initialFields);
   const [sets, setSets] = useState(initialSets);
@@ -222,10 +308,20 @@ export function WorkoutExerciseRow({
   // A just-added (or duplicated) exercise renders first with a temp id and
   // placeholder sets; once the server answers, the parent swaps in the real
   // id together with the real sets (real set ids are needed to edit them).
+  // The parent can also hand down fresh sets for an existing row (a block
+  // recompute changed the targets) by changing `initialSets`' identity.
   const [syncedId, setSyncedId] = useState(id);
-  if (id !== syncedId) {
+  const [syncedSets, setSyncedSets] = useState(initialSets);
+  // Bumped on every such hand-down; part of each set row's key, so the rows
+  // re-read their values then — and ONLY then. (A row must not remount when
+  // its own save comes back, or a trainer already typing in the next field
+  // of the same row would lose focus and whatever they had typed.)
+  const [setsVersion, setSetsVersion] = useState(0);
+  if (id !== syncedId || initialSets !== syncedSets) {
     setSyncedId(id);
+    setSyncedSets(initialSets);
     setSets(initialSets);
+    setSetsVersion((v) => v + 1);
   }
   const isTemp = id.startsWith("temp-");
 
@@ -234,22 +330,22 @@ export function WorkoutExerciseRow({
     transition,
   };
 
-  async function saveFields(next: WorkoutExerciseFields) {
+  async function saveFields(next: ExerciseFields) {
     setFields(next);
     if (isTemp) return;
-    const result = await updateWorkoutExercise(traineeId, programId, id, next);
+    const result = await api.updateFields(id, next);
     if (result.error) {
       setError(result.error);
       return;
     }
     setError(null);
-    if (result.revertedToDraft) onEdited?.();
+    onEdited?.({ revertedToDraft: Boolean(result.revertedToDraft), structural: false });
   }
 
   async function handleAddSet() {
     if (isTemp) return;
     setAddingSet(true);
-    const result = await addSet(traineeId, programId, id);
+    const result = await api.addSet(id);
     setAddingSet(false);
     if (result.error || !result.set) {
       setError(result.error ?? "שגיאה בהוספת סט");
@@ -257,7 +353,7 @@ export function WorkoutExerciseRow({
     }
     setError(null);
     setSets((prev) => [...prev, result.set!]);
-    if (result.revertedToDraft) onEdited?.();
+    onEdited?.({ revertedToDraft: Boolean(result.revertedToDraft), structural: true });
   }
 
   function handleDeleteSet(setId: string) {
@@ -271,20 +367,20 @@ export function WorkoutExerciseRow({
         .map((s) => (s.setIndex > removed.setIndex ? { ...s, setIndex: s.setIndex - 1 } : s)),
     );
     void (async () => {
-      const result = await deleteSet(traineeId, programId, setId);
+      const result = await api.deleteSet(setId);
       if (result.error) {
         setSets(previous);
         setError(result.error);
         return;
       }
       setError(null);
-      if (result.revertedToDraft) onEdited?.();
+      onEdited?.({ revertedToDraft: Boolean(result.revertedToDraft), structural: true });
     })();
   }
 
-  function handleSetSaved(saved: PlannedSet, revertedToDraft: boolean) {
+  function handleSetSaved(saved: PlannedSet, info: EditedInfo) {
     setSets((prev) => prev.map((s) => (s.id === saved.id ? saved : s)));
-    if (revertedToDraft) onEdited?.();
+    onEdited?.(info);
   }
 
   const iconBtn =
@@ -356,6 +452,18 @@ export function WorkoutExerciseRow({
             </div>
           </div>
 
+          {libraryNote && (
+            <LibraryNote
+              note={libraryNote}
+              hidden={allowHideLibraryNote && fields.hide_library_note}
+              onToggleHidden={
+                allowHideLibraryNote
+                  ? (next) => void saveFields({ ...fields, hide_library_note: next })
+                  : undefined
+              }
+            />
+          )}
+
           {collapsed ? (
             <button
               type="button"
@@ -375,6 +483,7 @@ export function WorkoutExerciseRow({
                       <th className="pb-0.5 pe-1.5 text-start font-normal">חזרות *</th>
                       <th className="pb-0.5 pe-1.5 text-start font-normal">משקל (ק&quot;ג)</th>
                       <th className="pb-0.5 pe-1.5 text-start font-normal">RPE</th>
+                      {showOverrides && <th className="pb-0.5 pe-1.5 text-start font-normal">מקור</th>}
                       <th />
                     </tr>
                   </thead>
@@ -384,12 +493,12 @@ export function WorkoutExerciseRow({
                         // Index in the key: after a deletion renumbers the
                         // rows, each remaining row re-reads its (unchanged)
                         // values instead of keeping stale local edit state.
-                        key={`${set.id}-${set.setIndex}`}
-                        traineeId={traineeId}
-                        programId={programId}
+                        key={`${set.id}-${set.setIndex}-${setsVersion}`}
+                        api={api}
                         set={set}
                         disabled={isTemp}
                         canDelete={sets.length > 1}
+                        showOverride={showOverrides}
                         onSaved={handleSetSaved}
                         onDelete={() => handleDeleteSet(set.id)}
                         onError={setError}
@@ -426,7 +535,7 @@ export function WorkoutExerciseRow({
               onBlur={() => void saveFields(fields)}
             />
             <MiniField
-              label="הערות"
+              label={libraryNote ? "הערה לתוכנית הזו (בנוסף להערה הקבועה)" : "הערות"}
               className="min-w-24 flex-1"
               placeholder="הנחיות ביצוע"
               value={fields.instructions ?? ""}
@@ -436,6 +545,9 @@ export function WorkoutExerciseRow({
               onBlur={() => void saveFields(fields)}
             />
           </div>
+
+          {footer}
+
           {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
         </div>
       </div>
@@ -449,20 +561,24 @@ export function WorkoutExerciseRow({
  * which the read-only list doesn't render at all — no reordering to wire
  * up), no duplicate/delete, and every set as plain text instead of inputs.
  */
-export function WorkoutExerciseRowReadOnly({
+export function ExerciseRowReadOnly({
   index,
   count,
   exerciseName,
   muscleGroup,
+  libraryNote,
   fields,
   sets,
+  footer,
 }: {
   index: number;
   count: number;
   exerciseName: string;
   muscleGroup: string | null;
-  fields: WorkoutExerciseFields;
+  libraryNote: string | null;
+  fields: ExerciseFields;
   sets: PlannedSet[];
+  footer?: ReactNode;
 }) {
   return (
     <div className="flex gap-2">
@@ -478,6 +594,8 @@ export function WorkoutExerciseRowReadOnly({
           <p className="truncate text-sm font-medium leading-tight">{exerciseName}</p>
           {muscleGroup && <p className="text-xs text-muted-foreground">{muscleGroup}</p>}
 
+          {libraryNote && <LibraryNote note={libraryNote} hidden={fields.hide_library_note} />}
+
           <ol className="mt-2 space-y-0.5 text-xs">
             {sets.map((set) => (
               <li key={set.id} className="flex flex-wrap items-center gap-1.5">
@@ -487,6 +605,12 @@ export function WorkoutExerciseRowReadOnly({
                 {set.setType === "warmup" && (
                   <span className="rounded-full bg-secondary px-1.5 text-[10px] text-muted-foreground">
                     {SET_TYPE_LABEL.warmup}
+                  </span>
+                )}
+                {set.isManualOverride && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-warning/20 px-1.5 text-[10px] text-warning-foreground">
+                    <Lock className="h-2.5 w-2.5" />
+                    ידני
                   </span>
                 )}
               </li>
@@ -499,6 +623,8 @@ export function WorkoutExerciseRowReadOnly({
               {fields.instructions && <p>{fields.instructions}</p>}
             </div>
           )}
+
+          {footer}
         </div>
       </div>
     </div>

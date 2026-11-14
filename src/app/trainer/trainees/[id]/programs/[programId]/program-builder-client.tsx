@@ -9,34 +9,27 @@ import { Button } from "@/components/ui/button";
 import { PublishToggle } from "./publish-toggle";
 import { WorkoutBuilder } from "./workout-builder";
 import { createWorkout, deleteWorkout, moveWorkoutToDay } from "./actions";
-import type { WorkoutExerciseFields } from "./actions";
-import type { PlannedSet } from "@/lib/sets";
+import type { InitialEditorItem } from "@/components/exercise-editor/exercise-list-editor";
+import type { CatalogExercise, EditedInfo } from "@/lib/exercise-editor-types";
 
 const MAX_WORKOUTS_PER_DAY = 2;
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-interface WorkoutData {
+export interface WorkoutData {
   id: string;
   dayOfWeek: number;
   orderIndex: number;
-  items: {
-    id: string;
-    exerciseName: string;
-    muscleGroup: string | null;
-    fields: WorkoutExerciseFields;
-    sets: PlannedSet[];
-  }[];
+  items: InitialEditorItem[];
 }
 
-interface CatalogExercise {
-  id: string;
-  name: string;
-  muscle_group: string | null;
-  equipment: string | null;
-  media_url: string | null;
-}
+/**
+ * `key` never changes for a workout once it's on screen — `id` does, once,
+ * when an optimistically-added workout gets its real id from the server.
+ * Its editor is keyed by `key`, so that swap doesn't remount it.
+ */
+type WorkoutEntry = WorkoutData & { key: string };
 
-function sortWorkouts(list: WorkoutData[]): WorkoutData[] {
+function sortWorkouts<T extends WorkoutData>(list: T[]): T[] {
   return [...list].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.orderIndex - b.orderIndex);
 }
 
@@ -66,7 +59,9 @@ export function ProgramBuilderClient({
   readOnly?: boolean;
 }) {
   const [isPublished, setIsPublished] = useState(initialIsPublished);
-  const [workoutList, setWorkoutList] = useState(workouts);
+  const [workoutList, setWorkoutList] = useState<WorkoutEntry[]>(() =>
+    workouts.map((w) => ({ ...w, key: w.id })),
+  );
   const [catalogList, setCatalogList] = useState(catalog);
   const [activeId, setActiveId] = useState(workoutList[0]?.id ?? null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
@@ -80,14 +75,17 @@ export function ProgramBuilderClient({
   const sorted = sortWorkouts(workoutList);
   const activeWorkout = sorted.find((w) => w.id === activeId) ?? sorted[0];
 
-  function handleEdited() {
-    if (isPublished) setIsPublished(false);
+  function handleEdited(info?: EditedInfo) {
+    // Only when the server says this edit really did un-publish the program
+    // (it was published a moment ago). Structural edits to the workout list
+    // itself call this with no info after checking the same flag.
+    if (isPublished && (!info || info.revertedToDraft)) setIsPublished(false);
   }
 
   // A trainer creating a new exercise from inside one workout's picker
   // (add-exercise-picker.tsx's inline creation) should be able to find it
-  // again from another workout's tab too, since WorkoutBuilder remounts
-  // (key={activeWorkout.id}) with a fresh copy of catalog on every switch.
+  // again from another workout's tab too — every workout's editor reads
+  // this one shared catalog.
   function handleNewExercise(exercise: CatalogExercise) {
     setCatalogList((prev) => (prev.some((e) => e.id === exercise.id) ? prev : [...prev, exercise]));
   }
@@ -101,7 +99,8 @@ export function ProgramBuilderClient({
     if (countOnDay(dayOfWeek) >= MAX_WORKOUTS_PER_DAY) return;
 
     const tempId = `temp-workout-${(tempCounter.current += 1)}`;
-    const optimistic: WorkoutData = {
+    const optimistic: WorkoutEntry = {
+      key: tempId,
       id: tempId,
       dayOfWeek,
       orderIndex: countOnDay(dayOfWeek),
@@ -124,26 +123,29 @@ export function ProgramBuilderClient({
     });
   }
 
+  /**
+   * Not optimistic, unlike the rest of this screen: the server can refuse
+   * (the trainee already submitted or logged sets in this workout — see
+   * deleteWorkout), and un-mounting the workout's editor only to bring it
+   * back would throw away whatever was typed into it. So it disappears
+   * only once the delete really happened.
+   */
   function handleDeleteWorkout(workoutId: string) {
-    const index = sorted.findIndex((w) => w.id === workoutId);
-    const previous = workoutList;
-    const next = workoutList.filter((w) => w.id !== workoutId);
-    setWorkoutList(next);
     setDeleteError(null);
-    if (activeId === workoutId) {
-      const nextSorted = sortWorkouts(next);
-      setActiveId(nextSorted[Math.max(0, index - 1)]?.id ?? null);
-    }
+    if (workoutId.startsWith("temp-")) return;
+    // Which tab to fall back to if the deleted one was showing: its
+    // neighbour in day order.
+    const index = sorted.findIndex((w) => w.id === workoutId);
+    const fallbackId =
+      sorted.filter((w) => w.id !== workoutId)[Math.max(0, index - 1)]?.id ?? null;
     startTransition(async () => {
       const result = await deleteWorkout(traineeId, programId, workoutId);
       if (result.error) {
-        // Refused — the trainee already submitted or logged sets in this
-        // workout (see deleteWorkout). Bring it back, selected.
-        setWorkoutList(previous);
-        setActiveId(workoutId);
         setDeleteError(result.error);
         return;
       }
+      setWorkoutList((prev) => prev.filter((w) => w.id !== workoutId));
+      setActiveId((current) => (current === workoutId ? fallbackId : current));
       if (result.revertedToDraft) handleEdited();
     });
   }
@@ -233,7 +235,7 @@ export function ProgramBuilderClient({
             sameDayCount > 1 ? `${dayName(w.dayOfWeek)} · אימון ${w.orderIndex + 1}` : dayName(w.dayOfWeek);
           return (
             <div
-              key={w.id}
+              key={w.key}
               className={cn(
                 "group flex shrink-0 items-center gap-1 rounded-full ps-3 pe-1.5 py-1 text-sm font-medium transition-colors",
                 w.id === activeId
@@ -261,10 +263,11 @@ export function ProgramBuilderClient({
                   <CalendarDays className="h-3 w-3" />
                 </button>
               )}
-              {!readOnly && (
+              {!readOnly && !w.id.startsWith("temp-") && (
                 <button
                   type="button"
                   onClick={() => setDeleteTarget({ id: w.id, label })}
+                  disabled={pending}
                   aria-label={`מחק ${label}`}
                   className={cn(
                     "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
@@ -384,23 +387,33 @@ export function ProgramBuilderClient({
         </div>
       </Modal>
 
-      {!activeWorkout ? (
+      {!activeWorkout && (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           אין עדיין אימונים בתוכנית. לחץ &quot;אימון חדש&quot; כדי להתחיל.
         </p>
-      ) : (
-        <WorkoutBuilder
-          key={activeWorkout.id}
-          traineeId={traineeId}
-          programId={programId}
-          workoutId={activeWorkout.id}
-          initialItems={activeWorkout.items}
-          catalog={catalogList}
-          onNewExercise={handleNewExercise}
-          onEdited={handleEdited}
-          readOnly={readOnly}
-        />
       )}
+
+      {/* Every workout's editor stays mounted; only the active one is shown.
+          Each editor keeps its exercises and sets in its own state, so
+          re-mounting one on every tab switch (as this used to) reset it to
+          what the server sent when the page first loaded — anything edited
+          since then looked lost until a full refresh. */}
+      {workoutList.map((w) => (
+        <div key={w.key} hidden={w.id !== activeWorkout?.id}>
+          <WorkoutBuilder
+            traineeId={traineeId}
+            programId={programId}
+            workoutId={w.id}
+            listId={w.key}
+            initialItems={w.items}
+            catalog={catalogList}
+            disabled={w.id.startsWith("temp-")}
+            onNewExercise={handleNewExercise}
+            onEdited={handleEdited}
+            readOnly={readOnly}
+          />
+        </div>
+      ))}
     </div>
   );
 }

@@ -44,8 +44,11 @@ export interface Database {
           name: string;
           muscle_group: string | null;
           equipment: string | null;
+          /** The permanent note: shown wherever this exercise appears in a program (unless that row hides it). */
           instructions: string | null;
           media_url: string | null;
+          /** A YouTube / Vimeo / direct-file link (migration 0015) — parsed by src/lib/video.ts. */
+          video_url: string | null;
           is_custom: boolean;
           created_by: string | null;
           created_at: string;
@@ -112,7 +115,10 @@ export interface Database {
           /** @deprecated legacy (pre-0013), see `sets`. */
           rpe: number | null;
           rest_seconds: number | null;
+          /** A note for this program only — shown in addition to the exercise's permanent note. */
           instructions: string | null;
+          /** Don't show the exercise's permanent note (exercises.instructions) in this program (migration 0015). */
+          hide_library_note: boolean;
         };
         Insert: Partial<Database["public"]["Tables"]["workout_exercises"]["Row"]> & {
           workout_id: string;

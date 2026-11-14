@@ -20,6 +20,8 @@ export interface PlannedSet {
   weightKg: number | null;
   weightNote: string | null;
   rpe: number | null;
+  /** Training blocks: the trainer set this target by hand, so automatic progression leaves it alone. */
+  isManualOverride?: boolean;
 }
 
 export interface LoggedSet {
@@ -33,7 +35,7 @@ export interface LoggedSet {
 
 /** Columns to select for a PlannedSet — keep in sync with toPlannedSet. */
 export const PLANNED_SET_COLUMNS =
-  "id, workout_exercise_id, set_index, set_type, reps_min, reps_max, reps_note, weight_kg, weight_note, rpe";
+  "id, workout_exercise_id, set_index, set_type, reps_min, reps_max, reps_note, weight_kg, weight_note, rpe, is_manual_override";
 
 /** Columns to select for a LoggedSet — keep in sync with toLoggedSet. */
 export const SET_LOG_COLUMNS = "workout_exercise_id, set_index, weight_kg, reps, rpe, source, logged_at";
@@ -49,7 +51,7 @@ export function toPlannedSet(
   row: Pick<
     PlannedSetRow,
     "id" | "set_index" | "set_type" | "reps_min" | "reps_max" | "reps_note" | "weight_kg" | "weight_note" | "rpe"
-  >,
+  > & { is_manual_override?: boolean },
 ): PlannedSet {
   return {
     id: row.id,
@@ -61,8 +63,78 @@ export function toPlannedSet(
     weightKg: num(row.weight_kg),
     weightNote: row.weight_note,
     rpe: num(row.rpe),
+    isManualOverride: row.is_manual_override === true,
   };
 }
+
+/** The DB column values for a planned set (program sets and template sets share them). */
+export interface PlannedSetValues {
+  set_type: "warmup" | "working";
+  reps_min: number | null;
+  reps_max: number | null;
+  reps_note: string | null;
+  weight_kg: number | null;
+  weight_note: string | null;
+  rpe: number | null;
+}
+
+/**
+ * Real validation of one set as the trainer typed it — not just the
+ * inputs' HTML hints: a reps target is required (a number, a range like
+ * 8-10, or a short note such as AMRAP), the weight is a number of kg or a
+ * short note, and RPE is within 1-10. Used by every Server Action that
+ * writes a planned set; the tables' CHECK constraints are the backstop.
+ */
+export function parseSetFieldsInput(fields: {
+  set_type: string;
+  reps: string;
+  weight: string;
+  rpe: number | null;
+}): { values: PlannedSetValues } | { error: string } {
+  const reps = parseRepsInput(fields.reps ?? "");
+  if ("error" in reps) return { error: reps.error };
+  const weight = parseWeightInput(fields.weight ?? "");
+  if ("error" in weight) return { error: weight.error };
+  if (fields.rpe != null && (!Number.isFinite(fields.rpe) || fields.rpe < 1 || fields.rpe > 10)) {
+    return { error: "RPE חייב להיות בין 1 ל-10" };
+  }
+  return {
+    values: {
+      set_type: fields.set_type === "warmup" ? "warmup" : "working",
+      reps_min: reps.repsMin,
+      reps_max: reps.repsMax,
+      reps_note: reps.repsNote,
+      weight_kg: weight.weightKg,
+      weight_note: weight.weightNote,
+      rpe: fields.rpe,
+    },
+  };
+}
+
+/** A planned set's own values as DB columns — for copying a set somewhere else. */
+export function plannedSetValues(set: PlannedSet): PlannedSetValues {
+  return {
+    set_type: set.setType === "warmup" ? "warmup" : "working",
+    reps_min: set.repsMin,
+    reps_max: set.repsMax,
+    reps_note: set.repsNote,
+    weight_kg: set.weightKg,
+    weight_note: set.weightNote,
+    rpe: set.rpe,
+  };
+}
+
+/** The three sets a newly added exercise starts with: immediately valid, easy to adjust. */
+export const DEFAULT_NEW_SETS: (PlannedSetValues & { set_index: number })[] = [1, 2, 3].map((n) => ({
+  set_index: n,
+  set_type: "working" as const,
+  reps_min: 8,
+  reps_max: 10,
+  reps_note: null,
+  weight_kg: null,
+  weight_note: null,
+  rpe: null,
+}));
 
 export function toLoggedSet(
   row: Pick<SetLogRow, "set_index" | "weight_kg" | "reps" | "rpe" | "source" | "logged_at">,

@@ -90,10 +90,10 @@ export default async function TraineeWorkoutsPage({
   ] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
-    supabase.from("exercises").select("id, name, muscle_group, media_url, instructions"),
+    supabase.from("exercises").select("id, name, muscle_group, media_url, instructions, video_url"),
     supabase
       .from("workout_completions")
       .select("workout_id, completed_at")
@@ -173,7 +173,9 @@ export default async function TraineeWorkoutsPage({
               name: exercise?.name ?? "תרגיל לא ידוע",
               muscleGroup: exercise?.muscle_group ?? null,
               imageUrl: exercise?.media_url ?? null,
-              exerciseDescription: exercise?.instructions ?? null,
+              videoUrl: exercise?.video_url ?? null,
+              // The exercise's permanent note, unless the trainer hid it for this program.
+              permanentNote: we.hide_library_note ? null : (exercise?.instructions ?? null),
               plannedSets: (plannedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex),
               loggedSets: (loggedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex),
               previous: previousByWorkoutExerciseId.get(we.id) ?? null,

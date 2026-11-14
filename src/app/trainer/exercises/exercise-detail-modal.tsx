@@ -1,20 +1,24 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { Dumbbell, ImageOff, ImagePlus, Pencil } from "lucide-react";
+import { Dumbbell, ImageOff, ImagePlus, Pencil, Pin, Play } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { ExerciseVideo } from "@/components/exercise-video";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { cn } from "@/lib/utils";
 import {
   updateExerciseDetails,
   updateExerciseImage,
+  updateExerciseVideo,
   type UpdateExerciseDetailsState,
   type UpdateExerciseImageState,
+  type UpdateExerciseVideoState,
 } from "./actions";
 
 interface Exercise {
@@ -24,10 +28,106 @@ interface Exercise {
   equipment: string | null;
   is_custom: boolean;
   media_url: string | null;
+  instructions: string | null;
+  video_url: string | null;
 }
 
 const initialDetailsState: UpdateExerciseDetailsState = {};
 const initialImageState: UpdateExerciseImageState = {};
+const initialVideoState: UpdateExerciseVideoState = {};
+
+/**
+ * The exercise's demo video (a link — YouTube, Vimeo or a direct file; see
+ * src/lib/video.ts). Its own small form, independent of the details and
+ * image forms above it: save validates and stores the link, an empty field
+ * (or "הסר") clears it.
+ */
+function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: boolean }) {
+  const action = updateExerciseVideo.bind(null, exercise.id);
+  const [state, formAction, pending] = useActionState(action, initialVideoState);
+  const [editing, setEditing] = useState(false);
+  const [removePending, startRemove] = useTransition();
+  const [removeError, setRemoveError] = useState<string | undefined>();
+
+  const [prevState, setPrevState] = useState(state);
+  if (state !== prevState) {
+    setPrevState(state);
+    if (state.success && editing) setEditing(false);
+  }
+
+  function handleRemove() {
+    startRemove(async () => {
+      // An empty "video_url" clears the link.
+      const result = await updateExerciseVideo(exercise.id, initialVideoState, new FormData());
+      setRemoveError(result.error);
+    });
+  }
+
+  if (readOnly && !exercise.video_url) return null;
+
+  return (
+    <div className="space-y-2 border-t border-border pt-4">
+      <p className="flex items-center gap-1.5 text-sm font-semibold">
+        <Play className="h-3.5 w-3.5" />
+        סרטון הדגמה
+      </p>
+
+      {exercise.video_url && !editing && (
+        <>
+          {/* Keyed by the link so a replaced video doesn't keep the old player mounted. */}
+          <ExerciseVideo key={exercise.video_url} url={exercise.video_url} title={exercise.name} />
+          {!readOnly && (
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+                החלף קישור
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleRemove}
+                disabled={removePending}
+                className="text-destructive"
+              >
+                {removePending ? "מסיר…" : "הסר סרטון"}
+              </Button>
+            </div>
+          )}
+          {removeError && <p className="text-xs text-destructive">{removeError}</p>}
+        </>
+      )}
+
+      {!readOnly && (!exercise.video_url || editing) && (
+        <form action={formAction} className="space-y-2">
+          <Input
+            name="video_url"
+            dir="ltr"
+            inputMode="url"
+            placeholder="https://youtu.be/…"
+            defaultValue={exercise.video_url ?? ""}
+            aria-label="קישור לסרטון"
+          />
+          <p className="text-xs text-muted-foreground">
+            YouTube (גם Shorts וסרטון &quot;לא רשום&quot;), Vimeo, או קישור ישיר לקובץ mp4. המתאמן רואה
+            את הסרטון כשהוא מבצע את התרגיל.
+          </p>
+          {state.error && <p className="text-xs text-destructive">{state.error}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? "שומר…" : "שמור סרטון"}
+            </Button>
+            {editing && (
+              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
+                ביטול
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 /**
  * The exercise-detail popup, opened by clicking a card in the exercise
@@ -110,7 +210,7 @@ export function ExerciseDetailModal({
 
   return (
     <Modal open onClose={onClose} title={exercise.name} className="max-w-lg">
-      <div className="flex flex-col-reverse gap-5 sm:flex-row">
+      <div className="flex flex-col-reverse gap-5 pb-4 sm:flex-row">
         <div className="min-w-0 flex-1 space-y-3">
           {editingFields ? (
             <form action={detailsFormAction} className="space-y-3">
@@ -139,6 +239,17 @@ export function ExerciseDetailModal({
                   id="edit-exercise-equipment"
                   name="equipment"
                   defaultValue={exercise.equipment ?? ""}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="edit-exercise-note">הערה קבועה</Label>
+                <Textarea
+                  id="edit-exercise-note"
+                  name="instructions"
+                  defaultValue={exercise.instructions ?? ""}
+                  maxLength={1000}
+                  placeholder="דגשים לביצוע — יופיעו בכל תוכנית שהתרגיל נמצא בה"
+                  className="min-h-20"
                 />
               </div>
               {detailsState.error && (
@@ -172,6 +283,19 @@ export function ExerciseDetailModal({
                 <p className="text-sm text-muted-foreground">
                   {[exercise.muscle_group, exercise.equipment].filter(Boolean).join(" · ") || "—"}
                 </p>
+              </div>
+              <div className="space-y-1 rounded-lg bg-muted/60 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                  <Pin className="h-3 w-3" />
+                  הערה קבועה
+                </p>
+                {exercise.instructions ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-line">{exercise.instructions}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    אין עדיין. הערה קבועה מופיעה בכל תוכנית שהתרגיל נמצא בה, אצל כל המתאמנים.
+                  </p>
+                )}
               </div>
               {!readOnly && (
                 <Button type="button" size="sm" variant="outline" onClick={() => setEditingFields(true)}>
@@ -316,6 +440,8 @@ export function ExerciseDetailModal({
           )}
         </div>
       </div>
+
+      <VideoSection exercise={exercise} readOnly={readOnly} />
     </Modal>
   );
 }

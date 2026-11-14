@@ -3,8 +3,29 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { parseVideoUrl } from "@/lib/video";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+const MAX_NOTE_LENGTH = 1000;
+
+/** A multi-line text field as submitted by a form: browsers send line breaks as CRLF. */
+function readNote(value: FormDataEntryValue | null): string | null {
+  return String(value ?? "").replace(/\r\n?/g, "\n").trim() || null;
+}
+
+/**
+ * An exercise's name, permanent note, image and video all show up outside
+ * the library too — in every program builder and on the trainees' own
+ * workout screens — so an edit has to invalidate those as well.
+ */
+function revalidateExerciseEverywhere() {
+  revalidatePath("/trainer/exercises");
+  revalidatePath("/trainer/trainees/[id]/programs/[programId]", "page");
+  revalidatePath("/trainer/trainees/[id]", "page");
+  revalidatePath("/trainee/workouts");
+  revalidatePath("/trainee/history");
+}
 
 export interface CreateExerciseState {
   error?: string;
@@ -82,10 +103,13 @@ export async function createExercise(
   const name = String(formData.get("name") ?? "").trim();
   const muscleGroup = String(formData.get("muscle_group") ?? "").trim() || null;
   const equipment = String(formData.get("equipment") ?? "").trim() || null;
-  const instructions = String(formData.get("instructions") ?? "").trim() || null;
+  const instructions = readNote(formData.get("instructions"));
 
   if (!name) {
     return { error: "נא להזין שם תרגיל" };
+  }
+  if (instructions && instructions.length > MAX_NOTE_LENGTH) {
+    return { error: `ההערה הקבועה ארוכה מדי (עד ${MAX_NOTE_LENGTH} תווים)` };
   }
 
   const supabase = await createClient();
@@ -153,16 +177,22 @@ export async function updateExerciseDetails(
   const name = String(formData.get("name") ?? "").trim();
   const muscleGroup = String(formData.get("muscle_group") ?? "").trim() || null;
   const equipment = String(formData.get("equipment") ?? "").trim() || null;
+  // The permanent note (planning/PLAN.md feature 3): shown wherever this
+  // exercise appears in a program.
+  const instructions = readNote(formData.get("instructions"));
 
   if (!name) {
     return { error: "נא להזין שם תרגיל" };
+  }
+  if (instructions && instructions.length > MAX_NOTE_LENGTH) {
+    return { error: `ההערה הקבועה ארוכה מדי (עד ${MAX_NOTE_LENGTH} תווים)` };
   }
 
   const supabase = await createClient();
   // RLS ("trainer manages exercises") restricts this to role='trainer'.
   const { error } = await supabase
     .from("exercises")
-    .update({ name, muscle_group: muscleGroup, equipment })
+    .update({ name, muscle_group: muscleGroup, equipment, instructions })
     .eq("id", exerciseId);
 
   if (error) {
@@ -171,7 +201,47 @@ export async function updateExerciseDetails(
     };
   }
 
-  revalidatePath("/trainer/exercises");
+  revalidateExerciseEverywhere();
+  return { success: true };
+}
+
+export interface UpdateExerciseVideoState {
+  error?: string;
+  success?: boolean;
+}
+
+/**
+ * Sets or clears an exercise's demo video link (migration 0015). An empty
+ * field clears it. The link is validated by the same parser that later
+ * builds the player (src/lib/video.ts), so nothing unplayable — or unsafe —
+ * is ever stored.
+ */
+export async function updateExerciseVideo(
+  exerciseId: string,
+  _prevState: UpdateExerciseVideoState,
+  formData: FormData,
+): Promise<UpdateExerciseVideoState> {
+  const raw = String(formData.get("video_url") ?? "").trim();
+
+  let videoUrl: string | null = null;
+  if (raw) {
+    const parsed = parseVideoUrl(raw);
+    if ("error" in parsed) return { error: parsed.error };
+    videoUrl = raw;
+  }
+
+  const supabase = await createClient();
+  // RLS ("trainer manages exercises") restricts this to role='trainer'.
+  const { error } = await supabase
+    .from("exercises")
+    .update({ video_url: videoUrl })
+    .eq("id", exerciseId);
+
+  if (error) {
+    return { error: "שגיאה בשמירת הסרטון" };
+  }
+
+  revalidateExerciseEverywhere();
   return { success: true };
 }
 
@@ -204,7 +274,7 @@ export async function updateExerciseImage(
     return { error: "שגיאה בשמירת התמונה" };
   }
 
-  revalidatePath("/trainer/exercises");
+  revalidateExerciseEverywhere();
   return { success: true };
 }
 
@@ -244,6 +314,7 @@ export interface CreateExerciseInlineState {
     muscle_group: string | null;
     equipment: string | null;
     media_url: string | null;
+    instructions: string | null;
   };
 }
 
@@ -260,10 +331,13 @@ export async function createExerciseInline(
   const name = String(formData.get("name") ?? "").trim();
   const muscleGroup = String(formData.get("muscle_group") ?? "").trim() || null;
   const equipment = String(formData.get("equipment") ?? "").trim() || null;
-  const instructions = String(formData.get("instructions") ?? "").trim() || null;
+  const instructions = readNote(formData.get("instructions"));
 
   if (!name) {
     return { error: "נא להזין שם תרגיל" };
+  }
+  if (instructions && instructions.length > MAX_NOTE_LENGTH) {
+    return { error: `ההערה הקבועה ארוכה מדי (עד ${MAX_NOTE_LENGTH} תווים)` };
   }
 
   const supabase = await createClient();
@@ -282,7 +356,7 @@ export async function createExerciseInline(
       is_custom: true,
       created_by: user.id,
     })
-    .select("id, name, muscle_group, equipment")
+    .select("id, name, muscle_group, equipment, instructions")
     .single();
 
   if (error || !row) {

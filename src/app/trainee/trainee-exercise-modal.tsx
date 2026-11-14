@@ -1,10 +1,11 @@
 "use client";
 
-import { Check, Dumbbell, Lock, Plus, RefreshCw } from "lucide-react";
+import { Check, Dumbbell, Lock, Pin, Plus, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ExerciseVideo } from "@/components/exercise-video";
 import { cn } from "@/lib/utils";
 import { getExerciseImage } from "@/lib/exercise-image";
 import {
@@ -24,7 +25,9 @@ export interface TraineeExerciseData {
   name: string;
   muscleGroup: string | null;
   imageUrl: string | null;
-  exerciseDescription: string | null;
+  videoUrl: string | null;
+  /** The exercise's permanent note from the library (null when it has none, or it's hidden in this program). */
+  permanentNote: string | null;
   plannedSets: PlannedSet[];
   loggedSets: LoggedSet[];
   previous: PreviousPerformance | null;
@@ -274,14 +277,25 @@ export function TraineeExerciseModal({
           <p className="text-center text-base text-muted-foreground">{exercise.muscleGroup}</p>
         )}
 
-        {exercise.exerciseDescription && (
-          <p className="text-base leading-relaxed">{exercise.exerciseDescription}</p>
-        )}
+        {exercise.videoUrl && <ExerciseVideo url={exercise.videoUrl} title={exercise.name} />}
 
-        {(exercise.instructions || exercise.restSeconds != null) && (
-          <div className="space-y-1 rounded-xl bg-muted/50 p-3.5">
-            <p className="text-sm font-semibold text-muted-foreground">הנחיות המאמן</p>
-            {exercise.instructions && <p className="text-base leading-relaxed">{exercise.instructions}</p>}
+        {(exercise.permanentNote || exercise.instructions || exercise.restSeconds != null) && (
+          <div className="space-y-2 rounded-xl bg-muted/50 p-3.5">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+              <Pin className="h-3.5 w-3.5" />
+              דגשי המאמן
+            </p>
+            {exercise.permanentNote && (
+              <p className="text-base leading-relaxed whitespace-pre-line">{exercise.permanentNote}</p>
+            )}
+            {exercise.instructions && (
+              <div className={cn(exercise.permanentNote && "border-t border-border pt-2")}>
+                {exercise.permanentNote && (
+                  <p className="text-sm font-semibold text-muted-foreground">באימון הזה</p>
+                )}
+                <p className="text-base leading-relaxed whitespace-pre-line">{exercise.instructions}</p>
+              </div>
+            )}
             {exercise.restSeconds != null && (
               <p className="text-sm text-muted-foreground">מנוחה {exercise.restSeconds} שנ׳ בין סטים</p>
             )}

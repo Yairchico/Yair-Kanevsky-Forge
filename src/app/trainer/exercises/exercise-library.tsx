@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { SearchX, Trash2 } from "lucide-react";
+import { Pin, Play, SearchX, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchInput } from "@/components/ui/search-input";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
@@ -18,6 +18,9 @@ interface Exercise {
   equipment: string | null;
   is_custom: boolean;
   media_url: string | null;
+  /** The permanent note (shown in every program this exercise appears in). */
+  instructions: string | null;
+  video_url: string | null;
 }
 
 /** Inline confirm, not a full dialog — deleting one exercise from a list is routine. */
@@ -183,6 +186,22 @@ export function ExerciseLibrary({
                   <p className="text-sm text-muted-foreground">
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
+                  {(ex.instructions || ex.video_url) && (
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                      {ex.instructions && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
+                          <Pin className="h-3 w-3" />
+                          הערה קבועה
+                        </span>
+                      )}
+                      {ex.video_url && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
+                          <Play className="h-3 w-3" />
+                          סרטון
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {!readOnly && (
                     <div onClick={(e) => e.stopPropagation()}>
                       <DeleteExerciseButton exercise={ex} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useId, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,15 +12,13 @@ import { getExerciseImage } from "@/lib/exercise-image";
 import { ExercisePhoto } from "@/components/exercise-photo";
 import { ExerciseImageField } from "@/components/exercise-image-field";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
-import { createExerciseInline, type CreateExerciseInlineState } from "../../../../exercises/actions";
+import {
+  createExerciseInline,
+  type CreateExerciseInlineState,
+} from "@/app/trainer/exercises/actions";
+import type { CatalogExercise } from "@/lib/exercise-editor-types";
 
-interface Exercise {
-  id: string;
-  name: string;
-  muscle_group: string | null;
-  equipment: string | null;
-  media_url?: string | null;
-}
+type Exercise = CatalogExercise;
 
 type NewExercise = NonNullable<CreateExerciseInlineState["exercise"]>;
 
@@ -42,6 +40,9 @@ function InlineCreateExercise({
   onCancel: () => void;
 }) {
   const [state, formAction, pending] = useActionState(createExerciseInline, initialCreateState);
+  // Several pickers can be on the page at once (one per workout in the
+  // program builder), so field ids have to be unique per instance.
+  const uid = useId();
 
   const [prevState, setPrevState] = useState(state);
   if (state !== prevState) {
@@ -52,13 +53,13 @@ function InlineCreateExercise({
   return (
     <form action={formAction} className="space-y-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
       <div className="space-y-1">
-        <Label htmlFor="new-exercise-name" className="text-xs">שם תרגיל</Label>
-        <Input id="new-exercise-name" name="name" required defaultValue={initialName} className="h-9 text-sm" />
+        <Label htmlFor={`${uid}-name`} className="text-xs">שם תרגיל</Label>
+        <Input id={`${uid}-name`} name="name" required defaultValue={initialName} className="h-9 text-sm" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label htmlFor="new-exercise-muscle" className="text-xs">קבוצת שריר</Label>
-          <Select id="new-exercise-muscle" name="muscle_group" className="h-9 text-sm" defaultValue="">
+          <Label htmlFor={`${uid}-muscle`} className="text-xs">קבוצת שריר</Label>
+          <Select id={`${uid}-muscle`} name="muscle_group" className="h-9 text-sm" defaultValue="">
             <option value="">—</option>
             {MUSCLE_GROUPS.map((g) => (
               <option key={g} value={g}>{g}</option>
@@ -66,13 +67,19 @@ function InlineCreateExercise({
           </Select>
         </div>
         <div className="space-y-1">
-          <Label htmlFor="new-exercise-equipment" className="text-xs">ציוד</Label>
-          <Input id="new-exercise-equipment" name="equipment" className="h-9 text-sm" />
+          <Label htmlFor={`${uid}-equipment`} className="text-xs">ציוד</Label>
+          <Input id={`${uid}-equipment`} name="equipment" className="h-9 text-sm" />
         </div>
       </div>
       <div className="space-y-1">
-        <Label htmlFor="new-exercise-instructions" className="text-xs">הנחיות (אופציונלי)</Label>
-        <Textarea id="new-exercise-instructions" name="instructions" className="min-h-14 text-sm" />
+        <Label htmlFor={`${uid}-instructions`} className="text-xs">הערה קבועה (אופציונלי)</Label>
+        <Textarea
+          id={`${uid}-instructions`}
+          name="instructions"
+          maxLength={1000}
+          placeholder="דגשים לביצוע — יופיעו בכל תוכנית שהתרגיל נמצא בה"
+          className="min-h-14 text-sm"
+        />
       </div>
       <div className="space-y-1">
         <Label className="text-xs">תמונה (אופציונלי)</Label>

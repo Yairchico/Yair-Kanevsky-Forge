@@ -58,7 +58,7 @@ async function duplicateProgramContents(
 
   const { data: sourceExercises } = await supabase
     .from("workout_exercises")
-    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note")
     .in(
       "workout_id",
       sourceWorkouts.map((w) => w.id),
@@ -89,6 +89,7 @@ async function duplicateProgramContents(
         order_index: we.order_index,
         rest_seconds: we.rest_seconds,
         instructions: we.instructions,
+        hide_library_note: we.hide_library_note,
       })
       .select("id")
       .single();

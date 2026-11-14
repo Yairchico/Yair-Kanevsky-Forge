@@ -49,12 +49,12 @@ export default async function ProgramBuilderPage({
   const [{ data: workoutExercises }, { data: exercises }] = await Promise.all([
     supabase
       .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
     supabase
       .from("exercises")
-      .select("id, name, muscle_group, equipment, media_url")
+      .select("id, name, muscle_group, equipment, media_url, instructions")
       .order("name"),
   ]);
 
@@ -83,11 +83,14 @@ export default async function ProgramBuilderPage({
         const exercise = exerciseById.get(we.exercise_id);
         return {
           id: we.id,
+          exerciseId: we.exercise_id,
           exerciseName: exercise?.name ?? "תרגיל לא ידוע",
           muscleGroup: exercise?.muscle_group ?? null,
+          libraryNote: exercise?.instructions ?? null,
           fields: {
             rest_seconds: we.rest_seconds,
             instructions: we.instructions,
+            hide_library_note: we.hide_library_note,
           },
           sets: setsByWorkoutExerciseId.get(we.id) ?? [],
         };
