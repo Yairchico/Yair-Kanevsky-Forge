@@ -14,6 +14,7 @@ import {
   type PlannedSet,
 } from "@/lib/sets";
 import { getPreviousPerformance, selectInChunks } from "@/lib/previous-sets";
+import { playableVideoUrl } from "@/lib/video";
 
 /** ±4 weeks around the current one — "up to a month forward and back". */
 const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
@@ -102,7 +103,7 @@ export default async function TraineeWorkoutsPage({
       .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, progression_info")
       .in("workout_id", workoutIds.length ? workoutIds : noRows)
       .order("order_index"),
-    supabase.from("exercises").select("id, name, muscle_group, media_url, instructions, video_url"),
+    supabase.from("exercises").select("id, name, muscle_group, media_url, instructions, video_url, video_storage_path"),
     supabase
       .from("workout_completions")
       .select("workout_id, completed_at")
@@ -182,7 +183,7 @@ export default async function TraineeWorkoutsPage({
               name: exercise?.name ?? "תרגיל לא ידוע",
               muscleGroup: exercise?.muscle_group ?? null,
               imageUrl: exercise?.media_url ?? null,
-              videoUrl: exercise?.video_url ?? null,
+              videoUrl: exercise ? playableVideoUrl(exercise) : null,
               // The exercise's permanent note, unless the trainer hid it for this program.
               permanentNote: we.hide_library_note ? null : (exercise?.instructions ?? null),
               plannedSets: (plannedByWe.get(we.id) ?? []).sort((a, b) => a.setIndex - b.setIndex),

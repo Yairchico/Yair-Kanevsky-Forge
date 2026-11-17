@@ -138,6 +138,58 @@ export async function createBlock(
   redirect(`/trainer/trainees/${traineeId}/blocks/${blockId}`);
 }
 
+/**
+ * "המר שבועות קיימים לבלוק" (planning/PLAN.md Q2.8): programs the trainee
+ * already has become the weeks of a new block, in calendar order, and
+ * optionally new weeks are added after them. The trainer's existing
+ * targets are kept as they are (marked as set by hand); see
+ * convert_programs_to_block in migration 0019. On success: the block page.
+ */
+export async function convertToBlock(
+  traineeId: string,
+  _prevState: BlockActionState,
+  formData: FormData,
+): Promise<BlockActionState> {
+  const ctx = await getTrainerContext();
+  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  if (!isUuid(traineeId)) return { error: "המתאמן לא נמצא" };
+
+  const title = String(formData.get("title") ?? "").replace(/\s+/g, " ").trim();
+  if (!title) return { error: "יש לתת שם לבלוק" };
+  if (title.length > 120) return { error: "שם הבלוק ארוך מדי (עד 120 תווים)" };
+
+  const programIds = [...new Set(formData.getAll("program_ids").map(String))];
+  if (programIds.length === 0) return { error: "יש לבחור לפחות שבוע אחד" };
+  if (programIds.some((id) => !isUuid(id))) return { error: "שבוע לא תקין" };
+
+  const extraWeeks = Number(formData.get("extra_weeks") ?? 0);
+  if (!Number.isInteger(extraWeeks) || extraWeeks < 0 || programIds.length + extraWeeks > MAX_BLOCK_WEEKS) {
+    return { error: `בלוק הוא עד ${MAX_BLOCK_WEEKS} שבועות בסך הכל` };
+  }
+  const deloadWeeks = [...new Set(formData.getAll("deload_weeks").map(Number))].sort((a, b) => a - b);
+  if (deloadWeeks.some((w) => !Number.isInteger(w) || w <= programIds.length || w > programIds.length + extraWeeks)) {
+    return { error: "שבוע דילואד יכול להיות רק אחד השבועות שמתווספים" };
+  }
+  const deloadPct = Number(formData.get("deload_pct") ?? DEFAULT_DELOAD_PCT);
+  if (!Number.isInteger(deloadPct) || deloadPct < MIN_DELOAD_PCT || deloadPct > MAX_DELOAD_PCT) {
+    return { error: `אחוז הדילואד הוא בין ${MIN_DELOAD_PCT} ל-${MAX_DELOAD_PCT}` };
+  }
+
+  const { data: blockId, error } = await ctx.supabase.rpc("convert_programs_to_block", {
+    p_trainee_id: traineeId,
+    p_title: title,
+    p_program_ids: programIds,
+    p_extra_weeks: extraWeeks,
+    p_deload_weeks: deloadWeeks,
+    p_deload_pct: deloadPct,
+    p_auto_publish: formData.get("auto_publish") === "1",
+  });
+  if (error || !blockId) return { error: blockErrorMessage(error, "שגיאה ביצירת הבלוק") };
+
+  revalidateBlockPages(traineeId, blockId);
+  redirect(`/trainer/trainees/${traineeId}/blocks/${blockId}`);
+}
+
 /** "התחל בלוק חדש" from a block's page: week 1 = that block's last regular week (targets, or the weights lifted). */
 export async function startNextBlock(
   traineeId: string,

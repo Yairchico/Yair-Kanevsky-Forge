@@ -77,6 +77,8 @@ export interface Database {
           media_url: string | null;
           /** A YouTube / Vimeo / direct-file link (migration 0015) — parsed by src/lib/video.ts. */
           video_url: string | null;
+          /** An uploaded video in the "exercise-videos" bucket (migration 0019); never set together with video_url. */
+          video_storage_path: string | null;
           is_custom: boolean;
           created_by: string | null;
           created_at: string;
@@ -442,6 +444,30 @@ export interface Database {
         Returns: string;
       };
       /** Copies a program's workouts, exercises and planned sets into an empty program, atomically (migration 0018). Trainer only. */
+      /** A saved workout copied into a trainee's weekly program (migration 0019). Errors: BK003 "DAY_FULL". */
+      add_template_to_program: {
+        Args: {
+          p_template_id: string;
+          p_trainee_id: string;
+          p_week_start: string;
+          p_day_of_week: number;
+          p_program_title?: string | null;
+        };
+        Returns: { program_id: string; workout_id: string; created_program: boolean; reverted_to_draft: boolean };
+      };
+      /** Existing weekly programs become a training block (migration 0019). Errors: BK001, BK004. */
+      convert_programs_to_block: {
+        Args: {
+          p_trainee_id: string;
+          p_title: string;
+          p_program_ids: string[];
+          p_extra_weeks?: number;
+          p_deload_weeks?: number[];
+          p_deload_pct?: number;
+          p_auto_publish?: boolean;
+        };
+        Returns: string;
+      };
       copy_program_structure: {
         Args: { p_from: string; p_to: string };
         Returns: undefined;

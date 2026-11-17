@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import type { InitialEditorItem } from "@/components/exercise-editor/exercise-list-editor";
 import { selectInChunks } from "@/lib/previous-sets";
+import { addToProgramWeeks, loadProgramSlots } from "@/lib/program-slots";
 import { toPlannedSet, type PlannedSet } from "@/lib/sets";
 import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/utils";
@@ -88,6 +89,9 @@ export default async function SessionTemplatePage({
     };
   });
 
+  const weeks = addToProgramWeeks();
+  const slots = isTrainer ? await loadProgramSlots(supabase, (trainees ?? []).map((t) => t.id), weeks) : {};
+
   return (
     <AppShell title="אימון שמור" backHref="/trainer/session/templates" readOnly={!isTrainer}>
       <TemplateEditor
@@ -96,6 +100,8 @@ export default async function SessionTemplatePage({
         initialItems={initialItems}
         catalog={catalog ?? []}
         trainees={(trainees ?? []).map((t) => ({ id: t.id, name: t.full_name }))}
+        weeks={weeks}
+        slots={slots}
       />
     </AppShell>
   );

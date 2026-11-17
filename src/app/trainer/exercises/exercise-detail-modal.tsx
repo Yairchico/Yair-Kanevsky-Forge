@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useRef, useState, useTransition } from "react";
-import { Dumbbell, ImageOff, ImagePlus, Pencil, Pin, Play } from "lucide-react";
+import { Dumbbell, ImageOff, ImagePlus, Pencil, Pin, Play, Upload } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,12 @@ import { ExerciseVideo } from "@/components/exercise-video";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
 import { getExerciseImage } from "@/lib/exercise-image";
 import { cn } from "@/lib/utils";
+import { createClient as createBrowserClient } from "@/lib/supabase/client";
+import { MAX_VIDEO_BYTES, VIDEO_BUCKET, VIDEO_UPLOAD_TYPES, playableVideoUrl } from "@/lib/video";
 import {
+  confirmVideoUpload,
+  createVideoUpload,
+  discardVideoUpload,
   updateExerciseDetails,
   updateExerciseImage,
   updateExerciseVideo,
@@ -30,24 +35,47 @@ interface Exercise {
   media_url: string | null;
   instructions: string | null;
   video_url: string | null;
+  video_storage_path: string | null;
 }
 
 const initialDetailsState: UpdateExerciseDetailsState = {};
 const initialImageState: UpdateExerciseImageState = {};
 const initialVideoState: UpdateExerciseVideoState = {};
 
+type VideoTab = "link" | "upload";
+
+/** iOS sometimes hands over a .mov with no type; go by the extension then. */
+function videoTypeOf(file: File): string {
+  if (file.type) return file.type;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  return ext === "mov" ? "video/quicktime" : ext === "webm" ? "video/webm" : ext === "mp4" ? "video/mp4" : "";
+}
+
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 /**
- * The exercise's demo video (a link — YouTube, Vimeo or a direct file; see
- * src/lib/video.ts). Its own small form, independent of the details and
- * image forms above it: save validates and stores the link, an empty field
- * (or "הסר") clears it.
+ * The exercise's demo video: a link (YouTube, Vimeo or a direct file; see
+ * src/lib/video.ts) or a file uploaded from the phone (migration 0019).
+ * Uploading goes from the browser straight to Storage with a one-time URL
+ * the server hands out (createVideoUpload) — a 50MB file can't go through a
+ * Server Action — and the server then attaches it (confirmVideoUpload).
+ * Either kind replaces the other; "הסר" clears whichever there is.
  */
 function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: boolean }) {
   const action = updateExerciseVideo.bind(null, exercise.id);
   const [state, formAction, pending] = useActionState(action, initialVideoState);
   const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<VideoTab>("upload");
   const [removePending, startRemove] = useTransition();
   const [removeError, setRemoveError] = useState<string | undefined>();
+  const [upload, setUpload] = useState<{ name: string; size: number } | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const playable = playableVideoUrl(exercise);
+  const uploaded = Boolean(exercise.video_storage_path);
 
   const [prevState, setPrevState] = useState(state);
   if (state !== prevState) {
@@ -57,13 +85,63 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
 
   function handleRemove() {
     startRemove(async () => {
-      // An empty "video_url" clears the link.
+      // An empty "video_url" clears the link and any uploaded file.
       const result = await updateExerciseVideo(exercise.id, initialVideoState, new FormData());
       setRemoveError(result.error);
     });
   }
 
-  if (readOnly && !exercise.video_url) return null;
+  async function handleFile(file: File) {
+    setUploadError(null);
+    const type = videoTypeOf(file);
+    if (!VIDEO_UPLOAD_TYPES[type]) {
+      setUploadError("אפשר להעלות סרטון מסוג MP4, MOV או WebM");
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      setUploadError(`הסרטון גדול מדי (${formatMb(file.size)}, עד 50MB). נסו סרטון קצר יותר, 15–30 שניות.`);
+      return;
+    }
+    setUpload({ name: file.name, size: file.size });
+    let path: string | null = null;
+    try {
+      const ticket = await createVideoUpload(exercise.id, { type, size: file.size });
+      if ("error" in ticket) {
+        setUploadError(ticket.error);
+        return;
+      }
+      path = ticket.path;
+      const { error } = await createBrowserClient()
+        .storage.from(VIDEO_BUCKET)
+        .uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: type });
+      if (error) {
+        setUploadError("ההעלאה נכשלה. בדקו את החיבור ונסו שוב.");
+        return;
+      }
+      const result = await confirmVideoUpload(exercise.id, ticket.path);
+      if (result.error) {
+        setUploadError(result.error);
+        void discardVideoUpload(exercise.id, ticket.path);
+        return;
+      }
+      path = null;
+      setEditing(false);
+    } catch {
+      setUploadError("ההעלאה נכשלה. בדקו את החיבור ונסו שוב.");
+      if (path) void discardVideoUpload(exercise.id, path).catch(() => {});
+    } finally {
+      setUpload(null);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  if (readOnly && !playable) return null;
+
+  const tabClass = (active: boolean) =>
+    cn(
+      "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+      active ? "bg-card shadow-xs" : "text-muted-foreground hover:text-foreground",
+    );
 
   return (
     <div className="space-y-2 border-t border-border pt-4">
@@ -72,15 +150,16 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
         סרטון הדגמה
       </p>
 
-      {exercise.video_url && !editing && (
+      {playable && !editing && (
         <>
-          {/* Keyed by the link so a replaced video doesn't keep the old player mounted. */}
-          <ExerciseVideo key={exercise.video_url} url={exercise.video_url} title={exercise.name} />
+          {/* Keyed by the source so a replaced video doesn't keep the old player mounted. */}
+          <ExerciseVideo key={playable} url={playable} title={exercise.name} />
+          {uploaded && <p className="text-xs text-muted-foreground">סרטון שהועלה מהמכשיר</p>}
           {!readOnly && (
             <div className="flex gap-2">
               <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
                 <Pencil className="h-3.5 w-3.5" />
-                החלף קישור
+                החלף סרטון
               </Button>
               <Button
                 type="button"
@@ -98,32 +177,77 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
         </>
       )}
 
-      {!readOnly && (!exercise.video_url || editing) && (
-        <form action={formAction} className="space-y-2">
-          <Input
-            name="video_url"
-            dir="ltr"
-            inputMode="url"
-            placeholder="https://youtu.be/…"
-            defaultValue={exercise.video_url ?? ""}
-            aria-label="קישור לסרטון"
-          />
-          <p className="text-xs text-muted-foreground">
-            YouTube (גם Shorts וסרטון &quot;לא רשום&quot;), Vimeo, או קישור ישיר לקובץ mp4. המתאמן רואה
-            את הסרטון כשהוא מבצע את התרגיל.
-          </p>
-          {state.error && <p className="text-xs text-destructive">{state.error}</p>}
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={pending}>
-              {pending ? "שומר…" : "שמור סרטון"}
-            </Button>
-            {editing && (
-              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
-                ביטול
-              </Button>
-            )}
+      {!readOnly && (!playable || editing) && (
+        <div className="space-y-2">
+          <div className="flex gap-1 rounded-lg bg-muted p-1" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "upload"} className={tabClass(tab === "upload")} onClick={() => setTab("upload")}>
+              העלאה מהמכשיר
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "link"} className={tabClass(tab === "link")} onClick={() => setTab("link")}>
+              קישור
+            </button>
           </div>
-        </form>
+
+          {tab === "upload" ? (
+            <div className="space-y-2">
+              <input
+                ref={fileInput}
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+                aria-label="קובץ סרטון"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleFile(file);
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={upload !== null}
+                onClick={() => fileInput.current?.click()}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {upload ? "מעלה…" : "בחירת סרטון"}
+              </Button>
+              {upload && (
+                <p className="text-xs text-muted-foreground">
+                  מעלה את {upload.name} ({formatMb(upload.size)}). זה יכול לקחת כמה רגעים — אל תסגרו את החלון.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                MP4, MOV או WebM, עד 50MB. סרטון קצר (15–30 שניות) עולה מהר יותר וחוסך למתאמנים גלישה.
+              </p>
+              {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
+            </div>
+          ) : (
+            <form action={formAction} className="space-y-2">
+              <Input
+                name="video_url"
+                dir="ltr"
+                inputMode="url"
+                placeholder="https://youtu.be/…"
+                defaultValue={exercise.video_url ?? ""}
+                aria-label="קישור לסרטון"
+              />
+              <p className="text-xs text-muted-foreground">
+                YouTube (גם Shorts וסרטון &quot;לא רשום&quot;), Vimeo, או קישור ישיר לקובץ mp4. המתאמן רואה
+                את הסרטון כשהוא מבצע את התרגיל.
+              </p>
+              {state.error && <p className="text-xs text-destructive">{state.error}</p>}
+              <Button type="submit" size="sm" disabled={pending}>
+                {pending ? "שומר…" : "שמור קישור"}
+              </Button>
+            </form>
+          )}
+
+          {editing && (
+            <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={upload !== null}>
+              ביטול
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

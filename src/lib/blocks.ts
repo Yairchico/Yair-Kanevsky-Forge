@@ -230,6 +230,7 @@ export function blockErrorMessage(error: { code?: string; message?: string } | n
   if (error.code === "BK002") {
     return `השבוע שמתחיל ב-${date} כבר התחיל (יש בו ביצוע מתועד), ולכן אי אפשר לשנות אותו כך`;
   }
+  if (error.code === "BK004") return "אחד השבועות שנבחרו כבר שייך לבלוק אחר";
   if (error.code === "42501") return "אין הרשאה לבצע פעולה זו";
   if (error.code === "P0002") return "הבלוק או השבוע לא נמצאו";
   return fallback;

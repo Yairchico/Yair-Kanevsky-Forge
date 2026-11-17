@@ -63,7 +63,7 @@ export default async function FreeSessionPage({
     live
       ? supabase
           .from("exercises")
-          .select("id, name, muscle_group, equipment, media_url, instructions, video_url")
+          .select("id, name, muscle_group, equipment, media_url, instructions")
           .order("name")
       : Promise.resolve({ data: [] }),
   ]);

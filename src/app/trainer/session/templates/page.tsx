@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
 import { selectInChunks } from "@/lib/previous-sets";
+import { addToProgramWeeks, loadProgramSlots } from "@/lib/program-slots";
 import { TemplateList, type TemplateCard } from "./template-list";
 
 /**
@@ -84,12 +85,18 @@ export default async function SessionTemplatesPage() {
     };
   });
 
+  const activeTrainees = (trainees ?? []).filter((t) => t.status === "active").map((t) => ({ id: t.id, name: t.full_name }));
+  const weeks = addToProgramWeeks();
+  const slots = isTrainer ? await loadProgramSlots(supabase, activeTrainees.map((t) => t.id), weeks) : {};
+
   return (
     <AppShell title="אימונים שמורים" backHref="/trainer/session" username={viewer?.username} readOnly={!isTrainer}>
       <TemplateList
         readOnly={!isTrainer}
         templates={cards}
-        trainees={(trainees ?? []).filter((t) => t.status === "active").map((t) => ({ id: t.id, name: t.full_name }))}
+        trainees={activeTrainees}
+        weeks={weeks}
+        slots={slots}
       />
     </AppShell>
   );

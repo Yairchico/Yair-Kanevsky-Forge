@@ -2,12 +2,14 @@
 
 import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { Copy, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { CalendarPlus, Copy, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { formatShortDate, countExercises } from "@/lib/format";
+import type { ProgramSlots, WeekOption } from "@/lib/program-slots";
+import { AddToProgramModal } from "../add-to-program-modal";
 import { StartTemplateModal, type TraineeOption } from "../start-template-modal";
 import { createTemplate, deleteTemplate, duplicateTemplate, type CreateTemplateState } from "./actions";
 
@@ -49,12 +51,18 @@ export function TemplateList({
   readOnly,
   templates,
   trainees,
+  weeks,
+  slots,
 }: {
   readOnly: boolean;
   templates: TemplateCard[];
   trainees: TraineeOption[];
+  /** "הוסף לתוכנית של מתאמן": the weeks offered, and what each trainee already has in them. */
+  weeks: WeekOption[];
+  slots: ProgramSlots;
 }) {
   const [starting, setStarting] = useState<TemplateCard | null>(null);
+  const [adding, setAdding] = useState<TemplateCard | null>(null);
   const [deleting, setDeleting] = useState<TemplateCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -172,6 +180,16 @@ export function TemplateList({
                       type="button"
                       variant="outline"
                       size="sm"
+                      disabled={template.exerciseCount === 0}
+                      onClick={() => setAdding(template)}
+                    >
+                      <CalendarPlus className="h-4 w-4" />
+                      לתוכנית של מתאמן
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       aria-label={`מחק את ${template.title}`}
                       disabled={pending}
                       onClick={() => setDeleting(template)}
@@ -187,6 +205,15 @@ export function TemplateList({
       )}
 
       {/* Keyed so each opening starts from that template's own defaults. */}
+      <AddToProgramModal
+        key={adding ? `add-${adding.id}` : "add-closed"}
+        template={adding}
+        trainees={trainees}
+        weeks={weeks}
+        slots={slots}
+        onClose={() => setAdding(null)}
+      />
+
       <StartTemplateModal
         key={starting?.id ?? "closed"}
         template={starting}

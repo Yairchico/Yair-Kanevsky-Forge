@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { ExternalLink, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { parseVideoUrl } from "@/lib/video";
+import { resolveVideo } from "@/lib/video";
 
 /**
- * An exercise's demo video (exercises.video_url, migration 0015), collapsed
+ * An exercise's demo video (a link, migration 0015, or an uploaded file,
+ * migration 0019 — see playableVideoUrl), collapsed
  * to a "▶ צפה בסרטון" button until asked for — the player (and with it
  * YouTube's/Vimeo's scripts, or the video file itself) isn't loaded at all
  * until the tap, so a workout screen with ten exercises costs nothing
@@ -26,7 +27,7 @@ export function ExerciseVideo({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const parsed = parseVideoUrl(url);
+  const parsed = resolveVideo(url);
   if ("error" in parsed) return null;
 
   if (!open) {

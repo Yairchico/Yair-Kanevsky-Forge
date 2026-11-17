@@ -9,6 +9,7 @@ import type { SessionExerciseData } from "@/components/session/session-exercise-
 import { FREE_SET_COLUMNS, freeSetToLogged, freeSetToPlanned } from "@/lib/free-sessions";
 import { getPreviousPerformance, selectInChunks } from "@/lib/previous-sets";
 import type { LoggedSet, PlannedSet } from "@/lib/sets";
+import { playableVideoUrl } from "@/lib/video";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -42,7 +43,7 @@ export async function loadExercisesOfSessions(
   const exerciseIds = [...new Set(sessionExercises.map((e) => e.exercise_id))];
   const [exercises, setRows] = await Promise.all([
     selectInChunks(exerciseIds, (chunk) =>
-      supabase.from("exercises").select("id, name, muscle_group, instructions, video_url").in("id", chunk),
+      supabase.from("exercises").select("id, name, muscle_group, instructions, video_url, video_storage_path").in("id", chunk),
     ),
     selectInChunks(
       sessionExercises.map((e) => e.id),
@@ -68,7 +69,7 @@ export async function loadExercisesOfSessions(
       exerciseId: row.exercise_id,
       name: exercise?.name ?? "תרגיל לא ידוע",
       muscleGroup: exercise?.muscle_group ?? null,
-      videoUrl: exercise?.video_url ?? null,
+      videoUrl: exercise ? playableVideoUrl(exercise) : null,
       permanentNote: exercise?.instructions ?? null,
       instructions: row.instructions,
       restSeconds: row.rest_seconds,

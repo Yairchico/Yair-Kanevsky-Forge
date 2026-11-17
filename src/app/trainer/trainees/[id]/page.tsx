@@ -281,12 +281,20 @@ export default async function TraineeDetailPage({
             <CardDescription>רצף שבועות שבו היעדים מתקדמים אוטומטית לפי הביצוע</CardDescription>
           </div>
           {!readOnly && (
-            <Link
-              href={`/trainer/trainees/${id}/blocks/new`}
-              className={cn(buttonVariants({ size: "sm", variant: "outline" }), "shrink-0")}
-            >
-              + בלוק חדש
-            </Link>
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+              <Link
+                href={`/trainer/trainees/${id}/blocks/convert`}
+                className={buttonVariants({ size: "sm", variant: "ghost" })}
+              >
+                משבועות קיימים
+              </Link>
+              <Link
+                href={`/trainer/trainees/${id}/blocks/new`}
+                className={buttonVariants({ size: "sm", variant: "outline" })}
+              >
+                + בלוק חדש
+              </Link>
+            </div>
           )}
         </CardHeader>
         <CardContent className="space-y-2">

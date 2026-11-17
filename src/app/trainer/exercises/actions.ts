@@ -3,7 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { parseVideoUrl } from "@/lib/video";
+import { getTrainerContext, NOT_TRAINER_ERROR } from "@/lib/require-trainer";
+import { isUuid } from "@/lib/utils";
+import {
+  MAX_VIDEO_BYTES,
+  VIDEO_BUCKET,
+  VIDEO_STORAGE_PATH,
+  VIDEO_UPLOAD_TYPES,
+  parseVideoUrl,
+} from "@/lib/video";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -231,18 +239,134 @@ export async function updateExerciseVideo(
   }
 
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("exercises")
+    .select("video_storage_path")
+    .eq("id", exerciseId)
+    .maybeSingle();
+
+  // A link replaces an uploaded file (and clearing clears both): an
+  // exercise has one video at most (migration 0019).
   // RLS ("trainer manages exercises") restricts this to role='trainer'.
   const { error } = await supabase
     .from("exercises")
-    .update({ video_url: videoUrl })
+    .update({ video_url: videoUrl, video_storage_path: null })
     .eq("id", exerciseId);
 
   if (error) {
     return { error: "שגיאה בשמירת הסרטון" };
   }
 
+  if (before?.video_storage_path) await removeVideoFile(supabase, before.video_storage_path);
   revalidateExerciseEverywhere();
   return { success: true };
+}
+
+/** Best-effort: a file left behind costs storage, never correctness. */
+async function removeVideoFile(supabase: Supabase, storagePath: string): Promise<void> {
+  try {
+    const { error } = await supabase.storage.from(VIDEO_BUCKET).remove([storagePath]);
+    if (error) console.error("removeVideoFile: storage remove failed", error);
+  } catch (err) {
+    console.error("removeVideoFile: unexpected error", err);
+  }
+}
+
+export type CreateVideoUploadResult = { error: string } | { path: string; token: string };
+
+/**
+ * Step 1 of uploading a video (feature 4, phase B): a one-time signed URL
+ * for the browser to send the file straight to Storage. The file can't go
+ * through a Server Action — a Worker can't carry 50MB. Type and size are
+ * checked here for a clear message; the bucket enforces both again
+ * (migration 0019), whatever the browser claims.
+ */
+export async function createVideoUpload(
+  exerciseId: string,
+  file: { type: string; size: number },
+): Promise<CreateVideoUploadResult> {
+  const ctx = await getTrainerContext();
+  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  if (!isUuid(exerciseId)) return { error: "התרגיל לא נמצא" };
+
+  const ext = VIDEO_UPLOAD_TYPES[file?.type ?? ""];
+  if (!ext) return { error: "אפשר להעלות סרטון מסוג MP4, MOV או WebM" };
+  if (!Number.isFinite(file.size) || file.size <= 0) return { error: "הקובץ ריק" };
+  if (file.size > MAX_VIDEO_BYTES) return { error: "הסרטון גדול מדי (עד 50MB). נסו סרטון קצר יותר, 15–30 שניות." };
+
+  const { data: exercise } = await ctx.supabase.from("exercises").select("id").eq("id", exerciseId).maybeSingle();
+  if (!exercise) return { error: "התרגיל לא נמצא" };
+
+  const path = `${exerciseId}/${crypto.randomUUID()}.${ext}`;
+  try {
+    const { data, error } = await ctx.supabase.storage.from(VIDEO_BUCKET).createSignedUploadUrl(path);
+    if (error || !data) {
+      console.error("createVideoUpload: signed URL failed", error);
+      return { error: "שגיאה בהכנת ההעלאה" };
+    }
+    return { path: data.path, token: data.token };
+  } catch (err) {
+    console.error("createVideoUpload: unexpected error", err);
+    return { error: "שגיאה בהכנת ההעלאה" };
+  }
+}
+
+/**
+ * Step 2, once the browser finished uploading: the file becomes the
+ * exercise's video, replacing a link or an earlier file (which is removed).
+ */
+export async function confirmVideoUpload(
+  exerciseId: string,
+  storagePath: string,
+): Promise<{ error?: string }> {
+  const ctx = await getTrainerContext();
+  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  // Only a file this exercise could have been given a URL for.
+  if (!isUuid(exerciseId) || !VIDEO_STORAGE_PATH.test(storagePath) || !storagePath.startsWith(`${exerciseId}/`)) {
+    return { error: "הקובץ לא תקין" };
+  }
+
+  try {
+    const { data: exists } = await ctx.supabase.storage.from(VIDEO_BUCKET).exists(storagePath);
+    if (!exists) return { error: "הקובץ לא הגיע. נסו להעלות שוב." };
+  } catch {
+    return { error: "הקובץ לא הגיע. נסו להעלות שוב." };
+  }
+
+  const { data: before } = await ctx.supabase
+    .from("exercises")
+    .select("video_storage_path")
+    .eq("id", exerciseId)
+    .maybeSingle();
+  if (!before) return { error: "התרגיל לא נמצא" };
+
+  const { error } = await ctx.supabase
+    .from("exercises")
+    .update({ video_url: null, video_storage_path: storagePath })
+    .eq("id", exerciseId);
+  if (error) {
+    await removeVideoFile(ctx.supabase, storagePath);
+    return { error: "שגיאה בשמירת הסרטון" };
+  }
+
+  if (before.video_storage_path && before.video_storage_path !== storagePath) {
+    await removeVideoFile(ctx.supabase, before.video_storage_path);
+  }
+  revalidateExerciseEverywhere();
+  return {};
+}
+
+/** The upload didn't make it to the exercise (cancelled, or confirming failed): don't leave the file behind. */
+export async function discardVideoUpload(exerciseId: string, storagePath: string): Promise<void> {
+  const ctx = await getTrainerContext();
+  if (!ctx || !VIDEO_STORAGE_PATH.test(storagePath) || !storagePath.startsWith(`${exerciseId}/`)) return;
+  const { data: exercise } = await ctx.supabase
+    .from("exercises")
+    .select("video_storage_path")
+    .eq("id", exerciseId)
+    .maybeSingle();
+  if (exercise?.video_storage_path === storagePath) return;
+  await removeVideoFile(ctx.supabase, storagePath);
 }
 
 export interface UpdateExerciseImageState {
@@ -290,6 +414,11 @@ export interface DeleteExerciseState {
  */
 export async function deleteExercise(exerciseId: string): Promise<DeleteExerciseState> {
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("exercises")
+    .select("video_storage_path")
+    .eq("id", exerciseId)
+    .maybeSingle();
   // RLS ("trainer manages exercises") restricts this to role='trainer'.
   const { error } = await supabase.from("exercises").delete().eq("id", exerciseId);
 
@@ -302,6 +431,7 @@ export async function deleteExercise(exerciseId: string): Promise<DeleteExercise
     };
   }
 
+  if (before?.video_storage_path) await removeVideoFile(supabase, before.video_storage_path);
   revalidatePath("/trainer/exercises");
   return { success: true };
 }

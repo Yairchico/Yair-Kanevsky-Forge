@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Play, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { CalendarPlus, Play, Trash2 } from "lucide-react";
 import {
   ExerciseListEditor,
   type InitialEditorItem,
@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { CatalogExercise, ExerciseListApi } from "@/lib/exercise-editor-types";
+import type { ProgramSlots, WeekOption } from "@/lib/program-slots";
+import { AddToProgramModal } from "../../add-to-program-modal";
 import { StartTemplateModal, type TraineeOption } from "../../start-template-modal";
 import {
   addTemplateExercise,
@@ -38,12 +40,16 @@ export function TemplateEditor({
   initialItems,
   catalog,
   trainees,
+  weeks,
+  slots,
 }: {
   readOnly: boolean;
   template: { id: string; title: string; notes: string | null };
   initialItems: InitialEditorItem[];
   catalog: CatalogExercise[];
   trainees: TraineeOption[];
+  weeks: WeekOption[];
+  slots: ProgramSlots;
 }) {
   const templateId = template.id;
   const api = useMemo<ExerciseListApi>(
@@ -63,33 +69,57 @@ export function TemplateEditor({
   const [title, setTitle] = useState(template.title);
   const [notes, setNotes] = useState(template.notes ?? "");
   const [saved, setSaved] = useState({ title: template.title, notes: template.notes ?? "" });
-  const [detailsState, setDetailsState] = useState<{ error?: string; savedNow?: boolean }>({});
+  const [detailsState, setDetailsState] = useState<{ error?: string; savedNow?: boolean; saving?: boolean }>({});
   const [extraCatalog, setExtraCatalog] = useState<CatalogExercise[]>([]);
   const fullCatalog = extraCatalog.length ? [...catalog, ...extraCatalog] : catalog;
 
   const [starting, setStarting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function saveDetails() {
-    const next = { title: title.trim(), notes: notes.trim() };
-    if (next.title === saved.title.trim() && next.notes === saved.notes.trim()) return;
-    if (!next.title) {
-      setDetailsState({ error: "יש לתת שם לאימון השמור" });
+  // Name and note save on blur, one save at a time and always with the
+  // latest values: leaving the name field for the note field fires a save
+  // that's still in flight when the note's own save starts, and two
+  // concurrent saves could land in the wrong order and undo the newer one.
+  const fieldsRef = useRef({ title: template.title, notes: template.notes ?? "" });
+  const savedRef = useRef({ title: template.title.trim(), notes: (template.notes ?? "").trim() });
+  const savingRef = useRef(false);
+  const againRef = useRef(false);
+
+  async function saveDetails() {
+    if (savingRef.current) {
+      againRef.current = true;
       return;
     }
-    void updateTemplateDetails(templateId, { title: next.title, notes: next.notes || null })
-      .then((result) => {
+    savingRef.current = true;
+    try {
+      do {
+        againRef.current = false;
+        const next = { title: fieldsRef.current.title.trim(), notes: fieldsRef.current.notes.trim() };
+        if (next.title === savedRef.current.title && next.notes === savedRef.current.notes) continue;
+        if (!next.title) {
+          setDetailsState({ error: "יש לתת שם לאימון השמור" });
+          continue;
+        }
+        setDetailsState({ saving: true });
+        const result = await updateTemplateDetails(templateId, { title: next.title, notes: next.notes || null });
         if (result.error) {
           setDetailsState({ error: result.error });
-          return;
+          continue;
         }
+        savedRef.current = next;
         setSaved(next);
-        setDetailsState({ savedNow: true });
-      })
-      .catch(() => setDetailsState({ error: "אין חיבור — השינוי לא נשמר" }));
+        setDetailsState(againRef.current ? { saving: true } : { savedNow: true });
+      } while (againRef.current);
+    } catch {
+      setDetailsState({ error: "אין חיבור — השינוי לא נשמר" });
+    } finally {
+      savingRef.current = false;
+    }
   }
+
 
   function handleDelete() {
     setDeleteError(null);
@@ -123,9 +153,10 @@ export function TemplateEditor({
                   maxLength={120}
                   onChange={(e) => {
                     setTitle(e.target.value);
+                    fieldsRef.current = { ...fieldsRef.current, title: e.target.value };
                     setDetailsState({});
                   }}
-                  onBlur={saveDetails}
+                  onBlur={() => void saveDetails()}
                 />
               </div>
               <div className="space-y-1">
@@ -139,17 +170,23 @@ export function TemplateEditor({
                   className="min-h-16"
                   onChange={(e) => {
                     setNotes(e.target.value);
+                    fieldsRef.current = { ...fieldsRef.current, notes: e.target.value };
                     setDetailsState({});
                   }}
-                  onBlur={saveDetails}
+                  onBlur={() => void saveDetails()}
                 />
               </div>
               {detailsState.error && <p className="text-sm text-destructive">{detailsState.error}</p>}
+              {detailsState.saving && <p className="text-sm text-muted-foreground">שומר…</p>}
               {detailsState.savedNow && <p className="text-sm text-success">נשמר ✓</p>}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" onClick={() => setStarting(true)}>
                   <Play className="h-4 w-4" />
                   התחל אימון
+                </Button>
+                <Button type="button" variant="outline" disabled={initialItems.length === 0} onClick={() => setAdding(true)}>
+                  <CalendarPlus className="h-4 w-4" />
+                  לתוכנית של מתאמן
                 </Button>
                 {!confirmingDelete && (
                   <Button type="button" variant="outline" onClick={() => setConfirmingDelete(true)}>
@@ -190,6 +227,17 @@ export function TemplateEditor({
         }
         onNewExercise={(exercise) => setExtraCatalog((prev) => [...prev, exercise])}
       />
+
+      {!readOnly && (
+        <AddToProgramModal
+          key={adding ? "add-open" : "add-closed"}
+          template={adding ? { id: templateId, title: saved.title } : null}
+          trainees={trainees}
+          weeks={weeks}
+          slots={slots}
+          onClose={() => setAdding(false)}
+        />
+      )}
 
       {!readOnly && (
         <StartTemplateModal

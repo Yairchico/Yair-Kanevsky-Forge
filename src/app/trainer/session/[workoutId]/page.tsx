@@ -11,6 +11,7 @@ import {
 import { getPreviousPerformance } from "@/lib/previous-sets";
 import { dayName, formatWeekLabel, parseDateKey } from "@/lib/week";
 import { TraineeSessionRunner } from "./trainee-session-runner";
+import { playableVideoUrl } from "@/lib/video";
 
 /**
  * The live screen of a trainer-led session on one workout of a trainee's
@@ -69,7 +70,7 @@ export default async function TraineeSessionPage({
     await Promise.all([
       supabase
         .from("exercises")
-        .select("id, name, muscle_group, instructions, video_url")
+        .select("id, name, muscle_group, instructions, video_url, video_storage_path")
         .in("id", exerciseIds.length ? exerciseIds : noRows),
       supabase
         .from("workout_exercise_sets")
@@ -130,7 +131,7 @@ export default async function TraineeSessionPage({
           exerciseId: we.exercise_id,
           name: exercise?.name ?? "תרגיל לא ידוע",
           muscleGroup: exercise?.muscle_group ?? null,
-          videoUrl: exercise?.video_url ?? null,
+          videoUrl: exercise ? playableVideoUrl(exercise) : null,
           // The trainer always sees the permanent note, even where it's hidden from the trainee.
           permanentNote: exercise?.instructions ?? null,
           instructions: we.instructions,

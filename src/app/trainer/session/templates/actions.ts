@@ -427,3 +427,67 @@ export async function deleteTemplateSet(setId: string): Promise<SetResult> {
   revalidateTemplates(found.exercise.template_id);
   return {};
 }
+
+// ---------------------------------------------------------------------------
+// Into a trainee's weekly program (planning/PLAN.md Q5.12)
+// ---------------------------------------------------------------------------
+
+export interface AddToProgramInput {
+  traineeId: string;
+  /** week_start_date: a Sunday, this week or later. */
+  weekStart: string;
+  dayOfWeek: number;
+  /** For a week with no program yet; defaults to the saved workout's title. */
+  programTitle?: string | null;
+}
+
+export type AddToProgramResult =
+  | { error: string }
+  | { programId: string; workoutId: string; createdProgram: boolean; revertedToDraft: boolean };
+
+/**
+ * Copies the saved workout into the trainee's program for that week as a
+ * new workout on the chosen day (one database function: one transaction,
+ * migration 0019). A week with no program gets a new draft one; a published
+ * program goes back to draft, like any other edit, until it's published again.
+ */
+export async function addTemplateToProgram(templateId: string, input: AddToProgramInput): Promise<AddToProgramResult> {
+  const ctx = await getTrainerContext();
+  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  if (!isUuid(templateId)) return { error: NOT_FOUND_ERROR };
+  if (!isUuid(input.traineeId)) return { error: "יש לבחור מתאמן" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.weekStart ?? "")) return { error: "יש לבחור שבוע" };
+  if (!Number.isInteger(input.dayOfWeek) || input.dayOfWeek < 0 || input.dayOfWeek > 6) return { error: "יש לבחור יום" };
+  const programTitle = input.programTitle?.replace(/\s+/g, " ").trim() || null;
+  if (programTitle && programTitle.length > MAX_TITLE_LENGTH) {
+    return { error: `שם התוכנית ארוך מדי (עד ${MAX_TITLE_LENGTH} תווים)` };
+  }
+
+  const { data, error } = await ctx.supabase.rpc("add_template_to_program", {
+    p_template_id: templateId,
+    p_trainee_id: input.traineeId,
+    p_week_start: input.weekStart,
+    p_day_of_week: input.dayOfWeek,
+    p_program_title: programTitle,
+  });
+  if (error || !data) {
+    if (error?.code === "BK003") return { error: "ביום הזה כבר יש שני אימונים. בחרו יום אחר." };
+    if (error?.code === "P0002") return { error: "האימון השמור או המתאמן לא נמצאו" };
+    if (error?.code === "P0001") return { error: "לא ניתן להוסיף לשבוע הזה. בחרו שבוע מהשבוע הנוכחי והלאה." };
+    return { error: "שגיאה בהוספה לתוכנית" };
+  }
+
+  revalidatePath(`/trainer/trainees/${input.traineeId}`);
+  revalidatePath(`/trainer/trainees/${input.traineeId}/programs/${data.program_id}`);
+  revalidatePath("/trainer/session");
+  revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
+  revalidateTemplates(templateId);
+  return {
+    programId: data.program_id,
+    workoutId: data.workout_id,
+    createdProgram: data.created_program,
+    revertedToDraft: data.reverted_to_draft,
+  };
+}
+

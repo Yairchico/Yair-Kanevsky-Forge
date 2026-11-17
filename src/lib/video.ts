@@ -107,3 +107,52 @@ export function parseVideoUrl(input: string): ParsedVideo | { error: string } {
 
   return { error: UNSUPPORTED };
 }
+
+// ---------------------------------------------------------------------------
+// Uploaded videos (migration 0019): a file in the public "exercise-videos"
+// Storage bucket. exercises.video_storage_path holds "<exercise id>/<random
+// id>.<ext>"; the URL to play is derived from the project URL, never stored.
+// ---------------------------------------------------------------------------
+
+export const VIDEO_BUCKET = "exercise-videos";
+/** Storage enforces the same limit (the bucket's file_size_limit). */
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+/** What may be uploaded, and the extension each type is stored under. */
+export const VIDEO_UPLOAD_TYPES: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+export const VIDEO_STORAGE_PATH = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(mp4|mov|webm)$/;
+
+function storagePublicPrefix(): string {
+  return `${(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "")}/storage/v1/object/public/${VIDEO_BUCKET}/`;
+}
+
+/** The public URL of an uploaded video. */
+export function uploadedVideoUrl(storagePath: string): string {
+  return storagePublicPrefix() + storagePath;
+}
+
+/** What to play for an exercise: its uploaded file, else its link, else nothing. */
+export function playableVideoUrl(row: {
+  video_url: string | null;
+  video_storage_path?: string | null;
+}): string | null {
+  if (row.video_storage_path && VIDEO_STORAGE_PATH.test(row.video_storage_path)) {
+    return uploadedVideoUrl(row.video_storage_path);
+  }
+  return row.video_url ?? null;
+}
+
+/**
+ * parseVideoUrl, plus our own uploaded files — which are always played as a
+ * file, whatever the project URL looks like (an http:// one locally).
+ */
+export function resolveVideo(url: string): ParsedVideo | { error: string } {
+  const prefix = storagePublicPrefix();
+  if (url.startsWith(prefix) && VIDEO_STORAGE_PATH.test(url.slice(prefix.length))) {
+    return { kind: "file", embedUrl: url, watchUrl: url };
+  }
+  return parseVideoUrl(url);
+}

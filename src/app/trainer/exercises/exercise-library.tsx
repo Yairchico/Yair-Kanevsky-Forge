@@ -21,6 +21,7 @@ interface Exercise {
   /** The permanent note (shown in every program this exercise appears in). */
   instructions: string | null;
   video_url: string | null;
+  video_storage_path: string | null;
 }
 
 /** Inline confirm, not a full dialog — deleting one exercise from a list is routine. */
@@ -186,7 +187,7 @@ export function ExerciseLibrary({
                   <p className="text-sm text-muted-foreground">
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
-                  {(ex.instructions || ex.video_url) && (
+                  {(ex.instructions || ex.video_url || ex.video_storage_path) && (
                     <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
                       {ex.instructions && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
@@ -194,7 +195,7 @@ export function ExerciseLibrary({
                           הערה קבועה
                         </span>
                       )}
-                      {ex.video_url && (
+                      {(ex.video_url || ex.video_storage_path) && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
                           <Play className="h-3 w-3" />
                           סרטון
