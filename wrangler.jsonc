@@ -34,6 +34,27 @@
 	// names like `i9`/`aw`/`tH`) instead of real file/line locations. Added
 	// 2026-09-07 while investigating the staging "Internal Server Error".
 	"upload_source_maps": true,
+	// WHERE THE WORKER RUNS (2026-11). By default a Worker runs in the
+	// Cloudflare location nearest to the VISITOR (Israel), while the database
+	// (Supabase) is in AWS ap-southeast-2 (Sydney) — so every one of a page's
+	// queries crosses half the world and back, one after the other. A
+	// placement hint runs the Worker next to the database instead: the
+	// visitor's request makes the long trip once, and the queries become
+	// short hops. Static files are still served from the nearest location.
+	//
+	// The automatic "Smart Placement" ({ "mode": "smart" }) is NOT the right
+	// tool here: per Cloudflare's docs it needs steady traffic from several
+	// locations and can't move a Worker to a place that doesn't normally
+	// receive traffic — a small Israeli site never has visitors near Sydney.
+	// The explicit form — "placement": { "region": "aws:ap-southeast-2" } —
+	// has no such requirement.
+	//
+	// Rolled out in two steps on purpose. Step 1 (now): only the staging
+	// Worker has it (env.staging below). Step 2, once staging has been felt
+	// and its `cf-placement` response header shows a Sydney-area location:
+	// add the same line right here, so production gets it too. (`placement`
+	// IS inherited by named environments, unlike `assets`/`services`.)
+	// If the Supabase project ever moves to another region, change/remove it.
 	// `production` is this same, unnamed default environment (no --env flag) —
 	// the real, in-use site. `staging` is a second, separate Worker that
 	// every push deploys to automatically (.github/workflows/deploy.yml) so
@@ -68,7 +89,17 @@
 					"invocation_logs": true
 				}
 			},
-			"upload_source_maps": true
+			"upload_source_maps": true,
+			// Run next to the database — see "WHERE THE WORKER RUNS" above.
+			// To check it took effect: open the staging site, look at any page
+			// request's response headers for `cf-placement` (`remote-SYD` or a
+			// nearby code = moved; `local-…` = not).
+			"placement": { "region": "aws:ap-southeast-2" },
+			// Timing of every request to Supabase in the Worker's log
+			// (src/lib/supabase/server.ts → timedFetch): set to "1", push,
+			// read the lines starting with [perf] under Workers → Logs, and
+			// set back to "0". Logs only method, path, status and duration.
+			"vars": { "PERF_LOG": "0" }
 		}
 	}
 	// Not yet configured (add when needed):
