@@ -63,14 +63,18 @@ src/components/session/              the live session UI shared by both kinds of
 src/lib/use-set-entry.ts             the one state machine behind every set-entry screen (trainee workout, trainer session, free session): screen = server copy + unsaved edits; pending-retry queue
 src/lib/set-log-server.ts            server-side set logging shared by the trainee's actions and the trainer session (validation, saveSetLog, notes)
 src/lib/free-sessions.ts + free-session-data.ts   free-session row mappers (pure) and server-side loaders
-src/lib/require-trainer.ts           getTrainerContext(): the signed-in user iff they are the trainer (NOT the read-only superadmin)
+src/lib/viewer.ts                    getRequestAuth(): how every page and Server Action starts — the Supabase client, the VERIFIED signed-in user + their profile (role, is_superadmin, username) in one wait; see "Loading a page"
+src/lib/require-trainer.ts           getTrainerContext(): the signed-in user iff they are the trainer (NOT the read-only superadmin) — built on getRequestAuth
+src/app/sync-actions.ts + src/lib/use-deferred-sync.ts   the one delayed revalidation after a burst of small saves (confirming sets, builder row edits) — see "revalidatePath after every mutation"
+src/components/page-skeleton.tsx     what every loading.tsx shows (src/app/trainer/loading.tsx and src/app/trainee/loading.tsx cover every page under them)
+tools/perf/                          local measurement harness (a Supabase stand-in over local Postgres with a delay per request): sequential waits per page/action, a crawl of every screen per role — see Verification
 src/app/trainer/trainees/[id]/blocks/   training blocks (migration 0017): new/ = the create form, [blockId]/ = the exercise × week overview with every block/week action, actions.ts = thin wrappers around the SQL functions
 src/lib/blocks.ts                    block helpers shared by trainer and trainee screens: rule validation (validateRule), wording for a rule / for what the engine decided (describeRule, describeProgression, traineeJumpLabel), blockErrorMessage for BK001/BK002
-src/lib/block-server.ts              when the engine is asked to run from the app: applyBlockProgression (after any logging), rollForwardBlocks (weekly, lazily, before a page reads a trainee's programs)
+src/lib/block-server.ts              when the engine is asked to run from the app: applyBlockProgression (after any logging), loadWithBlocksRolled (the weekly maintenance, checked alongside a page's own reads of a trainee's programs)
 src/components/exercise-editor/progression-panel.tsx   the per-exercise rule editor + "why this week's targets" line, shown under an exercise in a block week's builder
 src/lib/program-slots.ts             which weeks/days of each trainee's programs a saved workout can be added to (the "לתוכנית של מתאמן" dialog, src/app/trainer/session/add-to-program-modal.tsx)
 src/lib/sets.ts                      per-set parse/format helpers (migration 0013) — reps ranges, kg, summaries
-src/lib/previous-sets.ts             "last time" lookup per exercise + selectInChunks for long .in() lists
+src/lib/previous-sets.ts             "last time" lookup per exercise (loadPreviousIndex: depends only on the trainee, so a page starts it with its first queries) + selectInChunks for long .in() lists
 src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
 src/middleware.ts + src/lib/supabase/middleware.ts   session refresh + role-based routing only, not an authorization boundary — deliberately still `middleware.ts`, not Next 16's renamed `proxy.ts` (see Known Gotchas)
 supabase/migrations/                 numbered, additive SQL migrations (see below)
@@ -93,9 +97,74 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   counter (`tempCounter.current += 1`), never `Date.now()`/`Math.random()`
   inline — that trips the `react-hooks/purity` lint rule.
 - **`revalidatePath` after every mutation**, including the *other* side's
-  pages when data crosses trainer/trainee — e.g. a trainee logging a
-  performance or submitting a workout also revalidates
-  `/trainer/trainees/[id]`.
+  pages when data crosses trainer/trainee — e.g. a trainee submitting a
+  workout also revalidates `/trainer/trainees/[id]`. **Know what it costs**
+  (Next 16, `node_modules/next/dist/docs/01-app/02-guides/server-actions.md`):
+  inside a Server Action it re-renders the page the user is on *in the same
+  request*, and Server Actions run one at a time per browser — so the
+  action takes as long as the write PLUS a full reload of the current
+  page's data, and the next click waits behind it. An action that calls
+  none of `revalidatePath` / `refresh` / `updateTag` / `redirect` and sets
+  no cookie returns only its value. (It never was what showed a change to
+  the *other* person: every page is rendered per request, so they see it on
+  their next navigation or refresh regardless.)
+  **The exception, on purpose (2026-11 speed work):** the small, frequent
+  saves whose result the screen already shows don't revalidate — confirming
+  / un-confirming a set (`logSet`, `unlogSet`, `logSetForTrainee`,
+  `unlogSetForTrainee`, `logFreeSet`, `unlogFreeSet`) and the program
+  builder's row-level saves (exercises, sets, progression rules). The
+  screen instead calls `syncAfterEdits()` (`src/app/sync-actions.ts`,
+  `revalidatePath("/", "layout")`) ONCE, a few quiet seconds after the last
+  of them, and immediately when the screen is left (`useDeferredSync`,
+  `src/lib/use-deferred-sync.ts`; wired into `useSetEntry` and
+  `WorkoutBuilder`). That one call does what each save used to: the current
+  page gets its fresh server copy (in a block, next week's targets may have
+  changed) and every page visited before is re-fetched when navigated to
+  again. Before adding a save to this list, make sure the client really
+  shows its result without the server copy; everything else keeps
+  revalidating as before.
+- **Loading a page: one wait per dependency level, not one per query.**
+  The database is far from where the code runs, so what a page costs is the
+  number of queries that had to wait for one another, not the number of
+  queries. Rules that every page follows since 2026-11:
+  (1) Start with `const { supabase, userId, viewer } = await
+  getRequestAuth()` (`src/lib/viewer.ts`) — no network yet. `viewer` is a
+  promise of the verified user + profile; put it in the page's FIRST
+  `Promise.all` next to the data it doesn't depend on, and don't render
+  for anyone before it resolved to a viewer. `userId` is the UNVERIFIED id
+  from the cookie and may only be used as a filter value in queries
+  started alongside that verification: PostgREST verifies the same token
+  and applies RLS itself, so a forged cookie gets empty results. Never use
+  it for a decision on its own, and never with the service-role client.
+  (2) Everything that needs nothing but the URL / the user starts in that
+  first `Promise.all` — including "the whole exercise library" instead of
+  "the exercises by ids found later".
+  (3) A chain where each step needs the previous step's ids (programs →
+  workouts → exercises → sets) goes in its own `async function` that is
+  *one member* of the `Promise.all`, so it keeps going while slower
+  independent things (free sessions, "last time") load next to it —
+  `await Promise.all([...])` followed by the next step makes the chain wait
+  for the slowest sibling.
+  (4) A trainee's programs are read through `loadWithBlocksRolled`
+  (`src/lib/block-server.ts`): the weekly block maintenance is CHECKED
+  alongside the read, and only when something was due (once a week per
+  block) is it run and the read repeated — so the reader passed to it must
+  be a pure read. Measure with `tools/perf` before and after touching a
+  page's loading.
+- **Who is signed in: `getClaims`, not `getUser`.** `getRequestAuth`
+  verifies the access token with `supabase.auth.getClaims(token)`: on a
+  project with asymmetric JWT signing keys that's a local signature check
+  (no network); with the legacy symmetric secret the library itself falls
+  back to asking the Auth server exactly like `getUser()` did — so the code
+  is the same either way and just gets one wait cheaper once the project's
+  keys are migrated. Why local verification is enough: it is exactly what
+  PostgREST does before applying RLS to every query, and RLS — not this
+  check — is the boundary. The difference from `getUser()` is that a
+  session revoked server-side keeps working until its token expires (an
+  hour at most), which was already true for every data query. The one
+  place that still calls `getUser()` is `requireTrainer()` in
+  `src/app/trainer/trainees/actions.ts`, in front of the service-role
+  client, where RLS does NOT stand behind the check.
 - **Per-set save + localStorage draft** (the trainee's performance entry,
   `src/lib/workout-draft.ts`, since migration 0013): each set is saved to
   the server on its own the moment the trainee taps ✓ (`logSet` in
@@ -165,7 +234,7 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   targets and what was actually logged there. Don't reimplement any of it
   in TypeScript; the app only decides *when* to ask: after every set
   log/unlog/submit on a block workout (`applyBlockProgression`), once a week
-  lazily before reading a trainee's programs (`rollForwardBlocks` — time
+  lazily alongside reading a trainee's programs (`loadWithBlocksRolled` — time
   passing alone turns "projected" into "skipped", and it's also where
   auto-publish and auto-complete happen), and after a trainer edit that
   changes a target or a rule. Things the engine never touches: a set with
@@ -270,9 +339,10 @@ about not showing a button that would fail.
   both of which cache `is_superadmin` in its own cookie (`app_superadmin`)
   alongside the existing `app_role` cookie, same reasoning as that one
   (routing convenience, not the authorization boundary).
-- **UI gating**: `src/lib/viewer.ts`'s `isReadOnlyViewer(supabase, userId)`
-  is the one helper every trainer Server Component calls to get a
-  `readOnly` boolean, threaded down as a prop to whatever renders a
+- **UI gating**: every trainer Server Component gets its `readOnly`
+  boolean from the viewer (`(await viewer)?.isSuperadmin === true`, from
+  `getRequestAuth()` in `src/lib/viewer.ts` — awaited in the page's first
+  `Promise.all`, not before it), threaded down as a prop to whatever renders a
   mutation control (add/edit/delete/publish/reorder/drag-handle) so it's
   hidden instead of rendered-then-failing. `AppShell`'s `readOnly` prop
   shows a small "צפייה בלבד" badge. A screen that's a pure mutation with
@@ -315,6 +385,7 @@ one-time setup walkthrough):
 17. `0017_training_blocks.sql` — training blocks with automatic progression. `blocks` (per trainee; `weeks_count` ≤ 16, `status` active/completed, `default_deload_pct`, `auto_publish_next_week`, `rolled_through`; no stored start date — it's week 1's program date). A block week is an ordinary `programs` row tagged `block_id`/`block_week_index`/`is_deload`/`deload_pct`. `workouts.slot_key` and `workout_exercises.slot_key` identify "the same workout/exercise" across the weeks; the rule lives on `workout_exercises` (`progression_type` none/weight/reps/double, `weight_step_unit` kg/pct, steps, `reps_cap`, `progression_basis` actual/planned, `rounding_kg`) and means "how this exercise moves from THIS week to the next"; `progression_info` jsonb records why a week's targets are what they are; `workout_exercise_sets.weight_kg_exact` keeps the un-rounded weight of a percent chain (and the unused `progression_note` from 0013 is dropped). All logic is in SQL functions, every public one SECURITY DEFINER with its own caller check: the engine `block_recompute_internal` (not callable by API roles), and `create_block`, `apply_block_structure`, `recompute_block`, `set_exercise_progression`, `clear_set_override`, `shift_block`, `insert_block_deload`, `set_block_week_deload`, `end_block`, `delete_block`, `start_next_block` (trainer only) plus `apply_block_progression` and `block_roll_forward` (the workout's/block's trainee, or the trainer). Custom error codes `BK001` (week taken) / `BK002` (week already has recorded performance) carry the week's date in the message.
 18. `0018_week_lock_and_atomic_copy.sql` — (a) the trainee's week lock in RLS, not only in the app: `trainee_can_log(workout_id)` / `trainee_can_log_exercise(workout_exercise_id)` (own, published, non-deleted program, week ≥ last week in Israel time) now gate the trainee's INSERT, UPDATE *and* DELETE on all four performance tables (DELETE used to be just "your own row"); the trainer's policies are untouched. (b) `copy_program_structure(p_from, p_to)` — "שכפול שבוע" as one transaction (`duplicateProgramContents` is a single RPC now). (c) CHECK `programs_week_starts_on_sunday` (added NOT VALID then validated; if a legacy row violates it the migration only prints a notice) — `createProgram` validates the same thing first. Needs 0014 and 0017.
 19. `0019_video_upload_template_to_program_convert_block.sql` — (a) `exercises.video_storage_path` (`<exercise id>/<uuid>.<mp4|mov|webm>`, CHECKed; never together with `video_url` — CHECK `exercises_one_video`) + public bucket `exercise-videos` (`file_size_limit` 50MB, `allowed_mime_types` mp4/quicktime/webm) with trainer-only writes under that name shape. The public URL isn't stored — `playableVideoUrl()` (`src/lib/video.ts`) derives it from `NEXT_PUBLIC_SUPABASE_URL`. (b) `add_template_to_program(template, trainee, week, day, title?)` — a saved workout as a new workout in that week's program (creating a draft program if none; a published one reverts to draft; `BK003` when the day is full). (c) `convert_programs_to_block(trainee, title, program_ids[], extra_weeks, deload_weeks[], deload_pct, auto_publish)` — existing programs become block weeks 1..n in calendar order; slots are matched week to week (same workout by day+position and same exercise by n-th occurrence, then a once-on-each-side exercise anywhere in the week); every set of a matched exercise in weeks 2..n is marked `is_manual_override` so the trainer's own numbers are never recomputed; extra weeks start after the last chosen one (not before this week) and are built with `block_apply_structure_internal`; `BK004` = a program already in a block. Needs 0016 and 0017.
+20. `0020_set_log_context.sql` — `set_log_context(workout_exercise_id)`: everything the server reads before writing a set (the workout/program it belongs to — trainee, week, status, deleted, block — its planned sets, and which sets were already performed), as one jsonb, in one round trip instead of up to five. SECURITY INVOKER on purpose, so RLS decides what it returns exactly as for the queries it replaces (null when the caller may not see the exercise). The app falls back to the separate queries when the function is missing (`setLogContext` in `src/lib/set-log-server.ts`), so migration and code can go in either order.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית
@@ -340,9 +411,16 @@ twice, to prove they're re-runnable) and then acts as the trainer, a
 trainee, another trainee and the read-only viewer, asserting what each is
 allowed and denied — plus the whole block-progression engine. Add the
 check there first when changing any of that (`supabase/tests/README.md`).
-The screens were also driven end to end in the 2026-11 work (Playwright
-against `next dev` and a small PostgREST stand-in over that same local
-database); that part was scratch tooling and is not in the repo.
+**When a page's loading or a frequent action changes, measure it**
+(`tools/perf/README.md`): the app built and run locally against a small
+Supabase stand-in over that same local Postgres, which delays every
+request by 100ms and records them — `pages.mjs` (requests and sequential
+waits per page, per role), `actions.mjs` (confirm a set, builder edit, in
+a real browser), `crawl.mjs` (every screen as trainee / trainer /
+read-only viewer: console errors, failed requests, redirects) and
+`flows.mjs` (log sets → leave → come back → reload). The stand-in doesn't
+do embedded selects or Storage. Numbers from the 2026-11 speed work are in
+`planning/PLAN.md`.
 
 `.github/workflows/ci.yml` runs these same checks (lint, `next typegen` +
 `tsc`, `cf:build` with `.env.example` placeholders) on every push and PR —
@@ -421,6 +499,21 @@ shipping something broken:
    `NEXT_PUBLIC_SUPABASE_ANON_KEY` throws. This is the staging outage from
    Known Gotchas turned into a failed workflow instead of a Worker that
    500s on every request.
+
+**Where the Worker runs (`placement` in `wrangler.jsonc`, 2026-11).** The
+Supabase project is in AWS `ap-southeast-2` (Sydney) and the visitors are
+in Israel, so by default every query crossed the world and back. The
+staging Worker is pinned next to the database with `"placement": {
+"region": "aws:ap-southeast-2" }`; production gets the same line (at the
+top level, where staging would inherit it) only after staging was felt
+and its `cf-placement` response header showed a Sydney-area location.
+Cloudflare's automatic Smart Placement (`"mode": "smart"`) is not used: it
+needs steady traffic from several locations and won't move a Worker to a
+place that doesn't normally receive traffic. If the Supabase project ever
+moves region, change or remove the line. `env.staging.vars.PERF_LOG` = `"1"`
+turns on one log line per Supabase request (method, path without query,
+status, ms — `timedFetch` in `src/lib/supabase/server.ts`), readable under
+Workers → Logs; keep it `"0"` otherwise.
 
 Both workflows re-apply every secret with `wrangler secret put` (staging
 adds `--env staging`) — piped non-interactively from GitHub's encrypted
@@ -565,7 +658,14 @@ dashboards, never a `wrangler` command run by the user themselves.
   `getUser()` call downstream was tried and reverted — it didn't reliably
   survive Server Action requests under OpenNext's experimental Cloudflare
   "Node.js middleware" runtime (a trainee-creation submit silently bounced
-  to `/login`). Pages/actions call `supabase.auth.getUser()` directly.
+  to `/login`). Pages/actions read the auth cookie themselves
+  (`getRequestAuth()` in `src/lib/viewer.ts`) — still no identity passed
+  through headers; what changed in 2026-11 is only that the verification
+  runs alongside the first queries instead of before them.
+- A page under a `loading.tsx` answers 200 before its data is in, so a
+  `redirect()` / `notFound()` thrown after that reaches the browser inside
+  the stream (the browser still ends up in the right place), not as a
+  307/404 status — don't write a check that depends on the status code.
 - `src/lib/supabase/types.ts` is hand-written (no live Supabase project to
   `supabase gen types` against from this sandbox). Every table needs
   `Relationships: []` and the schema needs `Views`/`Functions` populated
