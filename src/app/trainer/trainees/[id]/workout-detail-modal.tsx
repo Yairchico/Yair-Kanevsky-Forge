@@ -4,32 +4,24 @@ import { Check } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { formatWeight } from "@/lib/format";
-
-interface LoggedPerformance {
-  weight: string | null;
-  reps: string | null;
-  rpe: number | null;
-  notes: string | null;
-  performedAt: string;
-}
-
-interface PlannedFields {
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
-  restSeconds: number | null;
-}
+import { SetsTable } from "@/components/sets-table";
+import { formatShortDateTime } from "@/lib/format";
+import type { LoggedSet, PlannedSet } from "@/lib/sets";
 
 export interface WorkoutDetailExercise {
   id: string;
   name: string;
   muscleGroup: string | null;
-  planned: PlannedFields;
+  plannedSets: PlannedSet[];
+  /** Performed sets (migration 0013), excluding ones carried over from the old single-value logs. */
+  loggedSets: LoggedSet[];
+  restSeconds: number | null;
   instructions: string | null;
   done: boolean;
-  log: LoggedPerformance | null;
+  /** The trainee's note on this exercise, from the submission. */
+  note: string | null;
+  /** The old one-value-per-exercise entry, when this was logged before sets were split. */
+  legacyActual: string | null;
 }
 
 export interface WorkoutDetailData {
@@ -37,16 +29,11 @@ export interface WorkoutDetailData {
   dayOfWeek: number;
   orderIndex: number;
   submittedAt: string | null;
+  /** Who submitted it: the trainee, or the trainer in a personal session (migration 0016). */
+  submittedBy: "trainee" | "trainer_session" | null;
+  /** The trainer's overall note from a personal session. */
+  sessionNote: string | null;
   exercises: WorkoutDetailExercise[];
-}
-
-function formatSubmittedAt(iso: string) {
-  return new Date(iso).toLocaleString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /**
@@ -72,11 +59,16 @@ export function WorkoutDetailModal({
         <div className="flex flex-wrap items-center gap-2">
           {workout.submittedAt ? (
             <span className="rounded-full bg-success/15 px-3 py-1 text-sm font-medium text-success">
-              הוגש · {formatSubmittedAt(workout.submittedAt)}
+              הוגש · {formatShortDateTime(workout.submittedAt)}
             </span>
           ) : (
             <span className="rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
               טרם הוגש
+            </span>
+          )}
+          {workout.submittedBy === "trainer_session" && (
+            <span className="rounded-full bg-primary-tint px-3 py-1 text-sm font-medium text-primary-text">
+              אימון אישי עם המאמן
             </span>
           )}
           {workout.exercises.length > 0 && (
@@ -85,6 +77,13 @@ export function WorkoutDetailModal({
             </span>
           )}
         </div>
+
+        {workout.sessionNote && (
+          <p className="rounded-md bg-muted/60 px-3 py-2 text-sm whitespace-pre-line">
+            <span className="text-muted-foreground">הערה כללית: </span>
+            {workout.sessionNote}
+          </p>
+        )}
 
         {workout.exercises.length === 0 ? (
           <p className="text-base text-muted-foreground">אין תרגילים באימון זה.</p>
@@ -101,36 +100,33 @@ export function WorkoutDetailModal({
                   >
                     {ex.done && <Check className="h-4 w-4" />}
                   </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <p className="text-base font-medium">{ex.name}</p>
-                    {ex.muscleGroup && (
-                      <p className="text-sm text-muted-foreground">{ex.muscleGroup}</p>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div>
+                      <p className="text-base font-medium">{ex.name}</p>
+                      {ex.muscleGroup && (
+                        <p className="text-sm text-muted-foreground">{ex.muscleGroup}</p>
+                      )}
+                    </div>
+                    <SetsTable
+                      planned={ex.plannedSets}
+                      logged={ex.loggedSets}
+                      mode={ex.legacyActual ? "targets" : "both"}
+                    />
+                    {ex.legacyActual && (
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">בפועל (מלפני פיצול הסטים): </span>
+                        {ex.legacyActual}
+                      </p>
                     )}
-                    <p className="text-sm text-muted-foreground">
-                      מתוכנן:{" "}
-                      {[
-                        ex.planned.sets != null && `${ex.planned.sets} סטים`,
-                        ex.planned.reps && `${ex.planned.reps} חזרות`,
-                        formatWeight(ex.planned.weight),
-                        ex.planned.rpe != null && `RPE ${ex.planned.rpe}`,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </p>
-                    {ex.instructions && <p className="text-sm">{ex.instructions}</p>}
-                    {ex.log && (
-                      <p className="text-sm text-primary">
-                        בפועל (בהגשה):{" "}
-                        {[
-                          ex.log.reps && `${ex.log.reps} חזרות`,
-                          formatWeight(ex.log.weight),
-                          ex.log.rpe != null && `RPE ${ex.log.rpe}`,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "נרשם"}
-                        {ex.log.notes && (
-                          <span className="text-muted-foreground"> — {ex.log.notes}</span>
-                        )}
+                    {ex.instructions && (
+                      <p className="text-sm text-muted-foreground">הנחיה: {ex.instructions}</p>
+                    )}
+                    {ex.note && (
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">
+                          {workout.submittedBy === "trainer_session" ? "הערה לתרגיל: " : "הערת המתאמן: "}
+                        </span>
+                        {ex.note}
                       </p>
                     )}
                   </div>

@@ -10,79 +10,38 @@ export interface ActionState {
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
+/** A real calendar date in 'YYYY-MM-DD' form that falls on a Sunday. */
+function isWeekStart(dateKey: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return false;
+  const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d && date.getUTCDay() === 0
+  );
+}
+
 /**
- * Deep-copies one program's entire structure (every workout, and every
- * workout_exercise on it — sets/reps/weight/RPE/rest/instructions) into
- * another, freshly-created program. Used by "שכפול שבוע": the new program
- * is always created as a draft, so the trainer reviews the copy before
- * publishing it.
+ * Deep-copies one program's entire structure (every workout, every
+ * workout_exercise on it, and every planned set under those, with
+ * reps/weight/RPE targets, rest and instructions) into another,
+ * freshly-created program. Used by "שכפול שבוע": the new program is always
+ * created as a draft, so the trainer reviews the copy before publishing it.
+ *
+ * One database function, i.e. one transaction (migration 0018): this used
+ * to be dozens of separate inserts from here, and a failure halfway left a
+ * half-copied program behind.
  */
 async function duplicateProgramContents(
   supabase: Supabase,
   fromProgramId: string,
   toProgramId: string,
 ): Promise<string | null> {
-  const { data: sourceWorkouts } = await supabase
-    .from("workouts")
-    .select("id, day_of_week, order_index")
-    .eq("program_id", fromProgramId)
-    .order("day_of_week")
-    .order("order_index");
-
-  if (!sourceWorkouts?.length) return null;
-
-  // Inserted one at a time (not a single batch insert) so each source
-  // workout's new id is captured directly from its own insert response.
-  // This used to be a batch insert with old->new ids reconstructed
-  // afterwards via a (day_of_week, order_index) composite key — but that
-  // key isn't actually guaranteed unique per program: createWorkout could
-  // (before its own fix) assign a new workout the same order_index as an
-  // existing one on the same day, and a Map can't hold two entries under
-  // one key, so one side of that collision silently mapped to the wrong
-  // new workout (or to undefined) and its exercises came out wrong or
-  // failed to copy at all.
-  const oldToNewWorkoutId = new Map<string, string>();
-  for (const w of sourceWorkouts) {
-    const { data: newWorkout, error: workoutError } = await supabase
-      .from("workouts")
-      .insert({ program_id: toProgramId, day_of_week: w.day_of_week, order_index: w.order_index })
-      .select("id")
-      .single();
-
-    if (workoutError || !newWorkout) {
-      return "שגיאה בשכפול האימונים";
-    }
-    oldToNewWorkoutId.set(w.id, newWorkout.id);
-  }
-
-  const { data: sourceExercises } = await supabase
-    .from("workout_exercises")
-    .select(
-      "workout_id, exercise_id, order_index, sets, reps, weight, rpe, rest_seconds, instructions",
-    )
-    .in(
-      "workout_id",
-      sourceWorkouts.map((w) => w.id),
-    )
-    .order("order_index");
-
-  if (!sourceExercises?.length) return null;
-
-  const { error: exercisesError } = await supabase.from("workout_exercises").insert(
-    sourceExercises.map((we) => ({
-      workout_id: oldToNewWorkoutId.get(we.workout_id)!,
-      exercise_id: we.exercise_id,
-      order_index: we.order_index,
-      sets: we.sets,
-      reps: we.reps,
-      weight: we.weight,
-      rpe: we.rpe,
-      rest_seconds: we.rest_seconds,
-      instructions: we.instructions,
-    })),
-  );
-
-  return exercisesError ? "שגיאה בשכפול התרגילים" : null;
+  const { error } = await supabase.rpc("copy_program_structure", {
+    p_from: fromProgramId,
+    p_to: toProgramId,
+  });
+  return error ? "שגיאה בשכפול התוכנית" : null;
 }
 
 export async function createProgram(
@@ -102,8 +61,17 @@ export async function createProgram(
   if (!title) {
     return { error: "נא להזין שם לתוכנית" };
   }
+  if (title.length > 120) {
+    return { error: "שם התוכנית ארוך מדי (עד 120 תווים)" };
+  }
   if (!weekStartDate) {
     return { error: "נא לבחור שבוע" };
+  }
+  // The form only offers Sundays, but the value arrives from the client: a
+  // program whose week starts on any other day belongs to no week on any
+  // screen. (Also a CHECK constraint since migration 0018.)
+  if (!isWeekStart(weekStartDate)) {
+    return { error: "השבוע שנבחר לא תקין" };
   }
 
   const supabase = await createClient();

@@ -1,8 +1,40 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatShortDateTime, formatWeight } from "@/lib/format";
+import { formatShortDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import {
+  PLANNED_SET_COLUMNS,
+  SET_LOG_COLUMNS,
+  formatLegacyActual,
+  formatLoggedSet,
+  isSetTargetMet,
+  toLoggedSet,
+  toPlannedSet,
+  type LoggedSet,
+} from "@/lib/sets";
+import { loadExercisesOfSessions, loadFreeSessionList } from "@/lib/free-session-data";
+import { isSessionStale } from "@/lib/free-sessions";
+import { selectInChunks } from "@/lib/previous-sets";
 import { dayName } from "@/lib/week";
+
+interface HistoryEntry {
+  key: string;
+  /** When it happened: the submission time, or when a free session started. */
+  at: string;
+  label: string;
+  /** Set when the trainer ran it (a session from the plan, or a free session). */
+  tag: string | null;
+  /** The trainer's overall note on the session. */
+  trainerNote: string | null;
+  exercises: {
+    id: string;
+    name: string;
+    sets: (LoggedSet & { met: boolean })[];
+    legacy: string | null;
+    notes: string | null;
+  }[];
+}
 
 /**
  * A log of submitted workouts — one card per workout_completions row
@@ -13,6 +45,11 @@ import { dayName } from "@/lib/week";
  * log rows keyed by their own performed_at) is what keeps this a clean
  * "here's what you submitted, and when" list instead of a pile of
  * near-duplicate entries.
+ *
+ * Two more things land here since the trainer-led sessions (migration
+ * 0016): a workout from the plan that the trainer ran is tagged "אימון אישי
+ * עם המאמן", and free sessions the trainer assigned to this trainee are
+ * listed alongside, tagged "אימון חופשי עם המאמן".
  */
 export default async function TraineeHistoryPage() {
   const supabase = await createClient();
@@ -36,12 +73,35 @@ export default async function TraineeHistoryPage() {
   monthAgo.setDate(monthAgo.getDate() - 30);
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const { data: completions } = await supabase
-    .from("workout_completions")
-    .select("workout_id, completed_at")
-    .eq("trainee_id", user.id)
-    .gte("completed_at", monthAgo.toISOString())
-    .order("completed_at", { ascending: false });
+  const [{ data: completions }, freeSessionList] = await Promise.all([
+    supabase
+      .from("workout_completions")
+      .select("workout_id, completed_at, source, notes")
+      .eq("trainee_id", user.id)
+      .gte("completed_at", monthAgo.toISOString())
+      .order("completed_at", { ascending: false }),
+    loadFreeSessionList(supabase, { traineeId: user.id, limit: 30 }),
+  ]);
+
+  // A free session counts once it's over: finished, or left open long
+  // enough that it clearly isn't in progress any more. Empty ones never do.
+  const freeSessions = freeSessionList.filter(
+    (session) =>
+      session.setCount > 0 &&
+      session.startedAt >= monthAgo.toISOString() &&
+      (session.finishedAt != null || isSessionStale(session.startedAt)),
+  );
+  const [freeExercisesBySession, { data: freeSessionRows }] = await Promise.all([
+    loadExercisesOfSessions(
+      supabase,
+      freeSessions.map((session) => session.id),
+    ),
+    supabase
+      .from("free_sessions")
+      .select("id, notes")
+      .in("id", freeSessions.length ? freeSessions.map((session) => session.id) : noRows),
+  ]);
+  const freeSessionNote = new Map((freeSessionRows ?? []).map((row) => [row.id, row.notes]));
 
   const workoutIds = [...new Set((completions ?? []).map((c) => c.workout_id))];
 
@@ -57,9 +117,34 @@ export default async function TraineeHistoryPage() {
       .order("order_index"),
     supabase
       .from("workout_logs")
-      .select("workout_exercise_id, actual_sets, rpe_actual, notes")
+      .select("workout_exercise_id, actual_sets, notes")
       .eq("trainee_id", user.id),
   ]);
+
+  // Per-set performance (migration 0013) and the planned targets, to mark
+  // a set that fell short of its target.
+  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+  const [plannedRows, loggedRows] = await Promise.all([
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+    ),
+    selectInChunks(workoutExerciseIds, (chunk) =>
+      supabase
+        .from("set_logs")
+        .select(SET_LOG_COLUMNS)
+        .eq("trainee_id", user.id)
+        .eq("status", "done")
+        .neq("source", "legacy")
+        .in("workout_exercise_id", chunk),
+    ),
+  ]);
+  const plannedByKey = new Map(plannedRows.map((r) => [`${r.workout_exercise_id}:${r.set_index}`, toPlannedSet(r)]));
+  const loggedByWe = new Map<string, LoggedSet[]>();
+  for (const row of loggedRows) {
+    const list = loggedByWe.get(row.workout_exercise_id) ?? [];
+    list.push(toLoggedSet(row));
+    loggedByWe.set(row.workout_exercise_id, list);
+  }
 
   const programIds = [...new Set((workouts ?? []).map((w) => w.program_id))];
   const { data: programs } = await supabase
@@ -78,8 +163,8 @@ export default async function TraineeHistoryPage() {
   const exerciseNameById = new Map((exercises ?? []).map((e) => [e.id, e.name]));
   const logByWorkoutExerciseId = new Map((logs ?? []).map((l) => [l.workout_exercise_id, l]));
 
-  const history = (completions ?? [])
-    .map((completion) => {
+  const planHistory: HistoryEntry[] = (completions ?? [])
+    .map((completion): HistoryEntry | null => {
       // A workout the trainer later deleted (or unpublished — RLS scopes
       // a trainee's own SELECT on workouts to published, non-deleted
       // programs) won't resolve here; skip it rather than show a broken row.
@@ -90,53 +175,97 @@ export default async function TraineeHistoryPage() {
         .filter((we) => we.workout_id === completion.workout_id)
         .map((we) => {
           const log = logByWorkoutExerciseId.get(we.id);
-          if (!log) return null;
-          const sets = log.actual_sets as { weight?: string | null; reps?: string | null } | null;
+          const sets = (loggedByWe.get(we.id) ?? [])
+            .sort((a, b) => a.setIndex - b.setIndex)
+            .map((set) => ({
+              ...set,
+              met: isSetTargetMet(plannedByKey.get(`${we.id}:${set.setIndex}`), set),
+            }));
+          const legacy = sets.length === 0 ? formatLegacyActual(log?.actual_sets) : null;
+          if (sets.length === 0 && !legacy && !log?.notes) return null;
           return {
             id: we.id,
             name: exerciseNameById.get(we.exercise_id) ?? "תרגיל לא ידוע",
-            reps: sets?.reps ?? null,
-            weight: sets?.weight ?? null,
-            rpe: log.rpe_actual,
-            notes: log.notes,
+            sets,
+            legacy,
+            notes: log?.notes ?? null,
           };
         })
         .filter((ex): ex is NonNullable<typeof ex> => ex !== null);
 
       const programTitle = programTitleById.get(workout.program_id);
+      const byTrainer = completion.source === "trainer_session";
       return {
-        workoutId: completion.workout_id,
-        completedAt: completion.completed_at,
+        key: completion.workout_id,
+        at: completion.completed_at,
         label: programTitle ? `${dayName(workout.day_of_week)} · ${programTitle}` : dayName(workout.day_of_week),
+        tag: byTrainer ? "אימון אישי עם המאמן" : null,
+        trainerNote: byTrainer ? completion.notes : null,
         exercises: exercisesForWorkout,
       };
     })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    .filter((entry): entry is HistoryEntry => entry !== null);
+
+  const freeHistory: HistoryEntry[] = freeSessions.map((session) => ({
+    key: `free-${session.id}`,
+    at: session.startedAt,
+    label: "אימון חופשי",
+    tag: "אימון חופשי עם המאמן",
+    trainerNote: freeSessionNote.get(session.id) ?? null,
+    exercises: (freeExercisesBySession.get(session.id) ?? [])
+      .filter((ex) => ex.loggedSets.length > 0)
+      .map((ex) => ({
+        id: ex.id,
+        name: ex.name,
+        sets: ex.loggedSets.map((set) => ({
+          ...set,
+          met: isSetTargetMet(
+            ex.plannedSets.find((planned) => planned.setIndex === set.setIndex),
+            set,
+          ),
+        })),
+        legacy: null,
+        notes: ex.initialNote,
+      })),
+  }));
+
+  const history = [...planHistory, ...freeHistory].sort((a, b) => (a.at < b.at ? 1 : -1));
 
   return (
     <AppShell title="היסטוריה" backHref="/trainee">
-      <p className="text-base text-muted-foreground">אימונים שהוגשו ב-30 הימים האחרונים.</p>
+      <p className="text-base text-muted-foreground">אימונים מ-30 הימים האחרונים.</p>
 
       {history.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>אין עדיין היסטוריה</CardTitle>
             <CardDescription className="text-base">
-              כשתגיש אימון, הוא יופיע כאן.
+              כשתגיש אימון, או כשהמאמן יתעד אימון איתך, הוא יופיע כאן.
             </CardDescription>
           </CardHeader>
         </Card>
       ) : (
         <div className="space-y-3">
           {history.map((entry) => (
-            <Card key={entry.workoutId}>
+            <Card key={entry.key}>
               <CardContent className="space-y-2.5 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <p className="text-base font-semibold">{entry.label}</p>
-                  <span className="text-sm text-muted-foreground">
-                    {formatShortDateTime(entry.completedAt)}
-                  </span>
+                  <p className="flex flex-wrap items-center gap-2 text-base font-semibold">
+                    {entry.label}
+                    {entry.tag && (
+                      <span className="rounded-full bg-primary-tint px-2.5 py-0.5 text-xs font-medium text-primary-text">
+                        {entry.tag}
+                      </span>
+                    )}
+                  </p>
+                  <span className="text-sm text-muted-foreground">{formatShortDateTime(entry.at)}</span>
                 </div>
+                {entry.trainerNote && (
+                  <p className="rounded-md bg-muted/60 px-2.5 py-1.5 text-sm whitespace-pre-line">
+                    <span className="text-muted-foreground">הערת המאמן: </span>
+                    {entry.trainerNote}
+                  </p>
+                )}
 
                 {entry.exercises.length === 0 ? (
                   <p className="text-sm text-muted-foreground">האימון הוגש ללא פרטי ביצוע.</p>
@@ -144,14 +273,29 @@ export default async function TraineeHistoryPage() {
                   <div className="divide-y divide-border">
                     {entry.exercises.map((ex) => (
                       <div key={ex.id} className="space-y-0.5 py-2 first:pt-0 last:pb-0">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                          <span className="text-sm font-medium">{ex.name}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {[ex.reps && `${ex.reps} חזרות`, formatWeight(ex.weight), ex.rpe != null && `RPE ${ex.rpe}`]
-                              .filter(Boolean)
-                              .join(" · ") || "נרשם"}
-                          </span>
-                        </div>
+                        <p className="text-sm font-medium">{ex.name}</p>
+                        {ex.sets.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {ex.sets.map((set) => (
+                              <span
+                                key={set.setIndex}
+                                dir="ltr"
+                                className={cn(
+                                  "rounded-md px-2 py-0.5 text-sm",
+                                  set.met ? "bg-muted" : "bg-warning/20 text-warning-foreground",
+                                )}
+                              >
+                                {formatLoggedSet(set)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {ex.legacy && (
+                          <p className="text-sm">
+                            {ex.legacy}{" "}
+                            <span className="text-xs text-muted-foreground">(מלפני פיצול הסטים)</span>
+                          </p>
+                        )}
                         {ex.notes && <p className="text-sm text-muted-foreground">{ex.notes}</p>}
                       </div>
                     ))}

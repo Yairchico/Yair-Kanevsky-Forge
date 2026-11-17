@@ -17,30 +17,34 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { addDays, dayName, formatWeekLabel, formatWeekRange, getWeekStart, parseDateKey, toDateKey } from "@/lib/week";
-import { formatWeight } from "@/lib/format";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey, toDateKey } from "@/lib/week";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionState = {};
 
-const today = new Date();
-const currentWeekStart = getWeekStart(today);
-const weekOptions = [0, 1, 2].map((offset) => {
-  const start = addDays(currentWeekStart, offset * 7);
-  return {
-    key: toDateKey(start),
-    label: formatWeekLabel(start, today),
-    range: formatWeekRange(start),
-  };
-});
+/**
+ * The three weeks a new program can be created for: this week and the two
+ * after it. Built from the server's idea of the current week (a prop), not
+ * from a module-level `new Date()` — that would be frozen at whatever
+ * moment the module happened to load, on a server that stays up for days.
+ */
+function buildWeekOptions(currentWeekKey: string) {
+  const currentWeekStart = parseDateKey(currentWeekKey);
+  return [0, 1, 2].map((offset) => {
+    const start = addDays(currentWeekStart, offset * 7);
+    return {
+      key: toDateKey(start),
+      label: formatWeekLabel(start, currentWeekStart),
+      range: formatWeekRange(start),
+    };
+  });
+}
 
 interface DuplicateExercise {
   id: string;
   name: string;
-  sets: number | null;
-  reps: string | null;
-  weight: string | null;
-  rpe: number | null;
+  /** One-line summary of the planned sets, e.g. "4 × 8-10 · 80 ק"ג" (src/lib/sets.ts). */
+  summary: string;
   restSeconds: number | null;
   instructions: string | null;
 }
@@ -111,7 +115,7 @@ function PreviewModal({
             onClick={() => go(-1)}
             disabled={index === 0}
             aria-label="האימון הקודם"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover disabled:opacity-30"
           >
             <ChevronRight className="h-5 w-5" />
           </button>
@@ -131,10 +135,7 @@ function PreviewModal({
                   <div key={ex.id} className="space-y-1 py-2 first:pt-0 last:pb-0">
                     <p className="text-sm font-medium">{ex.name}</p>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-muted-foreground">
-                      {ex.sets != null && <span>{ex.sets} סטים</span>}
-                      {ex.reps && <span>{ex.reps} חזרות</span>}
-                      {formatWeight(ex.weight) && <span>{formatWeight(ex.weight)}</span>}
-                      {ex.rpe != null && <span>RPE {ex.rpe}</span>}
+                      <span>{ex.summary}</span>
                     </div>
                   </div>
                 ))}
@@ -147,7 +148,7 @@ function PreviewModal({
             onClick={() => go(1)}
             disabled={index === candidate.workouts.length - 1}
             aria-label="האימון הבא"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover disabled:opacity-30"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -241,12 +242,12 @@ function DuplicateWeekPicker({
             onClick={() => setPreviewCandidate(c)}
             className={cn(
               "flex w-full items-start justify-between gap-2 rounded-lg border p-3 text-start transition-colors",
-              isSelected ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
+              isSelected ? "border-primary bg-primary-tint" : "border-border hover:bg-hover",
             )}
           >
             <div>
               <p className="flex items-center gap-1.5 text-sm font-medium">
-                {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                {isSelected && <Check className="h-3.5 w-3.5 text-primary-text" />}
                 {c.title}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -255,7 +256,7 @@ function DuplicateWeekPicker({
                 {c.isCurrentWeek && " · מתרחש כעת"}
               </p>
             </div>
-            <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
+            <span className="flex shrink-0 items-center gap-1 text-xs text-primary-text">
               <Eye className="h-3.5 w-3.5" />
               {c.workouts.length} אימונים · {totalExercises} תרגילים
             </span>
@@ -278,18 +279,22 @@ function DuplicateWeekPicker({
 export function NewProgramForm({
   traineeId,
   traineeName,
+  currentWeekKey,
   duplicateCandidates,
   existingProgramByWeek,
 }: {
   traineeId: string;
   traineeName: string;
+  /** week_start_date of the current week, in Israel time. */
+  currentWeekKey: string;
   duplicateCandidates: DuplicateCandidate[];
   /** The 3 selectable weeks (this week, +1, +2) that already have a program — keyed by week_start_date. */
   existingProgramByWeek: Record<string, { id: string; title: string }>;
 }) {
   const action = createProgram.bind(null, traineeId);
   const [state, formAction, pending] = useActionState(action, initialState);
-  const [week, setWeek] = useState(weekOptions[0].key);
+  const weekOptions = buildWeekOptions(currentWeekKey);
+  const [week, setWeek] = useState(currentWeekKey);
   const [duplicateEnabled, setDuplicateEnabled] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
@@ -370,8 +375,8 @@ export function NewProgramForm({
                               ? "border-destructive bg-destructive/5"
                               : "border-destructive/40 hover:bg-destructive/5"
                             : isSelected
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-muted",
+                              ? "border-primary bg-primary-tint"
+                              : "border-border hover:bg-hover",
                         )}
                       >
                         <span>

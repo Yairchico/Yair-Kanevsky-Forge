@@ -30,7 +30,7 @@ export function AppShell({
             <Link
               href={backHref}
               aria-label="חזרה"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-xs transition-colors hover:bg-muted active:scale-95"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-xs transition-colors hover:bg-hover active:scale-95"
             >
               {/* Points visually "back" in RTL. */}
               <ArrowRight className="h-6 w-6" />

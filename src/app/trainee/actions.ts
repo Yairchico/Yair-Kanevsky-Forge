@@ -1,7 +1,42 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { applyBlockProgression } from "@/lib/block-server";
 import { createClient } from "@/lib/supabase/server";
+import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
+import {
+  STALE_WORKOUT_ERROR,
+  deleteSetLog,
+  isStaleError,
+  programForWorkout,
+  programForWorkoutExercise,
+  saveExerciseNotes,
+  saveSetLog,
+  validateSetIndex,
+  validateSetLogInput,
+  type LogSetResult,
+  type SetLogInput,
+} from "@/lib/set-log-server";
+
+function revalidateTraineeAndTrainer() {
+  revalidatePath("/trainee");
+  revalidatePath("/trainee/workouts");
+  revalidatePath("/trainee/history");
+  revalidatePath("/trainer/trainees/[id]", "page");
+}
+
+const LOCKED_WEEK_ERROR = "אפשר לעדכן רק אימונים מהשבוע הנוכחי ומהשבוע הקודם";
+
+/**
+ * A trainee can change what they logged only in the current week and the
+ * one before it (QUESTIONS.md Q1.7) — enough to finish a late workout or
+ * fix a typo, without quietly rewriting older history. Future weeks are
+ * fine (doing a workout early).
+ */
+function isEditableWeek(weekStartDate: string): boolean {
+  const previousWeekKey = toDateKey(addDays(getWeekStart(israelNow()), -7));
+  return weekStartDate >= previousWeekKey;
+}
 
 /** Marks (or unmarks) a single exercise as done — independent of submitting the workout. */
 export async function toggleExerciseCompletion(
@@ -13,6 +48,9 @@ export async function toggleExerciseCompletion(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+
+  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
+  if (!program || !isEditableWeek(program.weekStartDate)) return;
 
   if (completed) {
     await supabase
@@ -29,25 +67,71 @@ export async function toggleExerciseCompletion(
       .eq("trainee_id", user.id);
   }
 
-  revalidatePath("/trainee");
-  revalidatePath("/trainee/workouts");
-  revalidatePath("/trainer/trainees/[id]", "page");
+  revalidateTraineeAndTrainer();
 }
 
-export interface LoggedPerformance {
-  weight: string | null;
-  reps: string | null;
-  rpe: number | null;
-  notes: string | null;
-  performedAt: string;
+/**
+ * Saves one performed set the moment the trainee confirms it (✓) —
+ * PLAN.md feature 1: each set is submitted on its own, rather than the
+ * whole workout's numbers waiting for "הגש אימון". When this completes
+ * every working (non-warm-up) set of the exercise, the exercise is marked
+ * done too (Q1.3) — the manual "סמן כבוצע" toggle still exists for a trainee
+ * who doesn't want to type numbers.
+ */
+export async function logSet(
+  workoutExerciseId: string,
+  setIndex: number,
+  input: SetLogInput,
+): Promise<LogSetResult> {
+  const validationError = validateSetIndex(setIndex) ?? validateSetLogInput(input);
+  if (validationError) return { error: validationError };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "שגיאת התחברות" };
+
+  // Through RLS: resolves only for the trainee's own published program.
+  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
+  if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
+  if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
+
+  const result = await saveSetLog(supabase, { workoutExerciseId, setIndex, input, traineeId: user.id });
+  if (!result.error) {
+    // In a training block, what was just logged can change next week's targets.
+    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
+    revalidateTraineeAndTrainer();
+  }
+  return result;
 }
 
-/** One exercise's typed-but-unsaved entry, held client-side until the whole workout is submitted. */
-export interface PerformanceEntry {
+/** Un-confirms a set (the trainee tapped ✓ again). Doesn't touch the exercise's "done" mark. */
+export async function unlogSet(
+  workoutExerciseId: string,
+  setIndex: number,
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "שגיאת התחברות" };
+
+  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
+  if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
+  if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
+
+  const result = await deleteSetLog(supabase, { workoutExerciseId, setIndex, traineeId: user.id });
+  if (!result.error) {
+    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
+    revalidateTraineeAndTrainer();
+  }
+  return result;
+}
+
+/** A per-exercise note, sent with the workout submission. */
+export interface ExerciseNoteEntry {
   workoutExerciseId: string;
-  weight: string | null;
-  reps: string | null;
-  rpe: number | null;
   notes: string | null;
 }
 
@@ -55,44 +139,18 @@ export interface SubmitWorkoutState {
   error?: string;
 }
 
-function hasAnyValue(entry: PerformanceEntry): boolean {
-  return Boolean(entry.weight || entry.reps || entry.rpe != null || entry.notes);
-}
-
-// If the trainer removes this exact workout/exercise from a published
-// program at the exact moment a trainee submits it, the insert/upsert
-// below fails on the foreign key (the row it points to is gone) — code
-// 23503, same as the FK-restrict case in exercises' deleteExercise. The
-// trainee's typed values are never actually lost either way: they're
-// already sitting in localStorage (src/lib/workout-draft.ts) regardless
-// of whether this submit succeeds, so this only needs an honest message,
-// not any data-recovery logic.
-const STALE_WORKOUT_ERROR =
-  "האימון עודכן על ידי המאמן בינתיים — רענן/י את הדף ונסה/י שוב";
-
 /**
- * Submits the whole workout at once — there's no more per-exercise "save":
- * whatever the trainee typed into each exercise's fields (held client-side
- * as a draft, see src/lib/workout-draft.ts, so it survives a closed tab)
- * becomes one workout_logs row per exercise that has anything in it.
- * Upserted on (workout_exercise_id, trainee_id) — migration 0012 — rather
- * than always inserting: since workout_exercises are already scoped to one
- * specific week's workout, this naturally keeps exactly one log per
- * exercise per week's occurrence (one history entry, not a growing pile —
- * a trainee toggling "הגש אימון" off/on, or resubmitting after fixing a
- * typo, used to insert a fresh duplicate row every time, which is what
- * showed up as repeats on the history page). An exercise that had a
- * logged value before but is empty on this submit (the trainee cleared
- * it) gets its old log explicitly deleted — upsert alone only touches
- * rows present in this submit's payload, so a cleared field would
- * otherwise leave a stale log behind. Un-submitting (to fix a mistake)
- * only removes the workout_completions row; it doesn't touch logs, so
- * re-submitting without changing anything just re-upserts the same values.
+ * Marks the whole workout as submitted (or un-submits it). The numbers are
+ * no longer part of this: every set was already saved on its own by
+ * logSet. What's left is the exercise-level note (workout_logs) and the
+ * workout_completions row that marks the submission itself.
+ *
+ * Un-submitting only removes workout_completions — logged sets stay.
  */
 export async function submitWorkout(
   workoutId: string,
   submitted: boolean,
-  entries: PerformanceEntry[] = [],
+  notes: ExerciseNoteEntry[] = [],
 ): Promise<SubmitWorkoutState> {
   const supabase = await createClient();
   const {
@@ -100,44 +158,13 @@ export async function submitWorkout(
   } = await supabase.auth.getUser();
   if (!user) return { error: "שגיאת התחברות" };
 
+  const program = await programForWorkout(supabase, workoutId);
+  if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
+  if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
+
   if (submitted) {
-    // Real validation, not just the input's min/max hint — a value outside
-    // 1-10 must not be allowed to save at all.
-    for (const entry of entries) {
-      if (entry.rpe != null && (Number.isNaN(entry.rpe) || entry.rpe < 1 || entry.rpe > 10)) {
-        return { error: "RPE חייב להיות בין 1 ל-10" };
-      }
-    }
-
-    const now = new Date().toISOString();
-    const rows = entries.filter(hasAnyValue).map((entry) => ({
-      workout_exercise_id: entry.workoutExerciseId,
-      trainee_id: user.id,
-      performed_at: now,
-      actual_sets: { weight: entry.weight, reps: entry.reps },
-      rpe_actual: entry.rpe,
-      notes: entry.notes,
-    }));
-    const clearedWorkoutExerciseIds = entries
-      .filter((entry) => !hasAnyValue(entry))
-      .map((entry) => entry.workoutExerciseId);
-
-    if (clearedWorkoutExerciseIds.length > 0) {
-      await supabase
-        .from("workout_logs")
-        .delete()
-        .eq("trainee_id", user.id)
-        .in("workout_exercise_id", clearedWorkoutExerciseIds);
-    }
-
-    if (rows.length > 0) {
-      const { error } = await supabase
-        .from("workout_logs")
-        .upsert(rows, { onConflict: "workout_exercise_id,trainee_id" });
-      if (error) {
-        return { error: error.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הביצוע" };
-      }
-    }
+    const notesResult = await saveExerciseNotes(supabase, user.id, notes);
+    if (notesResult.error) return { error: notesResult.error };
 
     const { error: completionError } = await supabase
       .from("workout_completions")
@@ -147,7 +174,7 @@ export async function submitWorkout(
       );
     if (completionError) {
       return {
-        error: completionError.code === "23503" ? STALE_WORKOUT_ERROR : "שגיאה בהגשת האימון",
+        error: isStaleError(completionError.code) ? STALE_WORKOUT_ERROR : "שגיאה בהגשת האימון",
       };
     }
   } else {
@@ -158,8 +185,8 @@ export async function submitWorkout(
       .eq("trainee_id", user.id);
   }
 
-  revalidatePath("/trainee");
-  revalidatePath("/trainee/workouts");
-  revalidatePath("/trainer/trainees/[id]", "page");
+  // Submitting settles what was (and wasn't) done; un-submitting reopens it.
+  if (program.blockId) await applyBlockProgression(supabase, workoutId);
+  revalidateTraineeAndTrainer();
   return {};
 }

@@ -24,7 +24,7 @@ export function WorkoutSubmittedModal({
     <Modal open onClose={onClose} className="max-w-sm">
       <div className="flex flex-col items-center gap-3 py-2 text-center">
         <Brand />
-        <PartyPopper className="h-10 w-10 text-primary" />
+        <PartyPopper className="h-10 w-10 text-primary-text" />
         <p className="text-lg font-semibold">האימון הוגש בהצלחה!</p>
         <p className="text-base text-muted-foreground">האימון נשלח למאמן.</p>
         <Button type="button" onClick={onClose} className="mt-1 w-full">

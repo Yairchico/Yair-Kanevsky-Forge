@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { SearchX, Trash2 } from "lucide-react";
+import { Pin, Play, SearchX, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchInput } from "@/components/ui/search-input";
 import { MUSCLE_GROUPS } from "@/lib/exercise-constants";
@@ -18,6 +18,10 @@ interface Exercise {
   equipment: string | null;
   is_custom: boolean;
   media_url: string | null;
+  /** The permanent note (shown in every program this exercise appears in). */
+  instructions: string | null;
+  video_url: string | null;
+  video_storage_path: string | null;
 }
 
 /** Inline confirm, not a full dialog — deleting one exercise from a list is routine. */
@@ -134,7 +138,7 @@ export function ExerciseLibrary({
                 "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                 active
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               {g}
@@ -169,7 +173,7 @@ export function ExerciseLibrary({
               <CardContent className="flex items-start gap-3 p-4">
                 <ExerciseThumbnail
                   src={getExerciseImage(ex)}
-                  className="h-14 w-14 rounded-lg bg-primary/10"
+                  className="h-14 w-14 rounded-lg bg-primary-tint"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
@@ -183,6 +187,22 @@ export function ExerciseLibrary({
                   <p className="text-sm text-muted-foreground">
                     {[ex.muscle_group, ex.equipment].filter(Boolean).join(" · ")}
                   </p>
+                  {(ex.instructions || ex.video_url || ex.video_storage_path) && (
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                      {ex.instructions && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
+                          <Pin className="h-3 w-3" />
+                          הערה קבועה
+                        </span>
+                      )}
+                      {(ex.video_url || ex.video_storage_path) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
+                          <Play className="h-3 w-3" />
+                          סרטון
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {!readOnly && (
                     <div onClick={(e) => e.stopPropagation()}>
                       <DeleteExerciseButton exercise={ex} />

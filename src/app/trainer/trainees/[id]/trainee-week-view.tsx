@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, Check, Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey, toDateKey } from "@/lib/week";
+import { addDays, dayName, formatWeekLabel, formatWeekRange, parseDateKey, toDateKey, israelNow } from "@/lib/week";
 import { WorkoutDetailModal, type WorkoutDetailData } from "./workout-detail-modal";
 
 interface WeekData {
@@ -21,7 +21,7 @@ type WorkoutStatus = "done" | "late" | "pending";
 function workoutStatus(weekStartDate: string, dayOfWeek: number, submittedAt: string | null): WorkoutStatus {
   if (submittedAt) return "done";
   const workoutDateKey = toDateKey(addDays(parseDateKey(weekStartDate), dayOfWeek));
-  return workoutDateKey < toDateKey(new Date()) ? "late" : "pending";
+  return workoutDateKey < toDateKey(israelNow()) ? "late" : "pending";
 }
 
 const STATUS_CONFIG: Record<WorkoutStatus, { label: string; icon: typeof Check; className: string }> = {
@@ -70,7 +70,7 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                 "shrink-0 rounded-full px-3 py-1.5 text-start text-sm font-medium transition-colors",
                 i === activeWeekIndex
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               {formatWeekLabel(weekStart)}

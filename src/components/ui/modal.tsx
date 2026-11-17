@@ -45,6 +45,9 @@ export function Modal({
           while only the body scrolls. 100dvh rather than 100vh: on mobile
           browsers vh includes space the address bar can cover, dvh doesn't. */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className={cn(
           "flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl",
@@ -57,7 +60,7 @@ export function Modal({
             type="button"
             onClick={onClose}
             aria-label="סגור"
-            className="ms-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="ms-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>

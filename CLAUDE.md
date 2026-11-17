@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Yair Kanevsky by Forge — project guide
+# Yair Kanevsky — project guide
 
 A private fitness-training app for **one strength coach (trainer) and their
 trainees**. Hebrew UI, RTL throughout. No multi-tenant/org model — there is
@@ -55,10 +55,27 @@ src/components/ui/                   hand-built primitives (NOT shadcn, despite 
 src/components/                      AppShell, BrandMark, SignOutButton
 src/lib/supabase/                    client factories + hand-written Database types
 src/lib/week.ts                      calendar-week helpers (Sunday-start, Israeli convention)
+src/components/exercise-editor/      the shared exercise/set editor (rows, set table, add-exercise picker) — used by the program builder and the saved-workout editor through an injected ExerciseListApi (src/lib/exercise-editor-types.ts)
+src/components/exercise-video.tsx    click-to-load video player for an exercise's video (a link, or an uploaded file — resolveVideo)
+src/lib/video.ts                     validates a pasted video link and BUILDS the embed URL from the video id (never embeds the pasted text)
+src/app/trainer/session/             trainer-led sessions (migration 0016): the picker (page.tsx), [workoutId]/ = live session on a trainee's planned workout, free/[sessionId]/ = free session (live runner while open, summary once finished), templates/ = saved workouts (list + editor on the shared exercise editor)
+src/components/session/              the live session UI shared by both kinds of session: SessionFrame (header, chips, bottom bar), SessionExercisePanel, SessionSetRow (−/+ steppers)
+src/lib/use-set-entry.ts             the one state machine behind every set-entry screen (trainee workout, trainer session, free session): screen = server copy + unsaved edits; pending-retry queue
+src/lib/set-log-server.ts            server-side set logging shared by the trainee's actions and the trainer session (validation, saveSetLog, notes)
+src/lib/free-sessions.ts + free-session-data.ts   free-session row mappers (pure) and server-side loaders
+src/lib/require-trainer.ts           getTrainerContext(): the signed-in user iff they are the trainer (NOT the read-only superadmin)
+src/app/trainer/trainees/[id]/blocks/   training blocks (migration 0017): new/ = the create form, [blockId]/ = the exercise × week overview with every block/week action, actions.ts = thin wrappers around the SQL functions
+src/lib/blocks.ts                    block helpers shared by trainer and trainee screens: rule validation (validateRule), wording for a rule / for what the engine decided (describeRule, describeProgression, traineeJumpLabel), blockErrorMessage for BK001/BK002
+src/lib/block-server.ts              when the engine is asked to run from the app: applyBlockProgression (after any logging), rollForwardBlocks (weekly, lazily, before a page reads a trainee's programs)
+src/components/exercise-editor/progression-panel.tsx   the per-exercise rule editor + "why this week's targets" line, shown under an exercise in a block week's builder
+src/lib/program-slots.ts             which weeks/days of each trainee's programs a saved workout can be added to (the "לתוכנית של מתאמן" dialog, src/app/trainer/session/add-to-program-modal.tsx)
+src/lib/sets.ts                      per-set parse/format helpers (migration 0013) — reps ranges, kg, summaries
+src/lib/previous-sets.ts             "last time" lookup per exercise + selectInChunks for long .in() lists
 src/lib/format.ts                    tiny display-formatting helpers usable from both server and client components (e.g. formatWeight) — put shared formatting here, not inside a "use client" file another route imports from
 src/middleware.ts + src/lib/supabase/middleware.ts   session refresh + role-based routing only, not an authorization boundary — deliberately still `middleware.ts`, not Next 16's renamed `proxy.ts` (see Known Gotchas)
 supabase/migrations/                 numbered, additive SQL migrations (see below)
 supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
+supabase/tests/                      SQL suites run against a throwaway local Postgres (run.sh): RLS / privilege checks per role and the block engine — see Verification
 .github/workflows/deploy.yml         the real deploy path (see Deployment)
 ```
 
@@ -79,15 +96,31 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   pages when data crosses trainer/trainee — e.g. a trainee logging a
   performance or submitting a workout also revalidates
   `/trainer/trainees/[id]`.
-- **Batch-on-submit + localStorage draft** (the trainee's per-exercise
-  performance entry, `src/lib/workout-draft.ts`): fields with no
-  per-field save button hold their value in local React state that's
-  mirrored into `localStorage` (keyed per `workoutId`) on every change, so
-  it survives a closed tab; nothing reaches the server until one bulk
-  action fires at the end (`submitWorkout` in `src/app/trainee/actions.ts`
-  turns the whole draft into one `workout_logs` insert). Reach for this
-  pattern — not a save button per row — wherever a trainee fills in
-  several small fields before one real "done" action.
+- **Per-set save + localStorage draft** (the trainee's performance entry,
+  `src/lib/workout-draft.ts`, since migration 0013): each set is saved to
+  the server on its own the moment the trainee taps ✓ (`logSet` in
+  `src/app/trainee/actions.ts` — an upsert on `set_logs`); typed-but-
+  unconfirmed values live in local React state mirrored into
+  `localStorage` (keyed per `workoutId`), so they survive a closed tab. A
+  set whose save can't reach the server (a thrown server action = no
+  reception) is kept in the draft as `pending` and retried on mount, on the
+  browser's `online` event, and before "הגש אימון" (`submitWorkout`, which
+  now only writes the exercise notes + `workout_completions`). This
+  replaced the earlier batch-on-submit design on purpose: the requirement
+  is that every set is submitted individually. For other multi-field
+  entry with one real "done" action and no per-item meaning, batch-on-
+  submit is still the simpler choice.
+- **Sets are rows, not columns** (migration 0013): `workout_exercise_sets`
+  holds the plan (one row per set: `reps_min`/`reps_max` or a `reps_note`,
+  `weight_kg` or a `weight_note`, `rpe`, `set_type`), `set_logs` holds what
+  was performed (matched to the plan by `set_index`). The old
+  `workout_exercises.sets/reps/weight/rpe` and `workout_logs.actual_sets`
+  are legacy — kept, never read or written by the app (a later migration
+  drops the columns). Parse/format everything through `src/lib/sets.ts`
+  (same parsing rules as the migration's backfill); "what did they do last
+  time" is `src/lib/previous-sets.ts`. Deleting an exercise, set or workout
+  that has recorded performance is refused in the Server Action (the
+  `on delete cascade` chain would otherwise destroy history).
 - **Draft/publish**: editing a published program auto-reverts it to draft
   (`revertToDraftIfPublished` in the program-builder's `actions.ts`) so a
   change never silently reaches a trainee who already saw the published
@@ -96,13 +129,84 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
 - **Real validation, not just HTML hints.** `min`/`max`/`required` on an
   `<input>` is a UX nicety only — every Server Action that writes
   sets/reps/RPE/etc. re-validates server-side and returns a friendly
-  Hebrew error on rejection (see `validateWorkoutExerciseFields` in the
-  program-builder's `actions.ts`). Matching DB CHECK/NOT NULL constraints
-  (migration `0007`) are the backstop, not the first line of defense.
+  Hebrew error on rejection (see `parseSetFields` in the
+  program-builder's `actions.ts`, built on `src/lib/sets.ts`). Matching DB CHECK/NOT NULL constraints
+  (migrations `0007`, `0013`) are the backstop, not the first line of defense.
 - **RLS pattern**: `public.is_trainer()` (SECURITY DEFINER) gates a
   trainer's "for all" policy per table; a trainee's policy is always
   scoped to `trainee_id = auth.uid()` and, for anything downstream of a
-  program, `status = 'published'`.
+  program, `status = 'published'`. A trainee's *writes* of performance
+  additionally go through `trainee_can_log()` (migration 0018): this week,
+  last week or a future one — the same rule as `isEditableWeek` in
+  `src/app/trainee/actions.ts`, which stays as the friendly first check.
+  When the app enforces a rule about who may change what, ask whether a
+  direct PostgREST call with the user's own token could skip it; if so the
+  rule belongs in a policy or trigger too.
+- **Trainer-led sessions write as the trainee.** A session on a planned
+  workout (`src/app/trainer/session/[workoutId]`) stores exactly what the
+  trainee's own logging would — `set_logs`/`workout_logs`/
+  `workout_completions` under the TRAINEE's id — so history, "last time" and
+  block progression need no special case; a DB trigger stamps who actually
+  entered it (`source`, `logged_by`, `completed_by`), never the client.
+  Starting a session on a draft program publishes it first. A *free*
+  session can't live in those tables (they hang off a program and a
+  trainee), hence its own three tables; assigning it to a trainee only ever
+  moves it between histories — it never touches the weekly plan or a
+  block's progression. Trainer-only Server Actions start with
+  `getTrainerContext()` (the superadmin is not the trainer); an action that
+  deletes the thing the current page shows (`deleteFreeSession`,
+  `deleteTemplate`, finishing an empty session) ends in a server-side
+  `redirect()` — returning normally would re-render that page into a 404,
+  because every revalidating action refreshes the current route.
+- **Training blocks: the database computes, the app asks.** A block sits on
+  top of the weekly programs (each week is an ordinary program), and every
+  later week's targets are derived by `block_recompute_internal()` from the
+  last non-deload week before it that has the same exercise slot — its
+  targets and what was actually logged there. Don't reimplement any of it
+  in TypeScript; the app only decides *when* to ask: after every set
+  log/unlog/submit on a block workout (`applyBlockProgression`), once a week
+  lazily before reading a trainee's programs (`rollForwardBlocks` — time
+  passing alone turns "projected" into "skipped", and it's also where
+  auto-publish and auto-complete happen), and after a trainer edit that
+  changes a target or a rule. Things the engine never touches: a set with
+  `is_manual_override` (a target typed by hand in a week whose targets are
+  computed — `updateSet` sets the flag, "שחזר לאוטומטי" clears it), an
+  exercise with any `set_logs`, a submitted workout. Structure (workouts,
+  exercises, set count/type) does NOT propagate by itself: the trainer
+  presses "החל על השבועות הבאים" (`apply_block_structure`), which rebuilds
+  the later weeks that weren't started yet and reports the ones that were.
+  A week with recorded performance is "frozen" everywhere — never
+  restructured, moved, replaced or turned into a deload (`BK002`). Weights:
+  a percent step and a deload are rounded to the exercise's `rounding_kg`
+  for display while the chain continues from `weight_kg_exact`; a kg step on
+  a clean number stays exact. A system recompute never sends a published
+  week back to draft; a trainer's "apply structure" does (unless the block
+  auto-publishes).
+- **Uploaded videos go browser → Storage, never through a Server Action.**
+  A Worker can't carry a 50MB body. `createVideoUpload` (trainer check,
+  type/size check) hands out a one-time signed upload URL for
+  `<exercise id>/<random uuid>.<ext>`; the browser first shrinks the file
+  (`prepareVideoForUpload`, `src/lib/video-prepare.ts`: WebCodecs via
+  mediabunny, loaded only then — H.264, short edge ≤ 720, quality
+  "medium", index first so it plays before it's fully downloaded; the
+  original file whenever the browser can't, e.g. HEVC without a decoder),
+  then PUTs it with progress (`uploadWithProgress` — the same request as
+  `uploadToSignedUrl`, cached for a year); `confirmVideoUpload` checks the
+  object exists and attaches it. Don't give mediabunny a numeric `Quality`
+  (an exact bitrate): 1.65 then decides it can't encode and silently drops
+  the video track — which is also why a dropped video track falls back to
+  the original. Replacing (by a link or another file), clearing, and deleting
+  the exercise all remove the old file (best effort — a leftover file costs
+  storage, not correctness). The bucket's own size/type limits and the
+  name-shape policy are the real enforcement; the app's checks are for a
+  readable message.
+- **Israel time, explicitly.** Server code runs in UTC on Workers. Anything
+  that asks "which week/day is it" uses `israelNow()` (`src/lib/week.ts`),
+  and every date/time shown goes through `src/lib/format.ts` (which pins
+  `timeZone: "Asia/Jerusalem"`), never a bare `new Date()` /
+  `toLocaleString()` — those gave the wrong "current week" for the first
+  hours of an Israeli Sunday and times 2–3 hours off on server-rendered
+  pages. No module-level "today" either (it freezes at module load).
 - **Calendar weeks.** `programs.week_start_date` is the Sunday starting
   that week (`src/lib/week.ts`'s `getWeekStart`); one program per
   `(trainee_id, week_start_date)`. Each `workouts` row belongs to a
@@ -113,7 +217,17 @@ supabase/seed.sql                    ~58 base exercises, ON CONFLICT DO NOTHING
   global "אימון N" numbering — it's derived at display time by sorting
   `(day_of_week, order_index)`, so `order_index` only means "1st or 2nd
   that day," not a program-wide position.
-- **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Rubik font
+- **Crimson dark theme** (2026-11): always dark, tokens only in
+  `src/app/globals.css`. Crimson (`bg-primary`) is for fills only;
+  crimson-family text/icons are `text-primary-text` (soft pink — crimson
+  text on dark is 2.7:1), tinted surfaces `bg-primary-tint`, borders
+  `border-primary-deep`, hover `hover:bg-hover` (not `hover:bg-muted`,
+  which is the card's own gray here), placeholders/decorative icons
+  `text-subtle` (never body text). No raw colors in components. The logo
+  PNGs in `public/` were recolored from the original violet one (X crimson,
+  name white, subtitle pink); `src/app/favicon.ico`/`apple-icon.png` are
+  the crimson X.
+- **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Heebo font
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
   `ArrowLeft`) is the "back" icon since it points backward in RTL.
@@ -194,6 +308,13 @@ one-time setup walkthrough):
 10. `0010_soft_delete_programs.sql` — `programs.deleted_at`; deleting a program now sets this instead of a hard DELETE, so the `on delete cascade` chain down to `workout_logs`/`workout_completions` (migration 0001) never fires and a trainee's actual training history survives. Replaces the old `programs_trainee_week_key` unique constraint with a partial unique index (`where deleted_at is null`) so a soft-deleted week's slot is free again; RLS's trainee-facing SELECT policies on `programs`/`workouts`/`workout_exercises` also gained `deleted_at is null`.
 11. `0011_superadmin_readonly.sql` — `profiles.is_superadmin` (boolean, default false) + `is_superadmin()` helper + SELECT-only RLS policies on `profiles`/`programs`/`workouts`/`workout_exercises`/`workout_logs`/`workout_completions`. A read-only oversight account, orthogonal to `role` (stays `'trainee'` for this account, so `is_trainer()`'s write policies never apply) — see "Superadmin (read-only oversight)" below.
 12. `0012_workout_logs_unique.sql` — unique constraint on `workout_logs (workout_exercise_id, trainee_id)` (dedup'd first, for a database that already has duplicates from before this migration). Lets `submitWorkout` (`src/app/trainee/actions.ts`) upsert instead of always inserting — a trainee toggling submit off/on, or resubmitting, used to insert a fresh duplicate log row every time, which is what the trainee history page (`src/app/trainee/history/page.tsx`) was showing as repeated entries.
+13. `0013_split_sets.sql` — per-set records: `workout_exercise_sets` (planned) + `set_logs` (performed), RLS (trainee writes only to their own published, non-deleted program's exercises; trainer read-only on `set_logs` until the trainer-led session mode), backfill from the legacy columns (numbers parsed, anything else kept verbatim as `reps_note`/`weight_note`; each old `workout_logs.actual_sets` becomes ONE `set_logs` row with `source='legacy'`, not invented per-set rows). Legacy columns stay; `sets`/`reps` lose NOT NULL. Safe to re-run after deploy to backfill exercises the old code created in between.
+14. `0014_security_hardening.sql` — closes two privilege escalations found in the 2026-11-14 audit: a trainee could set `is_superadmin` on their own profile (0003's trigger only guarded `role`; the trainee UPDATE policy on `profiles` is now gone and the trigger covers `role`/`is_superadmin`/`id` for every app session plus `username`/`email`/`status` for non-trainers — direct SQL and the service role are exempt, detected by `auth.role()` being null/`service_role`), and `handle_new_user()` trusted `role` from sign-up metadata (now honoured only while no trainer exists). Also: trainee writes to `workout_logs`/`workout_completions`/`workout_exercise_completions` are limited to their own published, non-deleted program (as `set_logs` already was); `enforce_performance_owner()` triggers on all four performance tables require `trainee_id` to be the program's trainee and make `set_logs.source`/`logged_by` server-decided; superadmin SELECT on `workout_exercise_completions`. Independent of app code — safe on the old deployment.
+15. `0015_exercise_notes_and_video.sql` — `workout_exercises.hide_library_note` (the permanent note itself is the existing `exercises.instructions`, now editable in the library; the per-program note stays `workout_exercises.instructions` and is shown in addition) and `exercises.video_url` (a link only, CHECK https; parsed/embedded by `src/lib/video.ts`).
+16. `0016_trainer_sessions.sql` — trainer-led sessions. (a) The trainer may now WRITE `set_logs`/`workout_logs`/`workout_completions`/`workout_exercise_completions` ("for all" policies replace the read-only ones); `workout_completions` gains `source` (`trainee`/`trainer_session`), `completed_by`, `notes`; `enforce_performance_owner()` now also decides those on INSERT and freezes them on UPDATE (whoever submitted first stays on record). (b) Free sessions: `free_sessions` (`trainee_id` nullable = unassigned, `guest_label`, `template_id`), `free_session_exercises`, `free_session_sets` (one row = a target copied from a template, a performed set, or both). (c) Saved workouts: `session_templates` (soft delete), `session_template_exercises`, `session_template_sets`. RLS: trainer all, superadmin select, a trainee reads only free sessions assigned to them (never templates). SECURITY INVOKER functions that keep multi-row copies atomic: `start_free_session` (also sweeps abandoned empty sessions), `save_session_as_template`, `duplicate_session_template`.
+17. `0017_training_blocks.sql` — training blocks with automatic progression. `blocks` (per trainee; `weeks_count` ≤ 16, `status` active/completed, `default_deload_pct`, `auto_publish_next_week`, `rolled_through`; no stored start date — it's week 1's program date). A block week is an ordinary `programs` row tagged `block_id`/`block_week_index`/`is_deload`/`deload_pct`. `workouts.slot_key` and `workout_exercises.slot_key` identify "the same workout/exercise" across the weeks; the rule lives on `workout_exercises` (`progression_type` none/weight/reps/double, `weight_step_unit` kg/pct, steps, `reps_cap`, `progression_basis` actual/planned, `rounding_kg`) and means "how this exercise moves from THIS week to the next"; `progression_info` jsonb records why a week's targets are what they are; `workout_exercise_sets.weight_kg_exact` keeps the un-rounded weight of a percent chain (and the unused `progression_note` from 0013 is dropped). All logic is in SQL functions, every public one SECURITY DEFINER with its own caller check: the engine `block_recompute_internal` (not callable by API roles), and `create_block`, `apply_block_structure`, `recompute_block`, `set_exercise_progression`, `clear_set_override`, `shift_block`, `insert_block_deload`, `set_block_week_deload`, `end_block`, `delete_block`, `start_next_block` (trainer only) plus `apply_block_progression` and `block_roll_forward` (the workout's/block's trainee, or the trainer). Custom error codes `BK001` (week taken) / `BK002` (week already has recorded performance) carry the week's date in the message.
+18. `0018_week_lock_and_atomic_copy.sql` — (a) the trainee's week lock in RLS, not only in the app: `trainee_can_log(workout_id)` / `trainee_can_log_exercise(workout_exercise_id)` (own, published, non-deleted program, week ≥ last week in Israel time) now gate the trainee's INSERT, UPDATE *and* DELETE on all four performance tables (DELETE used to be just "your own row"); the trainer's policies are untouched. (b) `copy_program_structure(p_from, p_to)` — "שכפול שבוע" as one transaction (`duplicateProgramContents` is a single RPC now). (c) CHECK `programs_week_starts_on_sunday` (added NOT VALID then validated; if a legacy row violates it the migration only prints a notice) — `createProgram` validates the same thing first. Needs 0014 and 0017.
+19. `0019_video_upload_template_to_program_convert_block.sql` — (a) `exercises.video_storage_path` (`<exercise id>/<uuid>.<mp4|mov|webm>`, CHECKed; never together with `video_url` — CHECK `exercises_one_video`) + public bucket `exercise-videos` (`file_size_limit` 50MB, `allowed_mime_types` mp4/quicktime/webm) with trainer-only writes under that name shape. The public URL isn't stored — `playableVideoUrl()` (`src/lib/video.ts`) derives it from `NEXT_PUBLIC_SUPABASE_URL`. (b) `add_template_to_program(template, trainee, week, day, title?)` — a saved workout as a new workout in that week's program (creating a draft program if none; a published one reverts to draft; `BK003` when the day is full). (c) `convert_programs_to_block(trainee, title, program_ids[], extra_weeks, deload_weeks[], deload_pct, auto_publish)` — existing programs become block weeks 1..n in calendar order; slots are matched week to week (same workout by day+position and same exercise by n-th occurrence, then a once-on-each-side exercise anywhere in the week); every set of a matched exercise in weeks 2..n is marked `is_manual_override` so the trainer's own numbers are never recomputed; extra weeks start after the last chosen one (not before this week) and are built with `block_apply_structure_internal`; `BK004` = a program already in a block. Needs 0016 and 0017.
 
 When adding a migration: bump the number, write it idempotently, and add a
 line to README's numbered run-order list under "עדכון סכימה + ספריית
@@ -204,10 +325,25 @@ line to README's numbered run-order list under "עדכון סכימה + ספרי
 ```bash
 npx tsc --noEmit
 npx eslint .
-cp .env.example .env.local && npm run build   # placeholder env is enough for a build check
+cp .env.example .env.local && npm run build   # placeholder env is enough for a build check (and required: next.config.ts refuses to build without a Supabase URL)
 npm run cf:build                              # OpenNext/Cloudflare-specific build — catches issues `next build` alone won't
 rm .env.local                                 # never commit this
 ```
+**When a migration, a policy or a SQL function changes, also run the SQL
+suites** — a wrong policy is invisible to `tsc` and `next build`:
+
+```bash
+PGHOST=/tmp PGPORT=5432 PGUSER=postgres supabase/tests/run.sh   # needs any local Postgres 15+ (apt-get install postgresql works here)
+```
+Each suite gets a fresh database with every migration applied (0013+
+twice, to prove they're re-runnable) and then acts as the trainer, a
+trainee, another trainee and the read-only viewer, asserting what each is
+allowed and denied — plus the whole block-progression engine. Add the
+check there first when changing any of that (`supabase/tests/README.md`).
+The screens were also driven end to end in the 2026-11 work (Playwright
+against `next dev` and a small PostgREST stand-in over that same local
+database); that part was scratch tooling and is not in the repo.
+
 `.github/workflows/ci.yml` runs these same checks (lint, `next typegen` +
 `tsc`, `cf:build` with `.env.example` placeholders) on every push and PR —
 no secrets, deploys nothing, and does **not** gate Cloudflare's own
@@ -215,9 +351,9 @@ git-connected production build (see Deployment). Still run them locally
 first; CI is the safety net, not the first check.
 
 This sandbox cannot reach the live `*.workers.dev` deployment or a real
-Supabase project — these four commands are the full extent of what can be
-verified here. Live behavior needs the user to check and report back;
-don't claim to have tested something you couldn't have.
+Supabase project — the commands above (and a local Postgres) are the full
+extent of what can be verified here. Live behavior needs the user to check
+and report back; don't claim to have tested something you couldn't have.
 
 Commit messages: never pass one containing backticks/special shell chars
 through `git commit -m "..."` — bash will try to interpret them. Write the
@@ -261,6 +397,30 @@ that happens: don't assume "it only auto-deploys to staging" is true for
 any push here, and don't act surprised or re-litigate this if a change
 shows up on the production URL — it's expected until the dashboard setting
 is fixed.
+
+**Two build guards in `next.config.ts` (2026-11-14) make the above
+survivable.** Both run only for a real `next build` (not `next dev`, lint,
+`tsc` or `next typegen`), and both fail the build loudly instead of
+shipping something broken:
+
+1. *Workers Builds branch guard.* Cloudflare injects `WORKERS_CI=1` and
+   `WORKERS_CI_BRANCH=<pushed branch>` into its builds. If `WORKERS_CI` is
+   set and the branch is not `PRODUCTION_BRANCH`
+   (`claude/fitness-app-trainers-gccazz`), the config throws, the build
+   fails, and Cloudflare never reaches its deploy step — so pushing a
+   feature branch can no longer put unreviewed code (or code that needs a
+   migration nobody ran yet) on the live site. It fails closed when the
+   branch is missing. GitHub Actions doesn't set `WORKERS_CI`, so `ci.yml`
+   and both deploy workflows are unaffected. A push to the production
+   branch itself still deploys exactly as before — that part of the ⚠️
+   above is unchanged until the dashboard integration is disconnected. If
+   the production branch is ever renamed, update the constant or every
+   Cloudflare build will (safely) fail.
+2. *Supabase env guard.* A build with a missing/blank
+   `NEXT_PUBLIC_SUPABASE_URL` (not `http(s)://…`) or
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY` throws. This is the staging outage from
+   Known Gotchas turned into a failed workflow instead of a Worker that
+   500s on every request.
 
 Both workflows re-apply every secret with `wrangler secret put` (staging
 adds `--env staging`) — piped non-interactively from GitHub's encrypted

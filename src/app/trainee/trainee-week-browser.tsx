@@ -10,7 +10,12 @@ import { TraineeWorkoutTabs, type WorkoutData } from "./trainee-workout-tabs";
 export interface WeekSlot {
   weekStartDate: string;
   /** null when the trainer hasn't published a program for this week at all. */
-  program: { title: string; workouts: WorkoutData[] } | null;
+  program: {
+    title: string;
+    /** "שבוע 3 מתוך 6" (+ "· דילואד") when the week is part of a training block. */
+    blockLabel?: string | null;
+    workouts: WorkoutData[];
+  } | null;
 }
 
 /**
@@ -83,7 +88,12 @@ export function TraineeWeekBrowser({
 
       {activeWeek.program ? (
         <>
-          <p className="text-base font-semibold">{activeWeek.program.title}</p>
+          <div>
+            <p className="text-base font-semibold">{activeWeek.program.title}</p>
+            {activeWeek.program.blockLabel && (
+              <p className="text-sm text-muted-foreground">{activeWeek.program.blockLabel}</p>
+            )}
+          </div>
           <TraineeWorkoutTabs key={activeWeek.weekStartDate} workouts={activeWeek.program.workouts} />
         </>
       ) : (

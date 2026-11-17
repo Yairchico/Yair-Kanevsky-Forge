@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { CalendarDays, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, Layers, Plus, Trash2 } from "lucide-react";
+import { applyBlockStructure } from "../../blocks/actions";
+import { blockWeekLabel } from "@/lib/blocks";
+import type { ProgressionInfo } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { dayName } from "@/lib/week";
 import { Modal } from "@/components/ui/modal";
@@ -9,32 +13,42 @@ import { Button } from "@/components/ui/button";
 import { PublishToggle } from "./publish-toggle";
 import { WorkoutBuilder } from "./workout-builder";
 import { createWorkout, deleteWorkout, moveWorkoutToDay } from "./actions";
-import type { WorkoutExerciseFields } from "./actions";
+import type { InitialEditorItem } from "@/components/exercise-editor/exercise-list-editor";
+import type { CatalogExercise, EditedInfo } from "@/lib/exercise-editor-types";
 
 const MAX_WORKOUTS_PER_DAY = 2;
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-interface WorkoutData {
+export interface WorkoutData {
   id: string;
   dayOfWeek: number;
   orderIndex: number;
-  items: {
-    id: string;
-    exerciseName: string;
-    muscleGroup: string | null;
-    fields: WorkoutExerciseFields;
-  }[];
+  items: InitialEditorItem[];
 }
 
-interface CatalogExercise {
+/** The training block this program is a week of (migration 0017). */
+export interface BuilderBlock {
   id: string;
-  name: string;
-  muscle_group: string | null;
-  equipment: string | null;
-  media_url: string | null;
+  title: string;
+  weeksCount: number;
+  weekIndex: number;
+  isDeload: boolean;
+  /** The percentage in effect for this week if it is a deload. */
+  deloadPct: number;
+  active: boolean;
+  hasLaterWeeks: boolean;
+  /** Some later week's workouts/exercises/sets no longer match this week's. */
+  laterDiffer: boolean;
 }
 
-function sortWorkouts(list: WorkoutData[]): WorkoutData[] {
+/**
+ * `key` never changes for a workout once it's on screen — `id` does, once,
+ * when an optimistically-added workout gets its real id from the server.
+ * Its editor is keyed by `key`, so that swap doesn't remount it.
+ */
+type WorkoutEntry = WorkoutData & { key: string };
+
+function sortWorkouts<T extends WorkoutData>(list: T[]): T[] {
   return [...list].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.orderIndex - b.orderIndex);
 }
 
@@ -52,6 +66,8 @@ export function ProgramBuilderClient({
   initialIsPublished,
   workouts,
   catalog,
+  block = null,
+  progressionInfo,
   readOnly = false,
 }: {
   traineeId: string;
@@ -60,31 +76,78 @@ export function ProgramBuilderClient({
   initialIsPublished: boolean;
   workouts: WorkoutData[];
   catalog: CatalogExercise[];
+  block?: BuilderBlock | null;
+  /** By workout_exercises.id: what the block's computation decided for this week. */
+  progressionInfo?: Record<string, ProgressionInfo | null>;
   /** The read-only superadmin viewer (migration 0011) — hides every mutation control. */
   readOnly?: boolean;
 }) {
   const [isPublished, setIsPublished] = useState(initialIsPublished);
-  const [workoutList, setWorkoutList] = useState(workouts);
+  const [workoutList, setWorkoutList] = useState<WorkoutEntry[]>(() =>
+    workouts.map((w) => ({ ...w, key: w.id })),
+  );
   const [catalogList, setCatalogList] = useState(catalog);
   const [activeId, setActiveId] = useState(workoutList[0]?.id ?? null);
   const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [moveTarget, setMoveTarget] = useState<{ id: string; label: string; dayOfWeek: number } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const tempCounter = useRef(0);
+
+  // ---- training block: this week's structure vs. the weeks after it
+  const [structureChanged, setStructureChanged] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyDone, setApplyDone] = useState<string | null>(null);
+  const [applying, startApply] = useTransition();
+  const laterDiffer = Boolean(block?.laterDiffer) || structureChanged;
+
+  function handleApplyStructure() {
+    setApplyError(null);
+    startApply(async () => {
+      try {
+        const result = await applyBlockStructure(traineeId, programId);
+        if (result.error) {
+          setApplyError(result.error);
+          return;
+        }
+        const updated = result.updated ?? [];
+        const frozen = result.frozen ?? [];
+        const parts = [
+          updated.length ? `עודכנו: ${updated.map((n) => `שבוע ${n}`).join(", ")}.` : "לא היה שבוע לעדכן.",
+          frozen.length ? `${frozen.map((n) => `שבוע ${n}`).join(", ")} כבר התחיל ולא שונה.` : "",
+        ];
+        setApplyDone(parts.filter(Boolean).join(" "));
+        setStructureChanged(false);
+        setApplyOpen(false);
+      } catch {
+        setApplyError("אין חיבור — נסו שוב בעוד רגע");
+      }
+    });
+  }
 
   const sorted = sortWorkouts(workoutList);
   const activeWorkout = sorted.find((w) => w.id === activeId) ?? sorted[0];
 
-  function handleEdited() {
-    if (isPublished) setIsPublished(false);
+  function handleEdited(info?: EditedInfo) {
+    // Only when the server says this edit really did un-publish the program
+    // (it was published a moment ago). Structural edits to the workout list
+    // itself call this with no info after checking the same flag.
+    if (isPublished && (!info || info.revertedToDraft)) setIsPublished(false);
+    // Workouts, exercises or sets were added/removed/moved: in a block, the
+    // weeks after this one no longer have the same structure.
+    if (block?.active && (!info || info.structural)) {
+      setStructureChanged(true);
+      setApplyDone(null);
+    }
   }
 
   // A trainer creating a new exercise from inside one workout's picker
   // (add-exercise-picker.tsx's inline creation) should be able to find it
-  // again from another workout's tab too, since WorkoutBuilder remounts
-  // (key={activeWorkout.id}) with a fresh copy of catalog on every switch.
+  // again from another workout's tab too — every workout's editor reads
+  // this one shared catalog.
   function handleNewExercise(exercise: CatalogExercise) {
     setCatalogList((prev) => (prev.some((e) => e.id === exercise.id) ? prev : [...prev, exercise]));
   }
@@ -98,7 +161,8 @@ export function ProgramBuilderClient({
     if (countOnDay(dayOfWeek) >= MAX_WORKOUTS_PER_DAY) return;
 
     const tempId = `temp-workout-${(tempCounter.current += 1)}`;
-    const optimistic: WorkoutData = {
+    const optimistic: WorkoutEntry = {
+      key: tempId,
       id: tempId,
       dayOfWeek,
       orderIndex: countOnDay(dayOfWeek),
@@ -114,6 +178,7 @@ export function ProgramBuilderClient({
           prev.map((w) => (w.id === tempId ? { ...w, id: result.workout!.id } : w)),
         );
         setActiveId((cur) => (cur === tempId ? result.workout!.id : cur));
+        if (block?.active) setStructureChanged(true);
       } else {
         setWorkoutList((prev) => prev.filter((w) => w.id !== tempId));
         setActiveId((cur) => (cur === tempId ? (sorted[0]?.id ?? null) : cur));
@@ -121,17 +186,31 @@ export function ProgramBuilderClient({
     });
   }
 
+  /**
+   * Not optimistic, unlike the rest of this screen: the server can refuse
+   * (the trainee already submitted or logged sets in this workout — see
+   * deleteWorkout), and un-mounting the workout's editor only to bring it
+   * back would throw away whatever was typed into it. So it disappears
+   * only once the delete really happened.
+   */
   function handleDeleteWorkout(workoutId: string) {
+    setDeleteError(null);
+    if (workoutId.startsWith("temp-")) return;
+    // Which tab to fall back to if the deleted one was showing: its
+    // neighbour in day order.
     const index = sorted.findIndex((w) => w.id === workoutId);
-    const next = workoutList.filter((w) => w.id !== workoutId);
-    setWorkoutList(next);
-    if (activeId === workoutId) {
-      const nextSorted = sortWorkouts(next);
-      setActiveId(nextSorted[Math.max(0, index - 1)]?.id ?? null);
-    }
+    const fallbackId =
+      sorted.filter((w) => w.id !== workoutId)[Math.max(0, index - 1)]?.id ?? null;
     startTransition(async () => {
       const result = await deleteWorkout(traineeId, programId, workoutId);
+      if (result.error) {
+        setDeleteError(result.error);
+        return;
+      }
+      setWorkoutList((prev) => prev.filter((w) => w.id !== workoutId));
+      setActiveId((current) => (current === workoutId ? fallbackId : current));
       if (result.revertedToDraft) handleEdited();
+      if (block?.active) setStructureChanged(true);
     });
   }
 
@@ -164,6 +243,7 @@ export function ProgramBuilderClient({
           ),
         );
         if (result.revertedToDraft) handleEdited();
+        if (block?.active) setStructureChanged(true);
       } else {
         setWorkoutList((prev) =>
           prev.map((w) =>
@@ -202,6 +282,17 @@ export function ProgramBuilderClient({
           <span className="text-sm text-muted-foreground">
             תוכנית עבור {traineeName}
           </span>
+          {block && (
+            <Link
+              href={`/trainer/trainees/${traineeId}/blocks/${block.id}`}
+              className="flex items-center gap-1 rounded-full bg-primary-tint px-2.5 py-1 text-xs font-medium text-primary-text transition-colors hover:bg-primary/20"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              {blockWeekLabel(block.title, block.weekIndex, block.weeksCount)}
+              {block.isDeload ? ` · דילואד ${block.deloadPct}%` : ""}
+              {block.active ? "" : " · הבלוק הסתיים"}
+            </Link>
+          )}
         </div>
         {!readOnly && (
           <PublishToggle
@@ -213,6 +304,33 @@ export function ProgramBuilderClient({
         )}
       </div>
 
+      {block && block.active && block.hasLaterWeeks && !readOnly && (
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm",
+            laterDiffer ? "border-warning/50 bg-warning/10" : "border-border",
+          )}
+        >
+          <p className={laterDiffer ? undefined : "text-muted-foreground"}>
+            {laterDiffer
+              ? "האימונים, התרגילים או הסטים של השבוע הזה שונים מהשבועות הבאים בבלוק."
+              : "השבועות הבאים בבלוק בנויים כמו השבוע הזה, והיעדים שלהם מחושבים אוטומטית."}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant={laterDiffer ? "default" : "outline"}
+            onClick={() => {
+              setApplyError(null);
+              setApplyOpen(true);
+            }}
+          >
+            החל על השבועות הבאים
+          </Button>
+        </div>
+      )}
+      {applyDone && <p className="text-sm text-success">{applyDone}</p>}
+
       <div className="flex flex-wrap items-center gap-2">
         {sorted.map((w) => {
           const sameDayCount = countOnDay(w.dayOfWeek);
@@ -220,12 +338,12 @@ export function ProgramBuilderClient({
             sameDayCount > 1 ? `${dayName(w.dayOfWeek)} · אימון ${w.orderIndex + 1}` : dayName(w.dayOfWeek);
           return (
             <div
-              key={w.id}
+              key={w.key}
               className={cn(
                 "group flex shrink-0 items-center gap-1 rounded-full ps-3 pe-1.5 py-1 text-sm font-medium transition-colors",
                 w.id === activeId
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               <button type="button" onClick={() => setActiveId(w.id)}>
@@ -248,10 +366,11 @@ export function ProgramBuilderClient({
                   <CalendarDays className="h-3 w-3" />
                 </button>
               )}
-              {!readOnly && (
+              {!readOnly && !w.id.startsWith("temp-") && (
                 <button
                   type="button"
                   onClick={() => setDeleteTarget({ id: w.id, label })}
+                  disabled={pending}
                   aria-label={`מחק ${label}`}
                   className={cn(
                     "flex h-5 w-5 items-center justify-center rounded-full opacity-60 hover:opacity-100",
@@ -272,7 +391,7 @@ export function ProgramBuilderClient({
             type="button"
             onClick={() => setDayPickerOpen(true)}
             disabled={pending}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary-text"
           >
             <Plus className="h-3.5 w-3.5" />
             אימון חדש
@@ -281,6 +400,7 @@ export function ProgramBuilderClient({
       </div>
 
       {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+      {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
 
       {!readOnly && (
         <Modal
@@ -302,10 +422,10 @@ export function ProgramBuilderClient({
                   className={cn(
                     "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
                     isCurrent
-                      ? "cursor-default border-primary bg-primary/10 text-primary"
+                      ? "cursor-default border-primary bg-primary-tint text-primary-text"
                       : full
                         ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                        : "border-border hover:border-primary hover:text-primary",
+                        : "border-border hover:border-primary hover:text-primary-text",
                   )}
                 >
                   {dayName(day)}
@@ -335,7 +455,7 @@ export function ProgramBuilderClient({
                     "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
                     full
                       ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                      : "border-border hover:border-primary hover:text-primary",
+                      : "border-border hover:border-primary hover:text-primary-text",
                   )}
                 >
                   {dayName(day)}
@@ -348,6 +468,30 @@ export function ProgramBuilderClient({
           </div>
         </Modal>
       )}
+
+      <Modal open={applyOpen} onClose={() => setApplyOpen(false)} title="החלת המבנה על השבועות הבאים">
+        <div className="space-y-3">
+          <p className="text-sm">
+            כל שבוע שבא אחרי השבוע הזה בבלוק יקבל את אותם אימונים, תרגילים, סטים וקפיצות, והיעדים שלו יחושבו
+            מחדש.
+          </p>
+          <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
+            <li>יעדים שקבעתם ידנית בשבועות הבאים נשמרים.</li>
+            <li>שבוע שהמתאמן כבר התחיל לבצע לא משתנה.</li>
+            <li>שבוע שכבר פורסם חוזר לטיוטה, כדי שתבדקו אותו לפני שהמתאמן רואה.</li>
+            <li>שינויים אחרים שעשיתם רק בשבועות הבאים (תרגיל שהוחלף, סט שנוסף) יוחלפו במבנה של השבוע הזה.</li>
+          </ul>
+          {applyError && <p className="text-sm text-destructive">{applyError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setApplyOpen(false)}>
+              ביטול
+            </Button>
+            <Button type="button" onClick={handleApplyStructure} disabled={applying}>
+              {applying ? "מעדכן…" : "החל על השבועות הבאים"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={deleteTarget !== null}
@@ -370,23 +514,37 @@ export function ProgramBuilderClient({
         </div>
       </Modal>
 
-      {!activeWorkout ? (
+      {!activeWorkout && (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           אין עדיין אימונים בתוכנית. לחץ &quot;אימון חדש&quot; כדי להתחיל.
         </p>
-      ) : (
-        <WorkoutBuilder
-          key={activeWorkout.id}
-          traineeId={traineeId}
-          programId={programId}
-          workoutId={activeWorkout.id}
-          initialItems={activeWorkout.items}
-          catalog={catalogList}
-          onNewExercise={handleNewExercise}
-          onEdited={handleEdited}
-          readOnly={readOnly}
-        />
       )}
+
+      {/* Every workout's editor stays mounted; only the active one is shown.
+          Each editor keeps its exercises and sets in its own state, so
+          re-mounting one on every tab switch (as this used to) reset it to
+          what the server sent when the page first loaded — anything edited
+          since then looked lost until a full refresh. */}
+      {workoutList.map((w) => (
+        <div key={w.key} hidden={w.id !== activeWorkout?.id}>
+          <WorkoutBuilder
+            traineeId={traineeId}
+            programId={programId}
+            workoutId={w.id}
+            listId={w.key}
+            initialItems={w.items}
+            catalog={catalogList}
+            // A block that has ended no longer computes anything: its weeks
+            // are edited like any ordinary program.
+            blockWeekIndex={block?.active ? block.weekIndex : null}
+            progressionInfo={progressionInfo}
+            disabled={w.id.startsWith("temp-")}
+            onNewExercise={handleNewExercise}
+            onEdited={handleEdited}
+            readOnly={readOnly}
+          />
+        </div>
+      ))}
     </div>
   );
 }
