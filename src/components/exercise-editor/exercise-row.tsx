@@ -223,7 +223,7 @@ function SetRow({
                 type="button"
                 onClick={() => void restoreAutomatic()}
                 disabled={disabled || restoring}
-                className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+                className="text-primary-text underline-offset-2 hover:underline disabled:opacity-50"
               >
                 {restoring ? "משחזר…" : "שחזר לאוטומטי"}
               </button>
@@ -239,7 +239,7 @@ function SetRow({
           onClick={onDelete}
           disabled={disabled || !canDelete}
           aria-label={`מחק סט ${set.setIndex}`}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -384,7 +384,7 @@ export function ExerciseRow({
   }
 
   const iconBtn =
-    "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:pointer-events-none";
+    "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:opacity-30 disabled:pointer-events-none";
 
   return (
     <div
@@ -407,7 +407,7 @@ export function ExerciseRow({
                 type="button"
                 {...attributes}
                 {...listeners}
-                className="mt-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+                className="mt-0.5 flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-hover hover:text-foreground active:cursor-grabbing"
                 aria-label="גרור לשינוי סדר"
               >
                 <GripVertical className="h-4 w-4" />
@@ -511,7 +511,7 @@ export function ExerciseRow({
                 type="button"
                 onClick={() => void handleAddSet()}
                 disabled={isTemp || addingSet}
-                className="mt-1.5 flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className="mt-1.5 flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:opacity-50"
               >
                 <Plus className="h-3.5 w-3.5" />
                 סט

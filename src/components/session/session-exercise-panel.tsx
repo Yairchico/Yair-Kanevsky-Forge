@@ -109,7 +109,7 @@ export function SessionExercisePanel({
           <button
             type="button"
             onClick={() => entry.addExtraSet(exercise.id)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2.5 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <Plus className="h-4 w-4" />
             סט נוסף

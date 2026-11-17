@@ -39,9 +39,9 @@ export function TraineePickList({ trainees }: { trainees: PickerTrainee[] }) {
           <Link
             key={t.id}
             href={`/trainer/session?trainee=${t.id}`}
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-muted"
+            className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-hover"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-tint font-semibold text-primary-text">
               {t.name.trim().charAt(0)}
             </span>
             <span className="min-w-0 flex-1">
@@ -174,7 +174,7 @@ export function TemplateStartList({
     return (
       <p className="text-sm text-muted-foreground">
         עדיין אין אימונים שמורים.{" "}
-        <Link href="/trainer/session/templates" className="text-primary underline-offset-4 hover:underline">
+        <Link href="/trainer/session/templates" className="text-primary-text underline-offset-4 hover:underline">
           ליצירת אימון שמור
         </Link>
       </p>

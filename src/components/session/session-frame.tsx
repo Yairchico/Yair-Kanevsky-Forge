@@ -73,7 +73,7 @@ export function SessionFrame({
                   e.preventDefault();
                 }
               }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-xs transition-colors hover:bg-muted"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-xs transition-colors hover:bg-hover"
             >
               <ArrowRight className="h-6 w-6" />
             </Link>
@@ -126,7 +126,7 @@ export function SessionFrame({
                   ? "bg-primary text-primary-foreground"
                   : chip.done
                     ? "bg-success/15 text-success"
-                    : "bg-secondary text-secondary-foreground hover:bg-muted",
+                    : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               {chip.done && i !== activeIndex && <Check className="h-3.5 w-3.5" />}
@@ -137,7 +137,7 @@ export function SessionFrame({
             <button
               type="button"
               onClick={onAddExercise}
-              className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary-text"
             >
               <Plus className="h-3.5 w-3.5" />
               תרגיל

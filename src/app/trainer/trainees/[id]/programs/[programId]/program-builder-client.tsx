@@ -285,7 +285,7 @@ export function ProgramBuilderClient({
           {block && (
             <Link
               href={`/trainer/trainees/${traineeId}/blocks/${block.id}`}
-              className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+              className="flex items-center gap-1 rounded-full bg-primary-tint px-2.5 py-1 text-xs font-medium text-primary-text transition-colors hover:bg-primary/20"
             >
               <Layers className="h-3.5 w-3.5" />
               {blockWeekLabel(block.title, block.weekIndex, block.weeksCount)}
@@ -343,7 +343,7 @@ export function ProgramBuilderClient({
                 "group flex shrink-0 items-center gap-1 rounded-full ps-3 pe-1.5 py-1 text-sm font-medium transition-colors",
                 w.id === activeId
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               <button type="button" onClick={() => setActiveId(w.id)}>
@@ -391,7 +391,7 @@ export function ProgramBuilderClient({
             type="button"
             onClick={() => setDayPickerOpen(true)}
             disabled={pending}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary-text"
           >
             <Plus className="h-3.5 w-3.5" />
             אימון חדש
@@ -422,10 +422,10 @@ export function ProgramBuilderClient({
                   className={cn(
                     "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
                     isCurrent
-                      ? "cursor-default border-primary bg-primary/10 text-primary"
+                      ? "cursor-default border-primary bg-primary-tint text-primary-text"
                       : full
                         ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                        : "border-border hover:border-primary hover:text-primary",
+                        : "border-border hover:border-primary hover:text-primary-text",
                   )}
                 >
                   {dayName(day)}
@@ -455,7 +455,7 @@ export function ProgramBuilderClient({
                     "flex flex-col items-center gap-0.5 rounded-lg border p-3 text-sm font-medium transition-colors",
                     full
                       ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                      : "border-border hover:border-primary hover:text-primary",
+                      : "border-border hover:border-primary hover:text-primary-text",
                   )}
                 >
                   {dayName(day)}

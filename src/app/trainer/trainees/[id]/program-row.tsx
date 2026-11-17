@@ -57,7 +57,7 @@ export function ProgramRow({
     <div className="flex items-center gap-1 rounded-md border border-border text-sm">
       <Link
         href={`/trainer/trainees/${traineeId}/programs/${program.id}`}
-        className="flex min-w-0 flex-1 items-center justify-between gap-2 p-3 transition-colors hover:bg-muted"
+        className="flex min-w-0 flex-1 items-center justify-between gap-2 p-3 transition-colors hover:bg-hover"
       >
         <div className="min-w-0">
           <p className="truncate font-medium">{program.title}</p>

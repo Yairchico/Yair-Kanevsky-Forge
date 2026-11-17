@@ -70,7 +70,7 @@ export function TraineeWeekView({ weeks }: { weeks: WeekData[] }) {
                 "shrink-0 rounded-full px-3 py-1.5 text-start text-sm font-medium transition-colors",
                 i === activeWeekIndex
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               {formatWeekLabel(weekStart)}

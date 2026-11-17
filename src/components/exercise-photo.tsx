@@ -25,7 +25,7 @@ export function ExerciseThumbnail({
     return (
       <div
         className={cn(
-          "flex shrink-0 items-center justify-center bg-primary/10 text-primary",
+          "flex shrink-0 items-center justify-center bg-primary-tint text-primary-text",
           className,
         )}
       >
@@ -74,7 +74,7 @@ export function ExercisePhoto({
     return (
       <div
         className={cn(
-          "flex shrink-0 items-center justify-center bg-primary/10 text-primary",
+          "flex shrink-0 items-center justify-center bg-primary-tint text-primary-text",
           className,
         )}
       >

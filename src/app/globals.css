@@ -1,36 +1,51 @@
 @import "tailwindcss";
 
+/*
+ * The crimson dark theme (2026-11): always dark. Crimson #B3122E is for
+ * fills only (buttons, active tab, progress bars, number badges);
+ * crimson-family text and icons use the soft pink --primary-text, because
+ * crimson text on this ground is only 2.7:1. Status colors are lightened
+ * to stay readable on dark. Use the tokens, never a raw color, in
+ * components: hover:bg-hover, text-primary-text, bg-primary-tint,
+ * border-primary-deep, text-subtle (placeholders and decorative icons only).
+ */
 :root {
-  /* Neutral light-gray ground (the earlier cream/beige read as dated) with
-     the logo's violet as the one accent color. */
-  --background: #f4f5f7;
-  --foreground: #17181c;
+  --background: #121212;
+  --foreground: #ededed;
+  --heading: #ffffff;
 
-  --card: #ffffff;
-  --card-foreground: #17181c;
+  --card: #1e1e1e;
+  --card-foreground: #ffffff;
 
-  --border: #e4e5ea;
-  --input: #dcdde3;
-  --ring: #511ce0;
+  --border: #2a2a2a;
+  --input: #2e2e2e;
+  --ring: #b3122e;
 
-  --muted: #edeef1;
-  --muted-foreground: #6b6f76;
+  --muted: #2a2a2a;
+  --muted-foreground: #a3a3a3;
+  --subtle: #7a7a7a;
+  --hover: #3a3a3a;
 
-  --primary: #511ce0;
+  --primary: #b3122e;
+  --primary-hover: #c8102e;
+  --primary-active: #9e1030;
+  --primary-deep: #7a0c1f;
+  --primary-tint: #3a0a14;
+  --primary-text: #f3c9d1;
   --primary-foreground: #ffffff;
 
-  --secondary: #edeef1;
-  --secondary-foreground: #17181c;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #ededed;
 
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
+  --destructive: #f87171;
+  --destructive-foreground: #1a0606;
 
-  --success: #16a34a;
-  --success-foreground: #ffffff;
+  --success: #22c55e;
+  --success-foreground: #06200f;
 
-  /* Draft/pending state (e.g. the "טיוטה" badge in the builder sketch). */
+  /* Draft/pending state (the "טיוטה" badge): a tinted amber surface, light text. */
   --warning: #f59e0b;
-  --warning-foreground: #1c1233;
+  --warning-foreground: #fcd34d;
 
   --radius: 0.75rem;
 }
@@ -38,6 +53,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-heading: var(--heading);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-border: var(--border);
@@ -45,7 +61,14 @@
   --color-ring: var(--ring);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-hover: var(--hover);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-deep: var(--primary-deep);
+  --color-primary-tint: var(--primary-tint);
+  --color-primary-text: var(--primary-text);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -58,21 +81,21 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 0.25rem);
   --radius-sm: calc(var(--radius) - 0.5rem);
-  --font-sans: var(--font-rubik);
+  --font-sans: var(--font-heebo);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #121317;
-    --foreground: #f0f1f3;
-    --card: #1c1d22;
-    --card-foreground: #f0f1f3;
-    --border: #2c2d34;
-    --input: #2c2d34;
-    --muted: #212227;
-    --muted-foreground: #9a9ca3;
-    --secondary: #212227;
-    --secondary-foreground: #f0f1f3;
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  h1,
+  h2,
+  h3 {
+    color: var(--color-heading);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-subtle);
   }
 }
 

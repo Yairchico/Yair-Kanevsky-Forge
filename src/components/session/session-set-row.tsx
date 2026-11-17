@@ -47,7 +47,7 @@ function Stepper({
           value={value}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="h-12 w-16 border-y border-input bg-card text-center text-lg font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground/60 focus-visible:border-ring disabled:opacity-50"
+          className="h-12 w-16 border-y border-input bg-card text-center text-lg font-semibold outline-none placeholder:font-normal placeholder:text-subtle focus-visible:border-ring disabled:opacity-50"
         />
         <button
           type="button"
@@ -110,7 +110,7 @@ export function SessionSetRow({
         state === "logged" && "border-success/40 bg-success/5",
         (state === "logged-short" || state === "pending") && "border-warning/40 bg-warning/5",
         state === "changed" && "border-primary/50 bg-card",
-        state === "open" && (isNext ? "border-primary bg-card ring-2 ring-primary/20" : "border-border bg-card"),
+        state === "open" && (isNext ? "border-primary bg-card ring-2 ring-primary-deep" : "border-border bg-card"),
       )}
     >
       <div className="flex items-center gap-3">
@@ -159,7 +159,7 @@ export function SessionSetRow({
             state === "logged-short" && "border-warning bg-warning/20 text-warning-foreground",
             state === "pending" && "border-warning bg-warning/15 text-warning-foreground",
             state === "changed" && "border-primary bg-primary text-primary-foreground",
-            state === "open" && "border-primary/60 bg-card text-primary hover:bg-primary/10",
+            state === "open" && "border-primary/60 bg-card text-primary-text hover:bg-primary-tint",
           )}
         >
           {state === "pending" ? (

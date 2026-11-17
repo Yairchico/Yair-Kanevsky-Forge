@@ -213,7 +213,7 @@ export default async function SessionPickerPage({
   const tabClass = (active: boolean) =>
     cn(
       "flex-1 rounded-lg px-3 py-2 text-center text-sm font-medium transition-colors",
-      active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+      active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-hover",
     );
 
   return (
@@ -255,7 +255,7 @@ export default async function SessionPickerPage({
                 <Link
                   key={s.id}
                   href={`/trainer/session/free/${s.id}`}
-                  className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+                  className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-hover"
                 >
                   <span className="truncate font-medium">
                     {(s.traineeId ? traineeNameById.get(s.traineeId) : null) ?? (s.guestLabel?.trim() || "ללא שם")}
@@ -286,7 +286,7 @@ export default async function SessionPickerPage({
             <Card>
               <CardContent className="flex items-center justify-between gap-3 p-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-tint font-semibold text-primary-text">
                     {selectedTrainee.full_name.trim().charAt(0)}
                   </span>
                   <p className="truncate font-semibold">{selectedTrainee.full_name}</p>
@@ -328,7 +328,7 @@ export default async function SessionPickerPage({
                       key={w.id}
                       className={cn(
                         "flex items-center justify-between gap-3 rounded-xl border p-3",
-                        w.isToday ? "border-primary bg-primary/5" : "border-border bg-card",
+                        w.isToday ? "border-primary bg-primary-tint" : "border-border bg-card",
                       )}
                     >
                       <div className="min-w-0">
@@ -373,7 +373,7 @@ export default async function SessionPickerPage({
                         <Link
                           key={week.weekKey}
                           href={`/trainer/session?trainee=${selectedTrainee.id}&week=${week.weekKey}`}
-                          className="rounded-full border border-border px-3 py-1 text-xs transition-colors hover:bg-muted"
+                          className="rounded-full border border-border px-3 py-1 text-xs transition-colors hover:bg-hover"
                         >
                           {formatWeekLabel(parseDateKey(week.weekKey), currentWeekStart)} ·{" "}
                           {formatWeekRange(parseDateKey(week.weekKey))}

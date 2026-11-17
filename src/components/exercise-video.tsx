@@ -36,7 +36,7 @@ export function ExerciseVideo({
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted",
+          "flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-hover",
           className,
         )}
       >

@@ -138,7 +138,7 @@ export function ExerciseLibrary({
                 "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                 active
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted",
+                  : "bg-secondary text-secondary-foreground hover:bg-hover",
               )}
             >
               {g}
@@ -173,7 +173,7 @@ export function ExerciseLibrary({
               <CardContent className="flex items-start gap-3 p-4">
                 <ExerciseThumbnail
                   src={getExerciseImage(ex)}
-                  className="h-14 w-14 rounded-lg bg-primary/10"
+                  className="h-14 w-14 rounded-lg bg-primary-tint"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">

@@ -116,7 +116,7 @@ export default async function TrainerHomePage() {
           <Link href="/trainer/session/templates">
             <Card className="h-full transition-shadow hover:shadow-sm">
               <CardContent className="flex h-full items-center gap-3 p-5">
-                <BookmarkCheck className="h-5 w-5 shrink-0 text-primary" />
+                <BookmarkCheck className="h-5 w-5 shrink-0 text-primary-text" />
                 <p className="font-semibold">אימונים שמורים</p>
               </CardContent>
             </Card>
@@ -155,7 +155,7 @@ export default async function TrainerHomePage() {
         <Link href="/trainer/trainees">
           <Card className="h-full transition-shadow hover:shadow-sm">
             <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-tint text-primary-text">
                 <Users className="h-6 w-6" />
               </div>
               <div className="min-w-0 flex-1">
@@ -172,7 +172,7 @@ export default async function TrainerHomePage() {
         <Link href="/trainer/exercises">
           <Card className="h-full transition-shadow hover:shadow-sm">
             <CardContent className="flex items-center gap-4 p-5">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-tint text-primary-text">
                 <Dumbbell className="h-6 w-6" />
               </div>
               <div className="min-w-0 flex-1">
@@ -190,7 +190,7 @@ export default async function TrainerHomePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <CalendarCheck className="h-4 w-4 text-primary" />
+            <CalendarCheck className="h-4 w-4 text-primary-text" />
             פעילות אחרונה
           </CardTitle>
           <CardDescription>אימונים שהוגשו או תועדו לאחרונה, מכל המתאמנים</CardDescription>
@@ -203,13 +203,13 @@ export default async function TrainerHomePage() {
               <Link
                 key={item.key}
                 href={item.href}
-                className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+                className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-hover"
               >
                 <span className="truncate font-medium">
                   {item.who}
                   <span className="font-normal text-muted-foreground"> · {item.what}</span>
                   {item.tag && (
-                    <span className="ms-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    <span className="ms-2 rounded-full bg-primary-tint px-2 py-0.5 text-[11px] font-medium text-primary-text">
                       {item.tag}
                     </span>
                   )}
@@ -234,7 +234,7 @@ export default async function TrainerHomePage() {
                 <Link
                   key={session.id}
                   href={`/trainer/session/free/${session.id}`}
-                  className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+                  className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-hover"
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate font-medium">

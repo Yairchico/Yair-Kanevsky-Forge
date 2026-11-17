@@ -1,15 +1,36 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { Fragment, useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowUp, Check, Lock, MoreVertical, Pencil, RefreshCw, Settings, Snowflake } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUp,
+  Check,
+  Lock,
+  MoreVertical,
+  Pencil,
+  RefreshCw,
+  Settings,
+  Snowflake,
+} from "lucide-react";
 import { BlockFields, DEFAULT_BLOCK_FIELDS } from "@/components/block-fields";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
-import { MAX_BLOCK_WEEKS, MAX_DELOAD_PCT, MIN_DELOAD_PCT, type ProgressionTone } from "@/lib/blocks";
+import {
+  MAX_BLOCK_WEEKS,
+  MAX_DELOAD_PCT,
+  MIN_DELOAD_PCT,
+  type ProgressionTone,
+} from "@/lib/blocks";
 import type { ProgressionInfo } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import {
@@ -55,7 +76,6 @@ export interface BlockCell {
 export interface BlockRow {
   slotKey: string;
   exerciseName: string;
-  workoutLabel: string;
   /** The exercise's rule in words. */
   rule: string;
   /** Repeated its target two decided weeks running — the trainer should look. */
@@ -63,11 +83,19 @@ export interface BlockRow {
   cells: Record<number, BlockCell>;
 }
 
+/** One workout of the block (the same workout across the weeks) and its exercises. */
+export interface BlockWorkoutGroup {
+  slotKey: string;
+  /** "אימון 1 · ראשון · רגליים" */
+  label: string;
+  rows: BlockRow[];
+}
+
 const TONE_CLASS: Record<ProgressionTone, string> = {
   up: "text-success",
   hold: "text-muted-foreground",
   warn: "text-warning-foreground",
-  deload: "text-primary",
+  deload: "text-primary-text",
   neutral: "text-muted-foreground",
 };
 
@@ -84,8 +112,14 @@ function NextBlockForm({
   suggestedTitle: string;
   onCancel: () => void;
 }) {
-  const [state, formAction, pending] = useActionState(startNextBlock.bind(null, traineeId, blockId), initialNextState);
-  const [fields, setFields] = useState({ ...DEFAULT_BLOCK_FIELDS, title: suggestedTitle });
+  const [state, formAction, pending] = useActionState(
+    startNextBlock.bind(null, traineeId, blockId),
+    initialNextState,
+  );
+  const [fields, setFields] = useState({
+    ...DEFAULT_BLOCK_FIELDS,
+    title: suggestedTitle,
+  });
   const [usePerformed, setUsePerformed] = useState(false);
   const [replaceExisting, setReplaceExisting] = useState(false);
   const conflicts = state.conflicts ?? [];
@@ -93,7 +127,8 @@ function NextBlockForm({
   return (
     <form action={formAction} className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        הבלוק החדש מתחיל מיד אחרי הבלוק הזה. שבוע 1 שלו הוא העתק של השבוע הרגיל האחרון כאן, עם אותן קפיצות.
+        הבלוק החדש מתחיל מיד אחרי הבלוק הזה. שבוע 1 שלו הוא העתק של השבוע הרגיל
+        האחרון כאן, עם אותן קפיצות.
       </p>
       <BlockFields idPrefix="next-block" values={fields} onChange={setFields} />
       <label className="flex items-start gap-2 text-sm">
@@ -108,7 +143,8 @@ function NextBlockForm({
         <span>
           להתחיל מהמשקלים שבוצעו בפועל
           <span className="block text-xs text-muted-foreground">
-            בלי הסימון: מהיעדים של השבוע האחרון. עם הסימון: סט שבוצע מקבל את המשקל שהורם בו.
+            בלי הסימון: מהיעדים של השבוע האחרון. עם הסימון: סט שבוצע מקבל את
+            המשקל שהורם בו.
           </span>
         </span>
       </label>
@@ -122,12 +158,18 @@ function NextBlockForm({
             checked={replaceExisting}
             onChange={(e) => setReplaceExisting(e.target.checked)}
           />
-          <span>בשבועות של הבלוק החדש כבר יש תוכניות. להחליף אותן (חוץ מתוכנית שכבר התחילו לבצע)</span>
+          <span>
+            בשבועות של הבלוק החדש כבר יש תוכניות. להחליף אותן (חוץ מתוכנית שכבר
+            התחילו לבצע)
+          </span>
         </label>
       )}
       {state.error && <p className="text-sm text-destructive">{state.error}</p>}
       <div className="flex gap-2">
-        <Button type="submit" disabled={pending || (conflicts.length > 0 && !replaceExisting)}>
+        <Button
+          type="submit"
+          disabled={pending || (conflicts.length > 0 && !replaceExisting)}
+        >
           {pending ? "יוצר…" : "צור את הבלוק הבא"}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -151,7 +193,7 @@ export function BlockOverview({
   traineeName,
   block,
   weeks,
-  rows,
+  groups,
 }: {
   readOnly: boolean;
   traineeId: string;
@@ -165,14 +207,16 @@ export function BlockOverview({
     autoPublish: boolean;
   };
   weeks: BlockWeek[];
-  rows: BlockRow[];
+  groups: BlockWorkoutGroup[];
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [weekMenu, setWeekMenu] = useState<BlockWeek | null>(null);
   const [weekPct, setWeekPct] = useState("");
-  const [dialog, setDialog] = useState<"settings" | "end" | "delete" | "next" | null>(null);
+  const [dialog, setDialog] = useState<
+    "settings" | "end" | "delete" | "next" | null
+  >(null);
   const [removeFuture, setRemoveFuture] = useState(true);
   const [settings, setSettings] = useState({
     title: block.title,
@@ -183,11 +227,16 @@ export function BlockOverview({
   const active = block.status === "active";
   const current = weeks.find((w) => w.isCurrent);
   const lastIndex = Math.max(0, ...weeks.map((w) => w.index));
-  const progressIndex = current?.index ?? (weeks.every((w) => w.isPast) ? lastIndex : 0);
-  const empty = rows.length === 0;
+  const progressIndex =
+    current?.index ?? (weeks.every((w) => w.isPast) ? lastIndex : 0);
+  const empty = groups.length === 0;
   const week1 = weeks.find((w) => w.index === 1);
 
-  function run(action: () => Promise<{ error?: string }>, done?: string, close = true) {
+  function run(
+    action: () => Promise<{ error?: string }>,
+    done?: string,
+    close = true,
+  ) {
     setError(null);
     setNotice(null);
     startTransition(async () => {
@@ -216,10 +265,13 @@ export function BlockOverview({
 
   function parsePct(text: string): number | null {
     const n = Number(text);
-    return Number.isInteger(n) && n >= MIN_DELOAD_PCT && n <= MAX_DELOAD_PCT ? n : null;
+    return Number.isInteger(n) && n >= MIN_DELOAD_PCT && n <= MAX_DELOAD_PCT
+      ? n
+      : null;
   }
 
-  const builderHref = (week: BlockWeek) => `/trainer/trainees/${traineeId}/programs/${week.programId}`;
+  const builderHref = (week: BlockWeek) =>
+    `/trainer/trainees/${traineeId}/programs/${week.programId}`;
 
   return (
     <div className="space-y-4">
@@ -229,8 +281,13 @@ export function BlockOverview({
             <div>
               <CardTitle>{block.title}</CardTitle>
               <CardDescription>
-                בלוק של {traineeName} · {weeks.length === 1 ? "שבוע אחד" : `${weeks.length} שבועות`}
-                {active ? (current ? ` · עכשיו שבוע ${current.index}` : "") : " · הסתיים"}
+                בלוק של {traineeName} ·{" "}
+                {weeks.length === 1 ? "שבוע אחד" : `${weeks.length} שבועות`}
+                {active
+                  ? current
+                    ? ` · עכשיו שבוע ${current.index}`
+                    : ""
+                  : " · הסתיים"}
                 {block.autoPublish && active ? " · פרסום אוטומטי" : ""}
               </CardDescription>
             </div>
@@ -242,13 +299,23 @@ export function BlockOverview({
                     variant="outline"
                     size="sm"
                     disabled={pending}
-                    onClick={() => run(() => recomputeBlock(traineeId, block.id), "היעדים חושבו מחדש.")}
+                    onClick={() =>
+                      run(
+                        () => recomputeBlock(traineeId, block.id),
+                        "היעדים חושבו מחדש.",
+                      )
+                    }
                   >
                     <RefreshCw className="h-4 w-4" />
                     חשב מחדש
                   </Button>
                 )}
-                <Button type="button" variant="outline" size="sm" onClick={() => setDialog("settings")}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialog("settings")}
+                >
                   <Settings className="h-4 w-4" />
                   הגדרות
                 </Button>
@@ -260,11 +327,15 @@ export function BlockOverview({
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full rounded-full bg-primary"
-                  style={{ width: `${lastIndex ? (Math.min(progressIndex, lastIndex) / lastIndex) * 100 : 0}%` }}
+                  style={{
+                    width: `${lastIndex ? (Math.min(progressIndex, lastIndex) / lastIndex) * 100 : 0}%`,
+                  }}
                 />
               </div>
               <span className="shrink-0 text-muted-foreground">
-                {progressIndex === 0 ? "טרם התחיל" : `שבוע ${Math.min(progressIndex, lastIndex)} מתוך ${lastIndex}`}
+                {progressIndex === 0
+                  ? "טרם התחיל"
+                  : `שבוע ${Math.min(progressIndex, lastIndex)} מתוך ${lastIndex}`}
               </span>
             </div>
           )}
@@ -281,8 +352,9 @@ export function BlockOverview({
         <Card>
           <CardContent className="space-y-3 p-6 text-center">
             <p className="text-sm text-muted-foreground">
-              הבלוק עדיין ריק. בונים את שבוע 1 בבילדר, קובעים לכל תרגיל קפיצה, ואז לוחצים שם &quot;החל על השבועות
-              הבאים&quot; — והשבועות הבאים מחושבים לבד.
+              הבלוק עדיין ריק. בונים את שבוע 1 בבילדר, קובעים לכל תרגיל קפיצה,
+              ואז לוחצים שם &quot;החל על השבועות הבאים&quot; — והשבועות הבאים
+              מחושבים לבד.
             </p>
             {week1 && !readOnly && (
               <Link href={builderHref(week1)} className={buttonVariants()}>
@@ -307,11 +379,14 @@ export function BlockOverview({
                         key={week.programId}
                         className={cn(
                           "min-w-36 border-b border-s border-border p-2 text-start align-top font-normal",
-                          week.isCurrent && "bg-primary/5",
+                          week.isCurrent && "bg-primary-tint",
                         )}
                       >
                         <div className="flex items-start justify-between gap-1">
-                          <Link href={builderHref(week)} className="font-semibold hover:underline">
+                          <Link
+                            href={builderHref(week)}
+                            className="font-semibold hover:underline"
+                          >
                             שבוע {week.index}
                           </Link>
                           {!readOnly && (
@@ -319,7 +394,7 @@ export function BlockOverview({
                               type="button"
                               aria-label={`פעולות לשבוע ${week.index}`}
                               onClick={() => openWeekMenu(week)}
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-hover hover:text-foreground"
                             >
                               <MoreVertical className="h-4 w-4" />
                             </button>
@@ -340,7 +415,7 @@ export function BlockOverview({
                             {week.status === "published" ? "פורסם" : "טיוטה"}
                           </span>
                           {week.isDeload && (
-                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            <span className="rounded-full bg-primary-tint px-1.5 py-0.5 text-[10px] font-medium text-primary-text">
                               דילואד {week.deloadPct ?? block.defaultDeloadPct}%
                             </span>
                           )}
@@ -361,71 +436,104 @@ export function BlockOverview({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.slotKey}>
-                      <th className="sticky start-0 z-10 border-b border-border bg-card p-3 text-start align-top font-normal">
-                        <p className="font-medium">{row.exerciseName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.workoutLabel} · {row.rule}
-                        </p>
-                        {row.stalled && (
-                          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-warning/20 px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
-                            <AlertTriangle className="h-3 w-3" />
-                            תקוע: שבועיים בלי קפיצה
-                          </span>
-                        )}
-                      </th>
-                      {weeks.map((week) => {
-                        const cell = row.cells[week.index];
-                        return (
-                          <td
-                            key={week.programId}
-                            className={cn(
-                              "border-b border-s border-border p-2 align-top",
-                              week.isCurrent && "bg-primary/5",
+                  {groups.map((group) => (
+                    <Fragment key={group.slotKey}>
+                      <tr>
+                        <th
+                          scope="colgroup"
+                          className="sticky start-0 z-10 border-b border-border bg-muted p-2 px-3 text-start font-semibold"
+                        >
+                          {group.label}
+                        </th>
+                        <td
+                          colSpan={weeks.length}
+                          className="border-b border-border bg-muted"
+                        />
+                      </tr>
+                      {group.rows.map((row) => (
+                        <tr key={row.slotKey}>
+                          <th className="sticky start-0 z-10 border-b border-border bg-card p-3 text-start align-top font-normal">
+                            <p className="font-medium">{row.exerciseName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.rule}
+                            </p>
+                            {row.stalled && (
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-warning/20 px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
+                                <AlertTriangle className="h-3 w-3" />
+                                תקוע: שבועיים בלי קפיצה
+                              </span>
                             )}
-                          >
-                            {!cell ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              <div className="space-y-0.5">
-                                <p className="flex flex-wrap items-center gap-1 font-medium">
-                                  {(cell.outcome === "advanced" || cell.outcome === "projected") &&
-                                    cell.tone === "up" && <ArrowUp className="h-3.5 w-3.5 text-success" />}
-                                  <span>{cell.summary}</span>
-                                  {cell.hasOverride && (
-                                    <span className="inline-flex items-center gap-0.5 rounded-full bg-warning/20 px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground">
-                                      <Lock className="h-2.5 w-2.5" />
-                                      ידני
-                                    </span>
-                                  )}
-                                </p>
-                                {cell.explanation && (
-                                  <p className={cn("text-[11px] leading-snug", cell.tone ? TONE_CLASS[cell.tone] : "")}>
-                                    {cell.explanation}
-                                  </p>
+                          </th>
+                          {weeks.map((week) => {
+                            const cell = row.cells[week.index];
+                            return (
+                              <td
+                                key={week.programId}
+                                className={cn(
+                                  "border-b border-s border-border p-2 align-top",
+                                  week.isCurrent && "bg-primary-tint",
                                 )}
-                                {cell.performed && (
-                                  <p
-                                    className={cn(
-                                      "flex items-center gap-1 text-[11px]",
-                                      cell.performed.met >= cell.performed.total && cell.performed.total > 0
-                                        ? "text-success"
-                                        : "text-warning-foreground",
+                              >
+                                {!cell ? (
+                                  <span className="text-muted-foreground">
+                                    —
+                                  </span>
+                                ) : (
+                                  <div className="space-y-0.5">
+                                    <p className="flex flex-wrap items-center gap-1 font-medium">
+                                      {(cell.outcome === "advanced" ||
+                                        cell.outcome === "projected") &&
+                                        cell.tone === "up" && (
+                                          <ArrowUp className="h-3.5 w-3.5 text-success" />
+                                        )}
+                                      <span>{cell.summary}</span>
+                                      {cell.hasOverride && (
+                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-warning/20 px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground">
+                                          <Lock className="h-2.5 w-2.5" />
+                                          ידני
+                                        </span>
+                                      )}
+                                    </p>
+                                    {cell.explanation && (
+                                      <p
+                                        className={cn(
+                                          "text-[11px] leading-snug",
+                                          cell.tone
+                                            ? TONE_CLASS[cell.tone]
+                                            : "",
+                                        )}
+                                      >
+                                        {cell.explanation}
+                                      </p>
                                     )}
-                                  >
-                                    {cell.performed.met >= cell.performed.total && cell.performed.total > 0 && (
-                                      <Check className="h-3 w-3" />
+                                    {cell.performed && (
+                                      <p
+                                        className={cn(
+                                          "flex items-center gap-1 text-[11px]",
+                                          cell.performed.met >=
+                                            cell.performed.total &&
+                                            cell.performed.total > 0
+                                            ? "text-success"
+                                            : "text-warning-foreground",
+                                        )}
+                                      >
+                                        {cell.performed.met >=
+                                          cell.performed.total &&
+                                          cell.performed.total > 0 && (
+                                            <Check className="h-3 w-3" />
+                                          )}
+                                        בוצע {cell.performed.met}/
+                                        {cell.performed.total}
+                                      </p>
                                     )}
-                                    בוצע {cell.performed.met}/{cell.performed.total}
-                                  </p>
+                                  </div>
                                 )}
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -436,25 +544,45 @@ export function BlockOverview({
 
       {!readOnly && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => setDialog("next")}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setDialog("next")}
+          >
             התחל את הבלוק הבא
           </Button>
           {active && (
-            <Button type="button" variant="outline" onClick={() => setDialog("end")}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialog("end")}
+            >
               סיים את הבלוק
             </Button>
           )}
-          <Button type="button" variant="ghost" className="text-destructive" onClick={() => setDialog("delete")}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="text-destructive"
+            onClick={() => setDialog("delete")}
+          >
             מחק בלוק
           </Button>
         </div>
       )}
 
       {/* ---- one week */}
-      <Modal open={weekMenu != null} onClose={() => setWeekMenu(null)} title={weekMenu ? `שבוע ${weekMenu.index}` : undefined}>
+      <Modal
+        open={weekMenu != null}
+        onClose={() => setWeekMenu(null)}
+        title={weekMenu ? `שבוע ${weekMenu.index}` : undefined}
+      >
         {weekMenu && (
           <div className="space-y-3">
-            <Link href={builderHref(weekMenu)} className={cn(buttonVariants({ variant: "outline" }), "w-full")}>
+            <Link
+              href={builderHref(weekMenu)}
+              className={cn(buttonVariants({ variant: "outline" }), "w-full")}
+            >
               <Pencil className="h-4 w-4" />
               פתח בבילדר
             </Link>
@@ -463,14 +591,24 @@ export function BlockOverview({
               type="button"
               variant="outline"
               className="w-full"
-              disabled={pending || (weekMenu.status === "draft" && weekMenu.exerciseCount === 0)}
+              disabled={
+                pending ||
+                (weekMenu.status === "draft" && weekMenu.exerciseCount === 0)
+              }
               onClick={() =>
                 run(() =>
-                  setBlockWeekPublished(traineeId, block.id, weekMenu.programId, weekMenu.status !== "published"),
+                  setBlockWeekPublished(
+                    traineeId,
+                    block.id,
+                    weekMenu.programId,
+                    weekMenu.status !== "published",
+                  ),
                 )
               }
             >
-              {weekMenu.status === "published" ? "החזר לטיוטה" : "פרסם את השבוע למתאמן"}
+              {weekMenu.status === "published"
+                ? "החזר לטיוטה"
+                : "פרסם את השבוע למתאמן"}
             </Button>
 
             {active && (
@@ -495,7 +633,11 @@ export function BlockOverview({
                       variant="outline"
                       size="sm"
                       className="w-full"
-                      disabled={pending || weekMenu.started || (!weekMenu.isDeload && parsePct(weekPct) == null)}
+                      disabled={
+                        pending ||
+                        weekMenu.started ||
+                        (!weekMenu.isDeload && parsePct(weekPct) == null)
+                      }
                       onClick={() =>
                         run(() =>
                           setBlockWeekDeload(
@@ -508,7 +650,9 @@ export function BlockOverview({
                         )
                       }
                     >
-                      {weekMenu.isDeload ? "הפוך לשבוע רגיל" : "הפוך את השבוע הזה לדילואד"}
+                      {weekMenu.isDeload
+                        ? "הפוך לשבוע רגיל"
+                        : "הפוך את השבוע הזה לדילואד"}
                     </Button>
                   )}
                   {weekMenu.isDeload && weekMenu.index > 1 && (
@@ -517,9 +661,19 @@ export function BlockOverview({
                       variant="outline"
                       size="sm"
                       className="w-full"
-                      disabled={pending || weekMenu.started || parsePct(weekPct) == null}
+                      disabled={
+                        pending || weekMenu.started || parsePct(weekPct) == null
+                      }
                       onClick={() =>
-                        run(() => setBlockWeekDeload(traineeId, block.id, weekMenu.programId, true, parsePct(weekPct)))
+                        run(() =>
+                          setBlockWeekDeload(
+                            traineeId,
+                            block.id,
+                            weekMenu.programId,
+                            true,
+                            parsePct(weekPct),
+                          ),
+                        )
                       }
                     >
                       עדכן את האחוז
@@ -530,13 +684,27 @@ export function BlockOverview({
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    disabled={pending || block.weeksCount >= MAX_BLOCK_WEEKS || parsePct(weekPct) == null}
-                    onClick={() => run(() => insertBlockDeload(traineeId, block.id, weekMenu.index, parsePct(weekPct)))}
+                    disabled={
+                      pending ||
+                      block.weeksCount >= MAX_BLOCK_WEEKS ||
+                      parsePct(weekPct) == null
+                    }
+                    onClick={() =>
+                      run(() =>
+                        insertBlockDeload(
+                          traineeId,
+                          block.id,
+                          weekMenu.index,
+                          parsePct(weekPct),
+                        ),
+                      )
+                    }
                   >
                     הוסף שבוע דילואד אחרי השבוע הזה
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    הוספת שבוע דילואד דוחה את שאר הבלוק בשבוע. שבוע שהמתאמן כבר התחיל לא זז ולא משתנה.
+                    הוספת שבוע דילואד דוחה את שאר הבלוק בשבוע. שבוע שהמתאמן כבר
+                    התחיל לא זז ולא משתנה.
                   </p>
                 </div>
 
@@ -564,7 +732,8 @@ export function BlockOverview({
             {weekMenu.started && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Snowflake className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                בשבוע הזה כבר יש ביצוע מתועד, ולכן הוא לא זז, לא הופך לדילואד ולא מחושב מחדש.
+                בשבוע הזה כבר יש ביצוע מתועד, ולכן הוא לא זז, לא הופך לדילואד
+                ולא מחושב מחדש.
               </p>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
@@ -573,7 +742,11 @@ export function BlockOverview({
       </Modal>
 
       {/* ---- the block */}
-      <Modal open={dialog === "settings"} onClose={() => setDialog(null)} title="הגדרות הבלוק">
+      <Modal
+        open={dialog === "settings"}
+        onClose={() => setDialog(null)}
+        title="הגדרות הבלוק"
+      >
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="block-title">שם</Label>
@@ -581,17 +754,23 @@ export function BlockOverview({
               id="block-title"
               value={settings.title}
               maxLength={120}
-              onChange={(e) => setSettings({ ...settings, title: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, title: e.target.value })
+              }
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="block-default-pct">משקל בדילואד, ברירת מחדל (% מהשבוע הקודם)</Label>
+            <Label htmlFor="block-default-pct">
+              משקל בדילואד, ברירת מחדל (% מהשבוע הקודם)
+            </Label>
             <Input
               id="block-default-pct"
               inputMode="numeric"
               className="w-24"
               value={settings.defaultDeloadPct}
-              onChange={(e) => setSettings({ ...settings, defaultDeloadPct: e.target.value })}
+              onChange={(e) =>
+                setSettings({ ...settings, defaultDeloadPct: e.target.value })
+              }
             />
           </div>
           <label className="flex items-start gap-2 text-sm">
@@ -599,7 +778,9 @@ export function BlockOverview({
               type="checkbox"
               className="mt-0.5 h-4 w-4 accent-primary"
               checked={settings.autoPublish}
-              onChange={(e) => setSettings({ ...settings, autoPublish: e.target.checked })}
+              onChange={(e) =>
+                setSettings({ ...settings, autoPublish: e.target.checked })
+              }
             />
             <span>
               פרסם אוטומטית כל שבוע כשהוא מתחיל
@@ -615,7 +796,9 @@ export function BlockOverview({
             onClick={() => {
               const pct = parsePct(settings.defaultDeloadPct);
               if (pct == null) {
-                setError(`אחוז הדילואד הוא בין ${MIN_DELOAD_PCT} ל-${MAX_DELOAD_PCT}`);
+                setError(
+                  `אחוז הדילואד הוא בין ${MIN_DELOAD_PCT} ל-${MAX_DELOAD_PCT}`,
+                );
                 return;
               }
               run(() =>
@@ -632,10 +815,15 @@ export function BlockOverview({
         </div>
       </Modal>
 
-      <Modal open={dialog === "end"} onClose={() => setDialog(null)} title="סיום הבלוק">
+      <Modal
+        open={dialog === "end"}
+        onClose={() => setDialog(null)}
+        title="סיום הבלוק"
+      >
         <div className="space-y-3">
           <p className="text-sm">
-            אחרי סיום, היעדים של הבלוק כבר לא מחושבים אוטומטית. מה שבוצע נשאר בהיסטוריה כמו שהוא.
+            אחרי סיום, היעדים של הבלוק כבר לא מחושבים אוטומטית. מה שבוצע נשאר
+            בהיסטוריה כמו שהוא.
           </p>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -648,21 +836,36 @@ export function BlockOverview({
           </label>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
-            <Button type="button" disabled={pending} onClick={() => run(() => endBlock(traineeId, block.id, removeFuture))}>
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                run(() => endBlock(traineeId, block.id, removeFuture))
+              }
+            >
               {pending ? "מסיים…" : "סיים את הבלוק"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setDialog(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialog(null)}
+            >
               ביטול
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={dialog === "delete"} onClose={() => setDialog(null)} title="מחיקת בלוק">
+      <Modal
+        open={dialog === "delete"}
+        onClose={() => setDialog(null)}
+        title="מחיקת בלוק"
+      >
         <div className="space-y-3">
           <p className="text-sm">
-            למחוק את &quot;{block.title}&quot;? השבועות שעוד לא בוצע בהם כלום יימחקו. שבוע שהמתאמן כבר התאמן בו
-            נשאר כתוכנית שבועית רגילה — ההיסטוריה לא נמחקת.
+            למחוק את &quot;{block.title}&quot;? השבועות שעוד לא בוצע בהם כלום
+            יימחקו. שבוע שהמתאמן כבר התאמן בו נשאר כתוכנית שבועית רגילה —
+            ההיסטוריה לא נמחקת.
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
@@ -670,22 +873,34 @@ export function BlockOverview({
               type="button"
               variant="destructive"
               disabled={pending}
-              onClick={() => run(() => deleteBlock(traineeId, block.id), undefined, false)}
+              onClick={() =>
+                run(() => deleteBlock(traineeId, block.id), undefined, false)
+              }
             >
               {pending ? "מוחק…" : "כן, למחוק"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setDialog(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialog(null)}
+            >
               ביטול
             </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={dialog === "next"} onClose={() => setDialog(null)} title="הבלוק הבא">
+      <Modal
+        open={dialog === "next"}
+        onClose={() => setDialog(null)}
+        title="הבלוק הבא"
+      >
         <NextBlockForm
           traineeId={traineeId}
           blockId={block.id}
-          suggestedTitle={block.title.replace(/(\d+)\s*$/, (n) => String(Number(n) + 1))}
+          suggestedTitle={block.title.replace(/(\d+)\s*$/, (n) =>
+            String(Number(n) + 1),
+          )}
           onCancel={() => setDialog(null)}
         />
       </Modal>

@@ -66,7 +66,7 @@ export function TraineeList({ trainees }: { trainees: Trainee[] }) {
             <Link key={t.id} href={`/trainer/trainees/${t.id}`}>
               <Card className="h-full transition-shadow hover:shadow-sm">
                 <CardContent className="flex items-center gap-4 p-5">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-tint text-lg font-bold text-primary-text">
                     {initials(t.full_name)}
                   </div>
                   <div className="min-w-0 flex-1">

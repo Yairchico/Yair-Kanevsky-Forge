@@ -14,6 +14,7 @@ import { getExerciseImage } from "@/lib/exercise-image";
 import { cn } from "@/lib/utils";
 import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import { MAX_VIDEO_BYTES, VIDEO_BUCKET, VIDEO_UPLOAD_TYPES, playableVideoUrl } from "@/lib/video";
+import { MAX_SOURCE_VIDEO_BYTES, prepareVideoForUpload, uploadWithProgress } from "@/lib/video-prepare";
 import {
   confirmVideoUpload,
   createVideoUpload,
@@ -70,7 +71,14 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
   const [tab, setTab] = useState<VideoTab>("upload");
   const [removePending, startRemove] = useTransition();
   const [removeError, setRemoveError] = useState<string | undefined>();
-  const [upload, setUpload] = useState<{ name: string; size: number } | null>(null);
+  const [upload, setUpload] = useState<{
+    name: string;
+    size: number;
+    stage: "preparing" | "uploading" | "saving";
+    progress: number;
+    /** Size actually sent, once known (after preparing). */
+    sentSize?: number;
+  } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -98,26 +106,49 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
       setUploadError("אפשר להעלות סרטון מסוג MP4, MOV או WebM");
       return;
     }
-    if (file.size > MAX_VIDEO_BYTES) {
-      setUploadError(`הסרטון גדול מדי (${formatMb(file.size)}, עד 50MB). נסו סרטון קצר יותר, 15–30 שניות.`);
+    if (file.size > MAX_SOURCE_VIDEO_BYTES) {
+      setUploadError(`הסרטון גדול מדי (${formatMb(file.size)}). נסו סרטון קצר יותר, 15–30 שניות.`);
       return;
     }
-    setUpload({ name: file.name, size: file.size });
+    setUpload({ name: file.name, size: file.size, stage: "preparing", progress: 0 });
     let path: string | null = null;
     try {
-      const ticket = await createVideoUpload(exercise.id, { type, size: file.size });
+      // Smaller and quicker to start (720p, H.264, index first) — or the original file if the browser can't.
+      const prepared = await prepareVideoForUpload(file, type, (progress) =>
+        setUpload((u) => (u ? { ...u, progress } : u)),
+      );
+      if (prepared.blob.size > MAX_VIDEO_BYTES) {
+        setUploadError(
+          `הסרטון גדול מדי (${formatMb(prepared.blob.size)}, עד 50MB). נסו סרטון קצר יותר, 15–30 שניות.`,
+        );
+        return;
+      }
+      setUpload((u) => (u ? { ...u, stage: "uploading", progress: 0, sentSize: prepared.blob.size } : u));
+
+      const ticket = await createVideoUpload(exercise.id, { type: prepared.type, size: prepared.blob.size });
       if ("error" in ticket) {
         setUploadError(ticket.error);
         return;
       }
       path = ticket.path;
-      const { error } = await createBrowserClient()
-        .storage.from(VIDEO_BUCKET)
-        .uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: type });
-      if (error) {
+      const { data } = await createBrowserClient().auth.getSession();
+      const sent = await uploadWithProgress({
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+        anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+        accessToken: data.session?.access_token ?? null,
+        bucket: VIDEO_BUCKET,
+        path: ticket.path,
+        token: ticket.token,
+        blob: prepared.blob,
+        onProgress: (progress) => setUpload((u) => (u ? { ...u, progress } : u)),
+      });
+      if (!sent.ok) {
         setUploadError("ההעלאה נכשלה. בדקו את החיבור ונסו שוב.");
+        void discardVideoUpload(exercise.id, ticket.path).catch(() => {});
+        path = null;
         return;
       }
+      setUpload((u) => (u ? { ...u, stage: "saving", progress: 1 } : u));
       const result = await confirmVideoUpload(exercise.id, ticket.path);
       if (result.error) {
         setUploadError(result.error);
@@ -209,15 +240,30 @@ function VideoSection({ exercise, readOnly }: { exercise: Exercise; readOnly: bo
                 onClick={() => fileInput.current?.click()}
               >
                 <Upload className="h-3.5 w-3.5" />
-                {upload ? "מעלה…" : "בחירת סרטון"}
+                {upload ? (upload.stage === "preparing" ? "מכין…" : "מעלה…") : "בחירת סרטון"}
               </Button>
               {upload && (
-                <p className="text-xs text-muted-foreground">
-                  מעלה את {upload.name} ({formatMb(upload.size)}). זה יכול לקחת כמה רגעים — אל תסגרו את החלון.
-                </p>
+                <div className="space-y-1" role="status" aria-live="polite">
+                  <p className="text-xs text-muted-foreground">
+                    {upload.stage === "preparing"
+                      ? `מכין את ${upload.name} (${formatMb(upload.size)}) להעלאה מהירה`
+                      : upload.stage === "uploading"
+                        ? `מעלה${upload.sentSize != null ? ` ${formatMb(upload.sentSize)}` : ""}`
+                        : "שומר…"}
+                    {upload.stage !== "saving" && ` · ${Math.round(upload.progress * 100)}%`}
+                    {" — אל תסגרו את החלון."}
+                  </p>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width]"
+                      style={{ width: `${Math.round((upload.stage === "saving" ? 1 : upload.progress) * 100)}%` }}
+                    />
+                  </div>
+                </div>
               )}
               <p className="text-xs text-muted-foreground">
-                MP4, MOV או WebM, עד 50MB. סרטון קצר (15–30 שניות) עולה מהר יותר וחוסך למתאמנים גלישה.
+                MP4, MOV או WebM. הסרטון מוקטן אוטומטית לפני ההעלאה (720p), כדי שיעלה מהר ויתחיל להתנגן מיד אצל
+                המתאמן. סרטון קצר (15–30 שניות) עדיין עדיף.
               </p>
               {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
             </div>
@@ -457,7 +503,7 @@ export function ExerciseDetailModal({
                 : undefined
             }
             className={cn(
-              "relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary/10",
+              "relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary-tint",
               !readOnly && displaySrc && !previewUrl && !confirmingDelete && "cursor-pointer",
             )}
           >
@@ -465,7 +511,7 @@ export function ExerciseDetailModal({
               // eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host
               <img src={displaySrc} alt={exercise.name} className="h-full w-full object-cover" />
             ) : (
-              <Dumbbell className="h-1/3 w-1/3 text-primary" />
+              <Dumbbell className="h-1/3 w-1/3 text-primary-text" />
             )}
             {!readOnly && displaySrc && !previewUrl && !confirmingDelete && (
               <span

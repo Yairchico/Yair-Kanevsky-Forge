@@ -119,7 +119,7 @@ export function ConvertBlockForm({
                       key={c.id}
                       className={cn(
                         "flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 text-sm transition-colors",
-                        on ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
+                        on ? "border-primary bg-primary-tint" : "border-border hover:bg-hover",
                       )}
                     >
                       <input
@@ -188,7 +188,7 @@ export function ConvertBlockForm({
                         }
                         className={cn(
                           "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                          on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-muted",
+                          on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-hover",
                         )}
                       >
                         שבוע {week}

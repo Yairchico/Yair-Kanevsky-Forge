@@ -67,7 +67,7 @@ export function WorkoutDetailModal({
             </span>
           )}
           {workout.submittedBy === "trainer_session" && (
-            <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+            <span className="rounded-full bg-primary-tint px-3 py-1 text-sm font-medium text-primary-text">
               אימון אישי עם המאמן
             </span>
           )}

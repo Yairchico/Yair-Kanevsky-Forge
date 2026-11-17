@@ -51,7 +51,7 @@ function InlineCreateExercise({
   }
 
   return (
-    <form action={formAction} className="space-y-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+    <form action={formAction} className="space-y-2 rounded-lg border border-dashed border-primary-deep bg-primary-tint p-3">
       <div className="space-y-1">
         <Label htmlFor={`${uid}-name`} className="text-xs">שם תרגיל</Label>
         <Input id={`${uid}-name`} name="name" required defaultValue={initialName} className="h-9 text-sm" />
@@ -177,12 +177,12 @@ export function AddExercisePicker({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") onAdd(ex.id);
                 }}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-muted"
+                className="flex w-full cursor-pointer items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-hover"
               >
                 <span onClick={(e) => e.stopPropagation()}>
                   <ExercisePhoto
                     src={getExerciseImage(ex)}
-                    className="h-9 w-9 rounded-md bg-primary/10"
+                    className="h-9 w-9 rounded-md bg-primary-tint"
                   />
                 </span>
                 <div className="min-w-0 flex-1">

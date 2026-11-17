@@ -63,7 +63,7 @@ export function StartTemplateModal({
   const optionClass = (selected: boolean) =>
     cn(
       "block w-full rounded-xl border p-3 text-start transition-colors",
-      selected ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
+      selected ? "border-primary bg-primary-tint" : "border-border hover:bg-hover",
     );
 
   return (

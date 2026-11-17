@@ -9,7 +9,7 @@ function SearchInput({ className, ...props }: React.ComponentProps<"input">) {
       <input
         type="search"
         className={cn(
-          "h-11 w-full rounded-full border border-input bg-card ps-10 pe-4 text-sm shadow-xs outline-none transition-all placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15",
+          "h-11 w-full rounded-full border border-input bg-card ps-10 pe-4 text-sm shadow-xs outline-none transition-all placeholder:text-subtle focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15",
           className,
         )}
         {...props}

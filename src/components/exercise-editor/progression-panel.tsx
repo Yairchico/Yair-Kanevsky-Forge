@@ -98,7 +98,7 @@ export function ProgressionPanel({
           className={cn(
             explanation.tone === "up" && "text-success",
             explanation.tone === "warn" && "text-warning-foreground",
-            explanation.tone === "deload" && "text-primary",
+            explanation.tone === "deload" && "text-primary-text",
             (explanation.tone === "neutral" || explanation.tone === "hold") && "text-muted-foreground",
           )}
         >
@@ -108,14 +108,14 @@ export function ProgressionPanel({
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5">
-          <TrendingUp className="h-3.5 w-3.5 text-primary" />
+          <TrendingUp className="h-3.5 w-3.5 text-primary-text" />
           <span className="text-muted-foreground">קפיצה לשבוע הבא:</span>
           <span className="font-medium">{describeRule(rule)}</span>
         </p>
         {!readOnly && !open && (
           <button
             type="button"
-            className="font-medium text-primary underline-offset-2 hover:underline"
+            className="font-medium text-primary-text underline-offset-2 hover:underline"
             onClick={() => {
               setDraft(toDraft(rule));
               setError(null);

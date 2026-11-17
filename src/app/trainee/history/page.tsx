@@ -253,7 +253,7 @@ export default async function TraineeHistoryPage() {
                   <p className="flex flex-wrap items-center gap-2 text-base font-semibold">
                     {entry.label}
                     {entry.tag && (
-                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                      <span className="rounded-full bg-primary-tint px-2.5 py-0.5 text-xs font-medium text-primary-text">
                         {entry.tag}
                       </span>
                     )}

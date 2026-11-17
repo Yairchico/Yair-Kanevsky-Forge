@@ -115,7 +115,7 @@ function PreviewModal({
             onClick={() => go(-1)}
             disabled={index === 0}
             aria-label="האימון הקודם"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover disabled:opacity-30"
           >
             <ChevronRight className="h-5 w-5" />
           </button>
@@ -148,7 +148,7 @@ function PreviewModal({
             onClick={() => go(1)}
             disabled={index === candidate.workouts.length - 1}
             aria-label="האימון הבא"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted disabled:opacity-30"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover disabled:opacity-30"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -242,12 +242,12 @@ function DuplicateWeekPicker({
             onClick={() => setPreviewCandidate(c)}
             className={cn(
               "flex w-full items-start justify-between gap-2 rounded-lg border p-3 text-start transition-colors",
-              isSelected ? "border-primary bg-primary/5" : "border-border hover:bg-muted",
+              isSelected ? "border-primary bg-primary-tint" : "border-border hover:bg-hover",
             )}
           >
             <div>
               <p className="flex items-center gap-1.5 text-sm font-medium">
-                {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                {isSelected && <Check className="h-3.5 w-3.5 text-primary-text" />}
                 {c.title}
               </p>
               <p className="text-xs text-muted-foreground">
@@ -256,7 +256,7 @@ function DuplicateWeekPicker({
                 {c.isCurrentWeek && " · מתרחש כעת"}
               </p>
             </div>
-            <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
+            <span className="flex shrink-0 items-center gap-1 text-xs text-primary-text">
               <Eye className="h-3.5 w-3.5" />
               {c.workouts.length} אימונים · {totalExercises} תרגילים
             </span>
@@ -375,8 +375,8 @@ export function NewProgramForm({
                               ? "border-destructive bg-destructive/5"
                               : "border-destructive/40 hover:bg-destructive/5"
                             : isSelected
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-muted",
+                              ? "border-primary bg-primary-tint"
+                              : "border-border hover:bg-hover",
                         )}
                       >
                         <span>

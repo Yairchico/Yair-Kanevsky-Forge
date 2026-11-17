@@ -275,7 +275,7 @@ export default async function TraineeDetailPage({
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Layers className="h-4 w-4 text-primary" />
+              <Layers className="h-4 w-4 text-primary-text" />
               בלוקים
             </CardTitle>
             <CardDescription>רצף שבועות שבו היעדים מתקדמים אוטומטית לפי הביצוע</CardDescription>
@@ -305,7 +305,7 @@ export default async function TraineeDetailPage({
               <Link
                 key={block.id}
                 href={`/trainer/trainees/${id}/blocks/${block.id}`}
-                className="block rounded-md border border-border p-3 text-sm transition-colors hover:bg-muted"
+                className="block rounded-md border border-border p-3 text-sm transition-colors hover:bg-hover"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-medium">{block.title}</p>
@@ -376,7 +376,7 @@ export default async function TraineeDetailPage({
               <Link
                 key={session.id}
                 href={`/trainer/session/free/${session.id}`}
-                className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-muted"
+                className="flex items-center justify-between gap-2 rounded-md p-2 text-sm transition-colors hover:bg-hover"
               >
                 <span className="truncate font-medium">
                   {session.guestLabel?.trim() || "אימון חופשי"}

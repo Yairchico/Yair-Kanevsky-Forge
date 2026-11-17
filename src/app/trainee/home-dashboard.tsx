@@ -123,7 +123,7 @@ export function HomeDashboard({
           type="button"
           disabled={activeIndex <= 0}
           onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
-          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
         >
           <ChevronRight className="h-4 w-4" />
           שבוע קודם
@@ -138,7 +138,7 @@ export function HomeDashboard({
           type="button"
           disabled={activeIndex >= weeks.length - 1}
           onClick={() => setActiveIndex((i) => Math.min(weeks.length - 1, i + 1))}
-          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
         >
           שבוע הבא
           <ChevronLeft className="h-4 w-4" />
@@ -203,9 +203,9 @@ export function HomeDashboard({
               {isCurrentWeek && nextWorkout ? (
                 <Link
                   href={viewProgramHref}
-                  className="group -m-1 flex items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-muted"
+                  className="group -m-1 flex items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-hover"
                 >
-                  <CalendarClock className="h-6 w-6 shrink-0 text-primary" />
+                  <CalendarClock className="h-6 w-6 shrink-0 text-primary-text" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-medium">{workoutLabel(nextWorkout)}</p>
                     <p className="text-sm text-muted-foreground">
@@ -249,9 +249,9 @@ export function HomeDashboard({
             </div>
           </CardContent>
         </Card>
-        <Card className="border-primary/30 bg-gradient-to-b from-primary/10 to-transparent">
+        <Card className="border-primary-deep bg-gradient-to-b from-primary/10 to-transparent">
           <CardContent className="flex min-h-[10.5rem] flex-col items-center justify-center gap-3 p-6 text-center">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary-tint text-primary-text">
               <TrendingUp className="h-8 w-8" />
             </div>
             <div>
@@ -266,7 +266,7 @@ export function HomeDashboard({
         <Link href="/trainee/workouts" className="group">
           <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:shadow-md">
             <CardContent className="flex min-h-[11rem] flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary-tint text-primary-text">
                 <Dumbbell className="h-8 w-8" />
               </div>
               <div>

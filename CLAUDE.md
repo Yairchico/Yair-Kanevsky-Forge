@@ -1,6 +1,6 @@
 @AGENTS.md
 
-# Yair Kanevsky by Forge — project guide
+# Yair Kanevsky — project guide
 
 A private fitness-training app for **one strength coach (trainer) and their
 trainees**. Hebrew UI, RTL throughout. No multi-tenant/org model — there is
@@ -185,9 +185,17 @@ supabase/tests/                      SQL suites run against a throwaway local Po
 - **Uploaded videos go browser → Storage, never through a Server Action.**
   A Worker can't carry a 50MB body. `createVideoUpload` (trainer check,
   type/size check) hands out a one-time signed upload URL for
-  `<exercise id>/<random uuid>.<ext>`; the browser uploads with
-  `uploadToSignedUrl`; `confirmVideoUpload` checks the object exists and
-  attaches it. Replacing (by a link or another file), clearing, and deleting
+  `<exercise id>/<random uuid>.<ext>`; the browser first shrinks the file
+  (`prepareVideoForUpload`, `src/lib/video-prepare.ts`: WebCodecs via
+  mediabunny, loaded only then — H.264, short edge ≤ 720, quality
+  "medium", index first so it plays before it's fully downloaded; the
+  original file whenever the browser can't, e.g. HEVC without a decoder),
+  then PUTs it with progress (`uploadWithProgress` — the same request as
+  `uploadToSignedUrl`, cached for a year); `confirmVideoUpload` checks the
+  object exists and attaches it. Don't give mediabunny a numeric `Quality`
+  (an exact bitrate): 1.65 then decides it can't encode and silently drops
+  the video track — which is also why a dropped video track falls back to
+  the original. Replacing (by a link or another file), clearing, and deleting
   the exercise all remove the old file (best effort — a leftover file costs
   storage, not correctness). The bucket's own size/type limits and the
   name-shape policy are the real enforcement; the app's checks are for a
@@ -209,7 +217,17 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   global "אימון N" numbering — it's derived at display time by sorting
   `(day_of_week, order_index)`, so `order_index` only means "1st or 2nd
   that day," not a program-wide position.
-- **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Rubik font
+- **Crimson dark theme** (2026-11): always dark, tokens only in
+  `src/app/globals.css`. Crimson (`bg-primary`) is for fills only;
+  crimson-family text/icons are `text-primary-text` (soft pink — crimson
+  text on dark is 2.7:1), tinted surfaces `bg-primary-tint`, borders
+  `border-primary-deep`, hover `hover:bg-hover` (not `hover:bg-muted`,
+  which is the card's own gray here), placeholders/decorative icons
+  `text-subtle` (never body text). No raw colors in components. The logo
+  PNGs in `public/` were recolored from the original violet one (X crimson,
+  name white, subtitle pink); `src/app/favicon.ico`/`apple-icon.png` are
+  the crimson X.
+- **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Heebo font
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
   `ArrowLeft`) is the "back" icon since it points backward in RTL.

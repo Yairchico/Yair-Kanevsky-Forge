@@ -72,7 +72,7 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
                     ? "bg-primary text-primary-foreground"
                     : w.submitted
                       ? "bg-success/15 text-success"
-                      : "bg-secondary text-secondary-foreground hover:bg-muted",
+                      : "bg-secondary text-secondary-foreground hover:bg-hover",
                 )}
               >
                 {label}
@@ -82,7 +82,7 @@ export function TraineeWorkoutTabs({ workouts }: { workouts: WorkoutData[] }) {
         </div>
         <Link
           href="/trainee/history"
-          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:bg-hover hover:text-foreground"
         >
           <History className="h-4 w-4" />
           היסטוריה
@@ -164,7 +164,7 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
           <button
             type="button"
             onClick={() => void entry.flushPending()}
-            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-muted"
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-hover"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             נסה שוב
@@ -201,7 +201,7 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
                     muscle_group: ex.muscleGroup,
                     media_url: ex.imageUrl,
                   })}
-                  className="h-12 w-12 rounded-lg bg-primary/10"
+                  className="h-12 w-12 rounded-lg bg-primary-tint"
                 />
                 <div
                   className={cn(

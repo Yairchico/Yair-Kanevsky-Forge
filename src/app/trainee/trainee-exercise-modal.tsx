@@ -71,7 +71,7 @@ function SetEntryRow({
         state === "logged" && "border-success/30 bg-success/5",
         (state === "logged-short" || state === "pending") && "border-warning/40 bg-warning/5",
         state === "changed" && "border-primary/50 bg-card",
-        state === "open" && (isNext ? "border-primary bg-card ring-2 ring-primary/20" : "border-border bg-card"),
+        state === "open" && (isNext ? "border-primary bg-card ring-2 ring-primary-deep" : "border-border bg-card"),
       )}
     >
       <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ function SetEntryRow({
             state === "logged-short" && "border-warning bg-warning/20 text-warning-foreground",
             state === "pending" && "border-warning bg-warning/15 text-warning-foreground",
             state === "changed" && "border-primary bg-primary text-primary-foreground",
-            state === "open" && "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary",
+            state === "open" && "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary-text",
           )}
         >
           {state === "pending" ? (
@@ -215,12 +215,12 @@ export function TraineeExerciseModal({
     <Modal open onClose={onClose} title={exercise.name} className="max-w-lg">
       <div className="space-y-4">
         <div className="flex justify-center">
-          <div className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary/10">
+          <div className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-primary-tint">
             {image ? (
               // eslint-disable-next-line @next/next/no-img-element -- media_url can be any external host
               <img src={image} alt={exercise.name} className="h-full w-full object-cover" />
             ) : (
-              <Dumbbell className="h-1/3 w-1/3 text-primary" />
+              <Dumbbell className="h-1/3 w-1/3 text-primary-text" />
             )}
           </div>
         </div>
@@ -301,7 +301,7 @@ export function TraineeExerciseModal({
             <button
               type="button"
               onClick={() => entry.addExtraSet(exercise.id)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border py-2 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
               סט נוסף
