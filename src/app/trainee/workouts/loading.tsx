@@ -1,9 +1,5 @@
-import { Loader2 } from "lucide-react";
+import { PageSkeleton } from "@/components/page-skeleton";
 
 export default function Loading() {
-  return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
+  return <PageSkeleton />;
 }
