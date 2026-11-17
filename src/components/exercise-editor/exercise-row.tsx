@@ -166,7 +166,7 @@ function SetRow({
           disabled={disabled}
           value={fields.set_type}
           onChange={(e) => void save({ ...fields, set_type: e.target.value as SetFields["set_type"] })}
-          className="h-8 w-[3.4rem] rounded-md border border-input bg-card px-1 text-xs outline-none sm:w-[4.5rem] sm:px-1.5 focus-visible:border-ring disabled:opacity-50"
+          className="h-8 w-[3.75rem] rounded-md border border-input bg-card px-1 text-xs outline-none sm:w-[4.5rem] sm:px-1.5 focus-visible:border-ring disabled:opacity-50"
         >
           <option value="working">{SET_TYPE_LABEL.working}</option>
           <option value="warmup">{SET_TYPE_LABEL.warmup}</option>

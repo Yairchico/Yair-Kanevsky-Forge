@@ -102,3 +102,17 @@
 body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/*
+ * iPhone Safari zooms the whole page in when a field with text under 16px
+ * is tapped, and it stays zoomed — which reads as a broken layout. On touch
+ * screens every form field is at least 16px (larger ones keep their size).
+ * Deliberately outside @layer so it beats the text-sm/text-xs utilities.
+ */
+@media (pointer: coarse) {
+  input:not(.text-lg):not(.text-xl):not(.text-2xl),
+  select:not(.text-lg):not(.text-xl):not(.text-2xl),
+  textarea:not(.text-lg):not(.text-xl):not(.text-2xl) {
+    font-size: 16px;
+  }
+}

@@ -234,7 +234,9 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   horizontal scroll; a card header with buttons is `flex-wrap` with the
   text block `min-w-[12rem] flex-1`, so the buttons drop below instead of
   squeezing the text into a one-word column. Only the block matrix scrolls
-  sideways on purpose (sticky first column).
+  sideways on purpose (sticky first column). On touch screens every form
+  field is at least 16px (`globals.css`, unlayered on purpose) — under that,
+  iPhone Safari zooms the page in on tap and leaves it zoomed.
 - **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Heebo font
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not
