@@ -235,8 +235,8 @@ export default async function TraineeDetailPage({
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <div>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+            <div className="min-w-[12rem] flex-1">
               <CardTitle>תוכניות אימון</CardTitle>
               <CardDescription>תוכניות שבועיות עבור {trainee.full_name}</CardDescription>
             </div>
@@ -272,8 +272,8 @@ export default async function TraineeDetailPage({
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <div>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div className="min-w-[12rem] flex-1">
             <CardTitle className="flex items-center gap-2 text-base">
               <Layers className="h-4 w-4 text-primary-text" />
               בלוקים
@@ -339,8 +339,8 @@ export default async function TraineeDetailPage({
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <div>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div className="min-w-[12rem] flex-1">
             <CardTitle>התוכנית השבועית</CardTitle>
             <CardDescription>מה שהמתאמן סימן, ביצע בפועל והגיש (קריאה בלבד)</CardDescription>
           </div>

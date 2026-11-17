@@ -227,6 +227,14 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   PNGs in `public/` were recolored from the original violet one (X crimson,
   name white, subtitle pink); `src/app/favicon.ico`/`apple-icon.png` are
   the crimson X.
+- **Phone width is a first-class layout** (the trainer works from a phone
+  too): every trainer screen and dialog was checked at 390px with nothing
+  scrolling sideways. Wide grids get narrower columns below `sm:` (the set
+  table in `exercise-row.tsx`: compact inputs, "ק\"ג" header) rather than a
+  horizontal scroll; a card header with buttons is `flex-wrap` with the
+  text block `min-w-[12rem] flex-1`, so the buttons drop below instead of
+  squeezing the text into a one-word column. Only the block matrix scrolls
+  sideways on purpose (sticky first column).
 - **Hebrew/RTL**: `dir="rtl"` on `<html>` (`src/app/layout.tsx`), Heebo font
   (Hebrew glyph coverage). Use logical Tailwind classes (`ps-`/`pe-`/
   `start-`/`end-`, not `pl-`/`pr-`/`left-`/`right-`). `ArrowRight` (not

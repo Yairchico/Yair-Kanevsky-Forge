@@ -39,7 +39,9 @@ function MiniField({
   );
 }
 
-const cellInput = "h-8 rounded-md px-2 text-center text-sm";
+// Narrower on a phone so the whole row (type, reps, kg, RPE, delete) fits the card without scrolling.
+const cellInput = "h-8 rounded-md px-1 text-center text-sm sm:px-2";
+const cell = "py-1 pe-1 sm:pe-1.5";
 
 function toSetFields(set: PlannedSet): SetFields {
   return {
@@ -157,24 +159,24 @@ function SetRow({
 
   return (
     <tr className="border-t border-border">
-      <td className="py-1 pe-1.5 text-center text-xs font-bold text-muted-foreground">{set.setIndex}</td>
-      <td className="py-1 pe-1.5">
+      <td className={cn(cell, "text-center text-xs font-bold text-muted-foreground")}>{set.setIndex}</td>
+      <td className={cell}>
         <select
           aria-label={`סוג סט ${set.setIndex}`}
           disabled={disabled}
           value={fields.set_type}
           onChange={(e) => void save({ ...fields, set_type: e.target.value as SetFields["set_type"] })}
-          className="h-8 w-[4.5rem] rounded-md border border-input bg-card px-1.5 text-xs outline-none focus-visible:border-ring disabled:opacity-50"
+          className="h-8 w-[3.4rem] rounded-md border border-input bg-card px-1 text-xs outline-none sm:w-[4.5rem] sm:px-1.5 focus-visible:border-ring disabled:opacity-50"
         >
           <option value="working">{SET_TYPE_LABEL.working}</option>
           <option value="warmup">{SET_TYPE_LABEL.warmup}</option>
         </select>
       </td>
-      <td className="py-1 pe-1.5">
+      <td className={cell}>
         <Input
           aria-label={`חזרות בסט ${set.setIndex}`}
           title={fields.reps}
-          className={cn(cellInput, "w-24")}
+          className={cn(cellInput, "w-[3.75rem] sm:w-24")}
           placeholder="8-10"
           disabled={disabled}
           value={fields.reps}
@@ -182,11 +184,11 @@ function SetRow({
           onBlur={() => void save(fields)}
         />
       </td>
-      <td className="py-1 pe-1.5">
+      <td className={cell}>
         <Input
           aria-label={`משקל בסט ${set.setIndex}`}
           title={fields.weight}
-          className={cn(cellInput, "w-20", showOverride && set.isManualOverride && "border-warning bg-warning/10")}
+          className={cn(cellInput, "w-14 sm:w-20", showOverride && set.isManualOverride && "border-warning bg-warning/10")}
           inputMode="decimal"
           placeholder="—"
           disabled={disabled}
@@ -195,10 +197,10 @@ function SetRow({
           onBlur={() => void save(fields)}
         />
       </td>
-      <td className="py-1 pe-1.5">
+      <td className={cell}>
         <Input
           aria-label={`RPE בסט ${set.setIndex}`}
-          className={cn(cellInput, "w-12")}
+          className={cn(cellInput, "w-10 sm:w-12")}
           type="number"
           min={1}
           max={10}
@@ -212,7 +214,7 @@ function SetRow({
         />
       </td>
       {showOverride && (
-        <td className="py-1 pe-1.5 text-[11px]">
+        <td className={cn(cell, "text-[11px]")}>
           {set.isManualOverride ? (
             <span className="flex flex-wrap items-center gap-1.5">
               <span className="inline-flex items-center gap-1 rounded-full bg-warning/20 px-1.5 py-0.5 font-medium text-warning-foreground">
@@ -225,7 +227,12 @@ function SetRow({
                 disabled={disabled || restoring}
                 className="text-primary-text underline-offset-2 hover:underline disabled:opacity-50"
               >
-                {restoring ? "משחזר…" : "שחזר לאוטומטי"}
+                {restoring ? "משחזר…" : (
+                  <>
+                    <span className="sm:hidden">שחזר</span>
+                    <span className="hidden sm:inline">שחזר לאוטומטי</span>
+                  </>
+                )}
               </button>
             </span>
           ) : (
@@ -475,15 +482,17 @@ export function ExerciseRow({
           ) : (
             <>
               <div className="mt-2 overflow-x-auto">
-                <table className="w-auto min-w-[19rem] text-sm">
+                <table className="w-auto text-sm">
                   <thead>
                     <tr className="text-[10px] text-muted-foreground">
-                      <th className="pb-0.5 pe-1.5 text-center font-normal">#</th>
-                      <th className="pb-0.5 pe-1.5 text-start font-normal">סוג</th>
-                      <th className="pb-0.5 pe-1.5 text-start font-normal">חזרות *</th>
-                      <th className="pb-0.5 pe-1.5 text-start font-normal">משקל (ק&quot;ג)</th>
-                      <th className="pb-0.5 pe-1.5 text-start font-normal">RPE</th>
-                      {showOverrides && <th className="pb-0.5 pe-1.5 text-start font-normal">מקור</th>}
+                      <th className="pb-0.5 pe-1 text-center font-normal sm:pe-1.5">#</th>
+                      <th className="pb-0.5 pe-1 text-start font-normal sm:pe-1.5">סוג</th>
+                      <th className="pb-0.5 pe-1 text-start font-normal sm:pe-1.5">חזרות *</th>
+                      <th className="pb-0.5 pe-1 text-start font-normal sm:pe-1.5">
+                        ק&quot;ג<span className="hidden sm:inline"> (משקל)</span>
+                      </th>
+                      <th className="pb-0.5 pe-1 text-start font-normal sm:pe-1.5">RPE</th>
+                      {showOverrides && <th className="pb-0.5 pe-1 text-start font-normal sm:pe-1.5">מקור</th>}
                       <th />
                     </tr>
                   </thead>

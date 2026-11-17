@@ -371,14 +371,14 @@ export function BlockOverview({
               <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr>
-                    <th className="sticky start-0 z-10 min-w-36 border-b border-border bg-card p-3 text-start align-bottom font-semibold">
+                    <th className="sticky start-0 z-10 min-w-28 sm:min-w-36 border-b border-border bg-card p-3 text-start align-bottom font-semibold">
                       תרגיל
                     </th>
                     {weeks.map((week) => (
                       <th
                         key={week.programId}
                         className={cn(
-                          "min-w-36 border-b border-s border-border p-2 text-start align-top font-normal",
+                          "min-w-32 border-b border-s border-border p-2 text-start align-top font-normal sm:min-w-36",
                           week.isCurrent && "bg-primary-tint",
                         )}
                       >
