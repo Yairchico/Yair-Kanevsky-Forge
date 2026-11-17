@@ -37,6 +37,11 @@ interface Occurrence {
   sets: LoggedSet[];
 }
 
+type SetLogRow = Parameters<typeof toLoggedSet>[0] & { workout_exercise_id: string };
+
+/** Answers "what did they do last time" for any exercise rows of one trainee — see loadPreviousIndex. */
+export type PreviousLookup = (targets: { key: string; exerciseId: string }[]) => Map<string, PreviousPerformance>;
+
 /**
  * "What did this trainee do last time on this exercise?" — for each of
  * `targets` (the row a set list hangs off — a workout_exercises row or a
@@ -57,10 +62,19 @@ export async function getPreviousPerformance(
   targets: { key: string; exerciseId: string }[],
   limit = 600,
 ): Promise<Map<string, PreviousPerformance>> {
-  const result = new Map<string, PreviousPerformance>();
-  if (targets.length === 0) return result;
+  if (targets.length === 0) return new Map();
+  return (await loadPreviousIndex(supabase, traineeId, limit))(targets);
+}
 
-  const [{ data: recent }, { data: freeSessions }] = await Promise.all([
+/**
+ * Everything getPreviousPerformance needs from the database, which depends
+ * only on the trainee — not on which exercises are being asked about. So a
+ * page can start it together with its very first queries (it's a chain of
+ * up to three waits on its own) and ask the returned lookup at the end,
+ * instead of starting it after the page's last query.
+ */
+export async function loadPreviousIndex(supabase: Supabase, traineeId: string, limit = 600): Promise<PreviousLookup> {
+  const [{ data: recentRows }, { data: freeSessions }] = await Promise.all([
     supabase
       .from("set_logs")
       .select(SET_LOG_COLUMNS)
@@ -75,6 +89,8 @@ export async function getPreviousPerformance(
       .order("started_at", { ascending: false })
       .limit(30),
   ]);
+  const recent = (recentRows ?? []) as SetLogRow[];
+  const sessionIds = (freeSessions ?? []).map((s) => s.id);
 
   const occurrences = new Map<string, Occurrence>();
   function add(key: string, exerciseId: string, set: LoggedSet) {
@@ -88,27 +104,27 @@ export async function getPreviousPerformance(
     }
   }
 
-  // ---- the weekly plan
-  if (recent?.length) {
-    const loggedWeIds = [...new Set(recent.map((r) => r.workout_exercise_id))];
-    const weRows = await selectInChunks(loggedWeIds, (chunk) =>
+  // The two sources don't depend on each other — resolved together.
+  const loggedWeIds = [...new Set(recent.map((r) => r.workout_exercise_id))];
+  const [weRows, sessionExercises] = await Promise.all([
+    selectInChunks(loggedWeIds, (chunk) =>
       supabase.from("workout_exercises").select("id, exercise_id").in("id", chunk),
-    );
-    const exerciseIdByWeId = new Map(weRows.map((r) => [r.id, r.exercise_id]));
-    for (const row of recent) {
-      const exerciseId = exerciseIdByWeId.get(row.workout_exercise_id);
-      if (exerciseId) add(row.workout_exercise_id, exerciseId, toLoggedSet(row));
-    }
+    ),
+    selectInChunks(sessionIds, (chunk) =>
+      supabase.from("free_session_exercises").select("id, exercise_id").in("session_id", chunk),
+    ),
+  ]);
+
+  // ---- the weekly plan
+  const exerciseIdByWeId = new Map(weRows.map((r) => [r.id, r.exercise_id]));
+  for (const row of recent) {
+    const exerciseId = exerciseIdByWeId.get(row.workout_exercise_id);
+    if (exerciseId) add(row.workout_exercise_id, exerciseId, toLoggedSet(row));
   }
 
   // ---- free sessions assigned to this trainee
-  const sessionIds = (freeSessions ?? []).map((s) => s.id);
-  if (sessionIds.length > 0) {
-    const { data: sessionExercises } = await supabase
-      .from("free_session_exercises")
-      .select("id, exercise_id")
-      .in("session_id", sessionIds);
-    const exerciseIdBySessionExerciseId = new Map((sessionExercises ?? []).map((e) => [e.id, e.exercise_id]));
+  const exerciseIdBySessionExerciseId = new Map(sessionExercises.map((e) => [e.id, e.exercise_id]));
+  if (exerciseIdBySessionExerciseId.size > 0) {
     const freeSets = await selectInChunks([...exerciseIdBySessionExerciseId.keys()], (chunk) =>
       supabase
         .from("free_session_sets")
@@ -127,8 +143,6 @@ export async function getPreviousPerformance(
     }
   }
 
-  if (occurrences.size === 0) return result;
-
   // Occurrences per exercise, newest first.
   const byExercise = new Map<string, Occurrence[]>();
   for (const occurrence of occurrences.values()) {
@@ -138,18 +152,21 @@ export async function getPreviousPerformance(
   }
   for (const list of byExercise.values()) list.sort((a, b) => (a.last < b.last ? 1 : -1));
 
-  const now = new Date().toISOString();
-  for (const target of targets) {
-    const before = occurrences.get(target.key)?.first ?? now;
-    const previous = byExercise
-      .get(target.exerciseId)
-      ?.find((occurrence) => occurrence.key !== target.key && occurrence.last < before);
-    if (previous) {
-      result.set(target.key, {
-        loggedAt: previous.last,
-        sets: [...previous.sets].sort((a, b) => a.setIndex - b.setIndex),
-      });
+  return (targets) => {
+    const result = new Map<string, PreviousPerformance>();
+    const now = new Date().toISOString();
+    for (const target of targets) {
+      const before = occurrences.get(target.key)?.first ?? now;
+      const previous = byExercise
+        .get(target.exerciseId)
+        ?.find((occurrence) => occurrence.key !== target.key && occurrence.last < before);
+      if (previous) {
+        result.set(target.key, {
+          loggedAt: previous.last,
+          sets: [...previous.sets].sort((a, b) => a.setIndex - b.setIndex),
+        });
+      }
     }
-  }
-  return result;
+    return result;
+  };
 }

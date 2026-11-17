@@ -26,15 +26,8 @@ export async function applyBlockProgression(supabase: Supabase, workoutId: strin
   }
 }
 
-/**
- * The once-a-week maintenance of a trainee's active blocks (see
- * block_roll_forward in the migration): run it for every block that hasn't
- * had it yet this calendar week. Called before a page reads a trainee's
- * programs — by the trainee's own screens and by the trainer's — so what's
- * read is already up to date. One cheap query when there's nothing to do.
- * The read-only viewer may not run it (and gets whatever the last run left).
- */
-export async function rollForwardBlocks(supabase: Supabase, traineeId: string): Promise<void> {
+/** The trainee's active blocks that haven't had this calendar week's maintenance yet. */
+async function blocksDue(supabase: Supabase, traineeId: string): Promise<string[]> {
   try {
     const currentWeekKey = toDateKey(getWeekStart(israelNow()));
     const { data: blocks } = await supabase
@@ -43,9 +36,41 @@ export async function rollForwardBlocks(supabase: Supabase, traineeId: string): 
       .eq("trainee_id", traineeId)
       .eq("status", "active")
       .is("deleted_at", null);
-    const due = (blocks ?? []).filter((b) => !b.rolled_through || b.rolled_through < currentWeekKey);
-    await Promise.all(due.map((b) => supabase.rpc("block_roll_forward", { p_block_id: b.id })));
+    return (blocks ?? []).filter((b) => !b.rolled_through || b.rolled_through < currentWeekKey).map((b) => b.id);
   } catch {
-    // Maintenance only — never a reason not to show the page.
+    return [];
   }
+}
+
+/**
+ * Loads a page's data with the once-a-week maintenance of the trainee's
+ * active blocks applied (see block_roll_forward in migration 0017: time
+ * passing alone turns "projected" into "skipped", and it's where
+ * auto-publish and auto-complete happen).
+ *
+ * The maintenance is due once a week per block, so waiting for its check
+ * before every read would cost every page view a round trip for nothing.
+ * Instead the check runs TOGETHER with `load`; only when something was
+ * actually due is the maintenance run and `load` repeated, so what the
+ * page shows is still always the up-to-date state. `load` must therefore
+ * be a pure read, safe to run twice.
+ *
+ * `canRoll` = false for the read-only viewer, who may not run it (and gets
+ * whatever the last run left). Maintenance never fails the page.
+ */
+export async function loadWithBlocksRolled<T>(
+  supabase: Supabase,
+  traineeId: string,
+  canRoll: boolean | Promise<boolean>,
+  load: () => Promise<T>,
+): Promise<T> {
+  const [due, data, allowed] = await Promise.all([blocksDue(supabase, traineeId), load(), canRoll]);
+  if (!allowed || due.length === 0) return data;
+  try {
+    const results = await Promise.all(due.map((id) => supabase.rpc("block_roll_forward", { p_block_id: id })));
+    if (results.every((r) => r.error)) return data;
+  } catch {
+    return data;
+  }
+  return load();
 }

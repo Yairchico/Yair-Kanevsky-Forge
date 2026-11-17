@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { rollForwardBlocks } from "@/lib/block-server";
+import { getRequestAuth } from "@/lib/viewer";
+import { loadWithBlocksRolled } from "@/lib/block-server";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
@@ -18,23 +18,20 @@ const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
  * of the per-exercise data, only counts and dates, so its query stays
  * cheap regardless of how much detail a program's exercises carry.
  */
-export default async function TraineeHomePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+function SignedOut() {
+  return (
+    <AppShell title="בית">
+      <Card>
+        <CardContent className="p-6 text-base text-muted-foreground">שגיאת התחברות.</CardContent>
+      </Card>
+    </AppShell>
+  );
+}
 
-  if (!user) {
-    return (
-      <AppShell title="בית">
-        <Card>
-          <CardContent className="p-6 text-base text-muted-foreground">
-            שגיאת התחברות.
-          </CardContent>
-        </Card>
-      </AppShell>
-    );
-  }
+export default async function TraineeHomePage() {
+  const { supabase, userId, viewer } = await getRequestAuth();
+
+  if (!userId) return <SignedOut />;
 
   const currentWeekStart = getWeekStart(israelNow());
   const currentWeekKey = toDateKey(currentWeekStart);
@@ -44,38 +41,36 @@ export default async function TraineeHomePage() {
   const streakWindowStartKey = toDateKey(addDays(currentWeekStart, -8 * 7));
   const browseEndKey = toDateKey(addDays(currentWeekStart, 4 * 7));
 
-  // Training blocks: the once-a-week maintenance first (it may publish this
-  // week's program), so the home screen already shows the result.
-  await rollForwardBlocks(supabase, user.id);
-
-  const [{ data: profile }, { data: programs }] = await Promise.all([
-    supabase.from("profiles").select("username, full_name").eq("id", user.id).single(),
-    supabase
-      .from("programs")
-      .select("id, title, week_start_date")
-      .eq("trainee_id", user.id)
-      .eq("status", "published")
-      .is("deleted_at", null)
-      .gte("week_start_date", streakWindowStartKey)
-      .lte("week_start_date", browseEndKey)
-      .order("week_start_date", { ascending: false }),
-  ]);
-
-  const allPrograms = programs ?? [];
-  const programIds = allPrograms.map((p) => p.id);
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const { data: workouts } = await supabase
-    .from("workouts")
-    .select("id, program_id, day_of_week, order_index")
-    .in("program_id", programIds.length ? programIds : noRows)
-    .order("day_of_week")
-    .order("order_index");
+  // The plan is a chain (programs → workouts → exercises); everything else
+  // runs next to it rather than before it.
+  async function loadPlan() {
+    // With the training blocks' once-a-week maintenance applied (it may
+    // publish this week's program), so the home screen shows the result.
+    const allPrograms = await loadWithBlocksRolled(supabase, userId!, true, async () => {
+      const { data } = await supabase
+        .from("programs")
+        .select("id, title, week_start_date")
+        .eq("trainee_id", userId!)
+        .eq("status", "published")
+        .is("deleted_at", null)
+        .gte("week_start_date", streakWindowStartKey)
+        .lte("week_start_date", browseEndKey)
+        .order("week_start_date", { ascending: false });
+      return data ?? [];
+    });
+    const programIds = allPrograms.map((p) => p.id);
 
-  const workoutIds = (workouts ?? []).map((w) => w.id);
+    const { data: workouts } = await supabase
+      .from("workouts")
+      .select("id, program_id, day_of_week, order_index")
+      .in("program_id", programIds.length ? programIds : noRows)
+      .order("day_of_week")
+      .order("order_index");
+    const workoutIds = (workouts ?? []).map((w) => w.id);
 
-  const [{ data: workoutExercises }, { data: completions }, { data: exerciseCompletions }] =
-    await Promise.all([
+    const [{ data: workoutExercises }, { data: completions }] = await Promise.all([
       supabase
         .from("workout_exercises")
         .select("id, workout_id")
@@ -83,13 +78,19 @@ export default async function TraineeHomePage() {
       supabase
         .from("workout_completions")
         .select("workout_id, completed_at")
-        .eq("trainee_id", user.id)
+        .eq("trainee_id", userId!)
         .in("workout_id", workoutIds.length ? workoutIds : noRows),
-      supabase
-        .from("workout_exercise_completions")
-        .select("workout_exercise_id")
-        .eq("trainee_id", user.id),
     ]);
+    return { allPrograms, workouts, workoutExercises, completions };
+  }
+
+  const [user, { allPrograms, workouts, workoutExercises, completions }, { data: exerciseCompletions }] =
+    await Promise.all([
+      viewer,
+      loadPlan(),
+      supabase.from("workout_exercise_completions").select("workout_exercise_id").eq("trainee_id", userId),
+    ]);
+  if (!user) return <SignedOut />;
 
   const submittedAtByWorkoutId = new Map(
     (completions ?? []).map((c) => [c.workout_id, c.completed_at]),
@@ -162,9 +163,9 @@ export default async function TraineeHomePage() {
   ).length;
 
   return (
-    <AppShell title="בית" username={profile?.username}>
+    <AppShell title="בית" username={user.username}>
       <HomeDashboard
-        traineeName={profile?.full_name?.split(" ")[0] ?? null}
+        traineeName={user.fullName?.split(" ")[0] ?? null}
         currentWeekKey={currentWeekKey}
         weeks={browsableWeeks}
         streakWeeks={streakWeeks}

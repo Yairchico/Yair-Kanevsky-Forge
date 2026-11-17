@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { NewTraineeForm } from "./new-trainee-form";
 
 /**
@@ -10,11 +9,8 @@ import { NewTraineeForm } from "./new-trainee-form";
  * form that would just fail on submit.
  */
 export default async function NewTraineePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user && (await isReadOnlyViewer(supabase, user.id))) {
+  const { viewer } = await getRequestAuth();
+  if ((await viewer)?.isSuperadmin) {
     redirect("/trainer/trainees");
   }
 

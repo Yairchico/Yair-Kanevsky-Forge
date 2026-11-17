@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, BookmarkCheck, CalendarCheck, Dumbbell, Play, Users } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/viewer";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getWeekStart, toDateKey, dayName, israelNow } from "@/lib/week";
@@ -10,24 +10,42 @@ import { isSessionStale } from "@/lib/free-sessions";
 import { cn } from "@/lib/utils";
 
 export default async function TrainerHomePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, viewer } = await getRequestAuth();
 
   const currentWeekKey = toDateKey(getWeekStart(israelNow()));
 
+  // The latest submissions, then — one more round trip — the day name of
+  // each one's workout (everything else about it is on workout_completions
+  // itself). Its own chain, so it doesn't wait for the slower free-session
+  // list loading next to it.
+  async function loadRecentCompletions() {
+    const { data: recentCompletions } = await supabase
+      .from("workout_completions")
+      .select("workout_id, trainee_id, completed_at, source")
+      .order("completed_at", { ascending: false })
+      .limit(6);
+    const completionWorkoutIds = (recentCompletions ?? []).map((c) => c.workout_id);
+    const { data: completionWorkouts } = await supabase
+      .from("workouts")
+      .select("id, day_of_week")
+      .in(
+        "id",
+        completionWorkoutIds.length ? completionWorkoutIds : ["00000000-0000-0000-0000-000000000000"],
+      );
+    return { recentCompletions, completionWorkouts };
+  }
+
+  // Who is asking is verified in the same wait as the data itself (nothing
+  // below depends on the answer; RLS decides what each query returns).
   const [
-    { data: profile },
+    me,
     { data: trainees },
     { count: exerciseCount },
     { data: currentWeekPrograms },
-    { data: recentCompletions },
+    { recentCompletions, completionWorkouts },
     freeSessionList,
   ] = await Promise.all([
-    user
-      ? supabase.from("profiles").select("username, is_superadmin").eq("id", user.id).single()
-      : Promise.resolve({ data: null }),
+    viewer,
     supabase.from("profiles").select("id, full_name").eq("role", "trainee"),
     supabase.from("exercises").select("id", { count: "exact", head: true }),
     supabase
@@ -35,16 +53,12 @@ export default async function TrainerHomePage() {
       .select("trainee_id, status")
       .eq("week_start_date", currentWeekKey)
       .is("deleted_at", null),
-    supabase
-      .from("workout_completions")
-      .select("workout_id, trainee_id, completed_at, source")
-      .order("completed_at", { ascending: false })
-      .limit(6),
+    loadRecentCompletions(),
     // Free sessions (migration 0016) — the trainer and the read-only viewer see all of them.
     loadFreeSessionList(supabase, { limit: 12 }),
   ]);
 
-  const isReadOnly = profile?.is_superadmin === true;
+  const isReadOnly = me?.isSuperadmin === true;
   // Sessions in which nothing was performed aren't listed anywhere.
   const freeSessions = freeSessionList.filter((session) => session.setCount > 0);
 
@@ -56,17 +70,6 @@ export default async function TrainerHomePage() {
       .map((p) => p.trainee_id),
   ).size;
 
-  // One more round trip, only for the day name on each recent submission —
-  // everything else about it (trainee name, when) is already on
-  // workout_completions itself.
-  const completionWorkoutIds = (recentCompletions ?? []).map((c) => c.workout_id);
-  const { data: completionWorkouts } = await supabase
-    .from("workouts")
-    .select("id, day_of_week")
-    .in(
-      "id",
-      completionWorkoutIds.length ? completionWorkoutIds : ["00000000-0000-0000-0000-000000000000"],
-    );
   const dayOfWeekByWorkoutId = new Map((completionWorkouts ?? []).map((w) => [w.id, w.day_of_week]));
 
   // "פעילות אחרונה": submitted workouts and finished free sessions, together by time.
@@ -96,7 +99,7 @@ export default async function TrainerHomePage() {
     .slice(0, 6);
 
   return (
-    <AppShell title="אזור מאמן" username={profile?.username} readOnly={isReadOnly}>
+    <AppShell title="אזור מאמן" username={me?.username} readOnly={isReadOnly}>
       {!isReadOnly && (
         <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <Link href="/trainer/session">

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { NewExerciseForm } from "./new-exercise-form";
 
 /**
@@ -9,11 +8,8 @@ import { NewExerciseForm } from "./new-exercise-form";
  * would just fail on submit.
  */
 export default async function NewExercisePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user && (await isReadOnlyViewer(supabase, user.id))) {
+  const { viewer } = await getRequestAuth();
+  if ((await viewer)?.isSuperadmin) {
     redirect("/trainer/exercises");
   }
 

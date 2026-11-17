@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Layers, Play } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import {
   Card,
@@ -11,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { TraineeEditForm } from "./trainee-edit-form";
 import { DeleteTraineeButton } from "./delete-trainee-button";
 import { TraineeWeekView } from "./trainee-week-view";
@@ -29,7 +28,7 @@ import {
 } from "@/lib/sets";
 import { selectInChunks } from "@/lib/previous-sets";
 import { loadFreeSessionList } from "@/lib/free-session-data";
-import { rollForwardBlocks } from "@/lib/block-server";
+import { loadWithBlocksRolled } from "@/lib/block-server";
 import { formatShortDateTime, countExercises, countSets } from "@/lib/format";
 
 export default async function TraineeDetailPage({
@@ -38,38 +37,114 @@ export default async function TraineeDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
+  const { supabase, viewer } = await getRequestAuth();
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  // Training blocks: the once-a-week maintenance first, so the targets and
-  // statuses read below are current. (Not for the read-only viewer.)
-  if (!readOnly) await rollForwardBlocks(supabase, id);
+  // One wait for everything that doesn't depend on anything else — this
+  // page was reported as slow to open, and these used to queue up one
+  // after another: who is asking; the trainee, their programs and blocks
+  // (with the training blocks' once-a-week maintenance applied, so the
+  // targets and statuses are current — not run for the read-only viewer);
+  // the exercise library; the "done" marks; the free sessions.
+  const eightWeeksAgo = toDateKey(addDays(getWeekStart(israelNow()), -8 * 7));
+  const core = loadWithBlocksRolled(
+    supabase,
+    id,
+    viewer.then((v) => v?.role === "trainer"),
+    async () => {
+      const [{ data: trainee }, { data: programs }, { data: blocks }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, username, phone, email, status, created_at")
+          .eq("id", id)
+          .eq("role", "trainee")
+          .single(),
+        supabase
+          .from("programs")
+          .select("id, title, status, week_start_date, block_id, block_week_index, is_deload")
+          .eq("trainee_id", id)
+          .is("deleted_at", null)
+          .order("week_start_date", { ascending: false }),
+        supabase
+          .from("blocks")
+          .select("id, title, weeks_count, status, created_at")
+          .eq("trainee_id", id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+      ]);
+      return { trainee, programs, blocks };
+    },
+  );
 
-  // Independent of each other — fetched together instead of one after
-  // another, which used to add up (this page was reported as slow to open).
-  const [{ data: trainee }, { data: programs }, { data: blocks }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name, username, phone, email, status, created_at")
-      .eq("id", id)
-      .eq("role", "trainee")
-      .single(),
-    supabase
-      .from("programs")
-      .select("id, title, status, week_start_date, block_id, block_week_index, is_deload")
-      .eq("trainee_id", id)
-      .is("deleted_at", null)
-      .order("week_start_date", { ascending: false }),
-    supabase
-      .from("blocks")
-      .select("id, title, weeks_count, status, created_at")
-      .eq("trainee_id", id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-  ]);
+  // The last eight weeks in full: a chain where each step needs the previous
+  // one's ids (programs → workouts → exercises → sets). It continues as
+  // soon as the programs are in, without waiting for the slower independent
+  // things (the free sessions) that are loading next to it.
+  async function loadRecentWeeks() {
+    const { programs } = await core;
+    // Reuses the programs fetched above instead of a second, near-identical
+    // query just to narrow the date range.
+    const programIds = (programs ?? []).filter((p) => p.week_start_date >= eightWeeksAgo).map((p) => p.id);
+
+    const { data: workouts } = await supabase
+      .from("workouts")
+      .select("id, program_id, day_of_week, order_index")
+      .in("program_id", programIds.length ? programIds : noRows)
+      .order("day_of_week")
+      .order("order_index");
+    const workoutIds = (workouts ?? []).map((w) => w.id);
+
+    const [{ data: workoutExercises }, { data: workoutCompletions }] = await Promise.all([
+      supabase
+        .from("workout_exercises")
+        .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+        .in("workout_id", workoutIds.length ? workoutIds : noRows)
+        .order("order_index"),
+      supabase
+        .from("workout_completions")
+        .select("workout_id, completed_at, source, notes")
+        .eq("trainee_id", id)
+        .in("workout_id", workoutIds.length ? workoutIds : noRows),
+    ]);
+
+    // Planned vs. performed per set (migration 0013), plus the exercise-level
+    // note and, for anything logged before sets were split, the old value.
+    const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+    const [plannedRows, loggedRows, exerciseLogRows] = await Promise.all([
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+      ),
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase
+          .from("set_logs")
+          .select(SET_LOG_COLUMNS)
+          .eq("trainee_id", id)
+          .eq("status", "done")
+          .in("workout_exercise_id", chunk),
+      ),
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase
+          .from("workout_logs")
+          .select("workout_exercise_id, actual_sets, notes")
+          .eq("trainee_id", id)
+          .in("workout_exercise_id", chunk),
+      ),
+    ]);
+    return { workouts, workoutExercises, workoutCompletions, plannedRows, loggedRows, exerciseLogRows };
+  }
+
+  const [me, { trainee, programs, blocks }, recentWeeks, { data: exercises }, { data: exerciseCompletions }, freeSessionList] =
+    await Promise.all([
+      viewer,
+      core,
+      loadRecentWeeks(),
+      supabase.from("exercises").select("id, name, muscle_group"),
+      supabase.from("workout_exercise_completions").select("workout_exercise_id").eq("trainee_id", id),
+      // Free sessions the trainer assigned to this trainee (migration 0016).
+      loadFreeSessionList(supabase, { traineeId: id, limit: 12 }),
+    ]);
+  const { workouts, workoutExercises, workoutCompletions, plannedRows, loggedRows, exerciseLogRows } = recentWeeks;
+  const readOnly = me?.isSuperadmin === true;
 
   if (!trainee) notFound();
 
@@ -93,72 +168,9 @@ export default async function TraineeDetailPage({
       range: first ? formatWeekRange(parseDateKey(first.week_start_date)) : null,
     };
   });
-  const eightWeeksAgo = toDateKey(addDays(getWeekStart(israelNow()), -8 * 7));
-  // Reuses the same fetch above instead of a second, near-identical
-  // `programs` query just to narrow the date range.
   const recentPrograms = allPrograms.filter((p) => p.week_start_date >= eightWeeksAgo);
 
-  const programIds = recentPrograms.map((p) => p.id);
-  const noRows = ["00000000-0000-0000-0000-000000000000"];
-
-  const { data: workouts } = await supabase
-    .from("workouts")
-    .select("id, program_id, day_of_week, order_index")
-    .in("program_id", programIds.length ? programIds : noRows)
-    .order("day_of_week")
-    .order("order_index");
-
-  const workoutIds = (workouts ?? []).map((w) => w.id);
-
-  const [
-    { data: workoutExercises },
-    { data: exercises },
-    { data: workoutCompletions },
-    { data: exerciseCompletions },
-  ] = await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
-      .in("workout_id", workoutIds.length ? workoutIds : noRows)
-      .order("order_index"),
-    supabase.from("exercises").select("id, name, muscle_group"),
-    supabase
-      .from("workout_completions")
-      .select("workout_id, completed_at, source, notes")
-      .eq("trainee_id", id)
-      .in("workout_id", workoutIds.length ? workoutIds : noRows),
-    supabase
-      .from("workout_exercise_completions")
-      .select("workout_exercise_id")
-      .eq("trainee_id", id),
-  ]);
-
-  // Planned vs. performed per set (migration 0013), plus the exercise-level
-  // note and, for anything logged before sets were split, the old value.
-  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
-  const [plannedRows, loggedRows, exerciseLogRows] = await Promise.all([
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
-    ),
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase
-        .from("set_logs")
-        .select(SET_LOG_COLUMNS)
-        .eq("trainee_id", id)
-        .eq("status", "done")
-        .in("workout_exercise_id", chunk),
-    ),
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase
-        .from("workout_logs")
-        .select("workout_exercise_id, actual_sets, notes")
-        .eq("trainee_id", id)
-        .in("workout_exercise_id", chunk),
-    ),
-  ]);
-
-  // Free sessions the trainer assigned to this trainee (migration 0016).
-  const freeSessions = (await loadFreeSessionList(supabase, { traineeId: id, limit: 12 })).filter(
+  const freeSessions = freeSessionList.filter(
     (session) => session.setCount > 0 || !session.finishedAt,
   );
 

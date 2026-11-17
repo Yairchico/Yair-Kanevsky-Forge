@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { rollForwardBlocks } from "@/lib/block-server";
+import { loadWithBlocksRolled } from "@/lib/block-server";
 import {
   RULE_COLUMNS,
   describeProgression,
@@ -16,9 +16,8 @@ import {
   toPlannedSet,
   type PlannedSet,
 } from "@/lib/sets";
-import { createClient } from "@/lib/supabase/server";
 import { isUuid } from "@/lib/utils";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import {
   dayName,
   formatWeekRange,
@@ -49,42 +48,47 @@ export default async function BlockPage({
   const { id: traineeId, blockId } = await params;
   if (!isUuid(traineeId) || !isUuid(blockId)) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
+  const { supabase, viewer } = await getRequestAuth();
 
-  // The weekly maintenance first, so what's read below is current. (A no-op
-  // for the read-only viewer, who isn't allowed to run it.)
-  if (!readOnly) await rollForwardBlocks(supabase, traineeId);
-
-  const [{ data: trainee }, { data: block }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("id", traineeId)
-      .eq("role", "trainee")
-      .maybeSingle(),
-    supabase
-      .from("blocks")
-      .select(
-        "id, trainee_id, title, weeks_count, status, default_deload_pct, auto_publish_next_week",
-      )
-      .eq("id", blockId)
-      .is("deleted_at", null)
-      .maybeSingle(),
+  // One wait for everything that can be asked for by the ids in the URL:
+  // who is asking; the trainee, the block and its weeks — with the weekly
+  // maintenance applied, so what's read is current (not run for the
+  // read-only viewer, who isn't allowed to); and the exercise names.
+  const [me, { trainee, block, programs }, { data: exercises }] = await Promise.all([
+    viewer,
+    loadWithBlocksRolled(
+      supabase,
+      traineeId,
+      viewer.then((v) => v?.role === "trainer"),
+      async () => {
+        const [{ data: trainee }, { data: block }, { data: programs }] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("id, full_name")
+            .eq("id", traineeId)
+            .eq("role", "trainee")
+            .maybeSingle(),
+          supabase
+            .from("blocks")
+            .select("id, trainee_id, title, weeks_count, status, default_deload_pct, auto_publish_next_week")
+            .eq("id", blockId)
+            .is("deleted_at", null)
+            .maybeSingle(),
+          supabase
+            .from("programs")
+            .select("id, week_start_date, status, block_week_index, is_deload, deload_pct")
+            .eq("block_id", blockId)
+            .is("deleted_at", null)
+            .order("block_week_index"),
+        ]);
+        return { trainee, block, programs };
+      },
+    ),
+    supabase.from("exercises").select("id, name"),
   ]);
+  const readOnly = me?.isSuperadmin === true;
   if (!trainee || !block || block.trainee_id !== traineeId) notFound();
 
-  const { data: programs } = await supabase
-    .from("programs")
-    .select(
-      "id, week_start_date, status, block_week_index, is_deload, deload_pct",
-    )
-    .eq("block_id", blockId)
-    .is("deleted_at", null)
-    .order("block_week_index");
   const programRows = programs ?? [];
   const programIds = programRows.map((p) => p.id);
 
@@ -112,10 +116,7 @@ export default async function BlockPage({
     ),
   ]);
   const workoutExerciseIds = workoutExercises.map((we) => we.id);
-  const exerciseIds = [
-    ...new Set(workoutExercises.map((we) => we.exercise_id)),
-  ];
-  const [plannedRows, loggedRows, exercises] = await Promise.all([
+  const [plannedRows, loggedRows] = await Promise.all([
     selectInChunks(workoutExerciseIds, (chunk) =>
       supabase
         .from("workout_exercise_sets")
@@ -130,12 +131,9 @@ export default async function BlockPage({
         .eq("status", "done")
         .in("workout_exercise_id", chunk),
     ),
-    selectInChunks(exerciseIds, (chunk) =>
-      supabase.from("exercises").select("id, name").in("id", chunk),
-    ),
   ]);
 
-  const exerciseName = new Map(exercises.map((e) => [e.id, e.name]));
+  const exerciseName = new Map((exercises ?? []).map((e) => [e.id, e.name]));
   const workoutById = new Map(workouts.map((w) => [w.id, w]));
   const programById = new Map(programRows.map((p) => [p.id, p]));
   const submittedWorkoutIds = new Set(completions.map((c) => c.workout_id));

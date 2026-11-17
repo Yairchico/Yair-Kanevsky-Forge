@@ -42,9 +42,9 @@ const SUPERADMIN_COOKIE = "app_superadmin";
  * it's suspected of not surviving the OpenNext/Cloudflare "Node.js
  * middleware" experimental runtime for Server Action requests specifically
  * (a trainee-creation submit was silently bouncing to /login instead of
- * running). Pages and Server Actions call supabase.auth.getUser() directly
- * again, which reads the actual auth cookie rather than a header this
- * proxy set — more code, but it doesn't depend on that propagation path.
+ * running). Pages and Server Actions identify the user themselves
+ * (getRequestAuth in src/lib/viewer.ts), from the actual auth cookie rather
+ * than a header this proxy set — it doesn't depend on that propagation path.
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });

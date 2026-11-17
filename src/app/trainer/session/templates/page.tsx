@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/viewer";
 import { selectInChunks } from "@/lib/previous-sets";
 import { addToProgramWeeks, loadProgramSlots } from "@/lib/program-slots";
 import { TemplateList, type TemplateCard } from "./template-list";
@@ -10,52 +10,53 @@ import { TemplateList, type TemplateCard } from "./template-list";
  * trainer-led session. Trainer (and, read-only, the superadmin) only.
  */
 export default async function SessionTemplatesPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase, viewer } = await getRequestAuth();
+  const weeks = addToProgramWeeks();
 
-  const { data: viewer } = await supabase
-    .from("profiles")
-    .select("role, is_superadmin, username")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isTrainer = viewer?.role === "trainer";
-  if (!isTrainer && !viewer?.is_superadmin) redirect("/trainee");
-
-  const [{ data: templates }, { data: trainees }] = await Promise.all([
-    supabase
+  // Two waits instead of six: everything that depends on nothing, then
+  // what hangs off the list of saved workouts.
+  async function loadTemplates() {
+    const { data: templates } = await supabase
       .from("session_templates")
       .select("id, title, notes, created_at, updated_at")
       .is("deleted_at", null)
-      .order("updated_at", { ascending: false }),
-    supabase
-      .from("profiles")
-      .select("id, full_name, status")
-      .eq("role", "trainee")
-      .eq("is_superadmin", false)
-      .order("full_name"),
-  ]);
+      .order("updated_at", { ascending: false });
+    const templateIds = (templates ?? []).map((t) => t.id);
+    const [templateExercises, sessions] = await Promise.all([
+      selectInChunks(templateIds, (chunk) =>
+        supabase
+          .from("session_template_exercises")
+          .select("template_id, exercise_id, order_index")
+          .in("template_id", chunk)
+          .order("order_index"),
+      ),
+      selectInChunks(templateIds, (chunk) =>
+        supabase
+          .from("free_sessions")
+          .select("template_id, trainee_id, guest_label, started_at")
+          .in("template_id", chunk)
+          .order("started_at", { ascending: false }),
+      ),
+    ]);
+    return { templates, templateExercises, sessions };
+  }
 
-  const templateIds = (templates ?? []).map((t) => t.id);
-  const [templateExercises, sessions, { data: exercises }] = await Promise.all([
-    selectInChunks(templateIds, (chunk) =>
+  const [me, { templates, templateExercises, sessions }, { data: trainees }, { data: exercises }, allSlots] =
+    await Promise.all([
+      viewer,
+      loadTemplates(),
       supabase
-        .from("session_template_exercises")
-        .select("template_id, exercise_id, order_index")
-        .in("template_id", chunk)
-        .order("order_index"),
-    ),
-    selectInChunks(templateIds, (chunk) =>
-      supabase
-        .from("free_sessions")
-        .select("template_id, trainee_id, guest_label, started_at")
-        .in("template_id", chunk)
-        .order("started_at", { ascending: false }),
-    ),
-    supabase.from("exercises").select("id, name"),
-  ]);
+        .from("profiles")
+        .select("id, full_name, status")
+        .eq("role", "trainee")
+        .eq("is_superadmin", false)
+        .order("full_name"),
+      supabase.from("exercises").select("id, name"),
+      loadProgramSlots(supabase, weeks),
+    ]);
+  if (!me) redirect("/login");
+  const isTrainer = me.role === "trainer";
+  if (!isTrainer && !me.isSuperadmin) redirect("/trainee");
 
   const exerciseName = new Map((exercises ?? []).map((e) => [e.id, e.name]));
   const traineeName = new Map((trainees ?? []).map((t) => [t.id, t.full_name]));
@@ -86,11 +87,10 @@ export default async function SessionTemplatesPage() {
   });
 
   const activeTrainees = (trainees ?? []).filter((t) => t.status === "active").map((t) => ({ id: t.id, name: t.full_name }));
-  const weeks = addToProgramWeeks();
-  const slots = isTrainer ? await loadProgramSlots(supabase, activeTrainees.map((t) => t.id), weeks) : {};
+  const slots = isTrainer ? allSlots : {};
 
   return (
-    <AppShell title="אימונים שמורים" backHref="/trainer/session" username={viewer?.username} readOnly={!isTrainer}>
+    <AppShell title="אימונים שמורים" backHref="/trainer/session" username={me.username} readOnly={!isTrainer}>
       <TemplateList
         readOnly={!isTrainer}
         templates={cards}

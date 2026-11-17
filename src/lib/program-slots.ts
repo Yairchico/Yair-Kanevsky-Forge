@@ -39,25 +39,26 @@ export function addToProgramWeeks(): WeekOption[] {
   });
 }
 
-export async function loadProgramSlots(
-  supabase: Supabase,
-  traineeIds: string[],
-  weeks: WeekOption[],
-): Promise<ProgramSlots> {
+/**
+ * Every trainee's programs of the given weeks (RLS decides whose the caller
+ * may see — the trainer: everyone's). Deliberately not filtered by a list
+ * of trainee ids: that way it needs nothing but the weeks and can start
+ * together with a page's first queries. The caller looks up only the
+ * trainees it offers, so an extra entry in the map is never shown.
+ */
+export async function loadProgramSlots(supabase: Supabase, weeks: WeekOption[]): Promise<ProgramSlots> {
   const slots: ProgramSlots = {};
-  if (traineeIds.length === 0 || weeks.length === 0) return slots;
+  if (weeks.length === 0) return slots;
 
-  const programs = await selectInChunks(traineeIds, (chunk) =>
-    supabase
-      .from("programs")
-      .select("id, trainee_id, title, status, week_start_date, block_id")
-      .in("trainee_id", chunk)
-      .in(
-        "week_start_date",
-        weeks.map((w) => w.key),
-      )
-      .is("deleted_at", null),
-  );
+  const { data } = await supabase
+    .from("programs")
+    .select("id, trainee_id, title, status, week_start_date, block_id")
+    .in(
+      "week_start_date",
+      weeks.map((w) => w.key),
+    )
+    .is("deleted_at", null);
+  const programs = data ?? [];
   const workouts = await selectInChunks(
     programs.map((p) => p.id),
     (chunk) => supabase.from("workouts").select("program_id, day_of_week").in("program_id", chunk),

@@ -4,7 +4,7 @@ import type { InitialEditorItem } from "@/components/exercise-editor/exercise-li
 import { selectInChunks } from "@/lib/previous-sets";
 import { addToProgramWeeks, loadProgramSlots } from "@/lib/program-slots";
 import { toPlannedSet, type PlannedSet } from "@/lib/sets";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/viewer";
 import { isUuid } from "@/lib/utils";
 import { TemplateEditor } from "./template-editor";
 
@@ -17,29 +17,18 @@ export default async function SessionTemplatePage({
   const { templateId } = await params;
   if (!isUuid(templateId)) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase, viewer } = await getRequestAuth();
+  const weeks = addToProgramWeeks();
 
-  const { data: viewer } = await supabase
-    .from("profiles")
-    .select("role, is_superadmin")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isTrainer = viewer?.role === "trainer";
-  if (!isTrainer && !viewer?.is_superadmin) redirect("/trainee");
-
-  const { data: template } = await supabase
-    .from("session_templates")
-    .select("id, title, notes")
-    .eq("id", templateId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!template) notFound();
-
-  const [{ data: rows }, { data: catalog }, { data: trainees }] = await Promise.all([
+  // One wait for everything that only needs the saved workout's id.
+  const [me, { data: template }, { data: rows }, { data: catalog }, { data: trainees }, allSlots] = await Promise.all([
+    viewer,
+    supabase
+      .from("session_templates")
+      .select("id, title, notes")
+      .eq("id", templateId)
+      .is("deleted_at", null)
+      .maybeSingle(),
     supabase
       .from("session_template_exercises")
       .select("id, exercise_id, order_index, rest_seconds, instructions")
@@ -57,7 +46,12 @@ export default async function SessionTemplatePage({
       .eq("is_superadmin", false)
       .eq("status", "active")
       .order("full_name"),
+    loadProgramSlots(supabase, weeks),
   ]);
+  if (!me) redirect("/login");
+  const isTrainer = me.role === "trainer";
+  if (!isTrainer && !me.isSuperadmin) redirect("/trainee");
+  if (!template) notFound();
 
   const exerciseRows = rows ?? [];
   const setRows = await selectInChunks(
@@ -89,8 +83,7 @@ export default async function SessionTemplatePage({
     };
   });
 
-  const weeks = addToProgramWeeks();
-  const slots = isTrainer ? await loadProgramSlots(supabase, (trainees ?? []).map((t) => t.id), weeks) : {};
+  const slots = isTrainer ? allSlots : {};
 
   return (
     <AppShell title="אימון שמור" backHref="/trainer/session/templates" readOnly={!isTrainer}>

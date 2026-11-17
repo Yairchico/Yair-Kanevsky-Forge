@@ -1,8 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { PLANNED_SET_COLUMNS, summarizeSets, toPlannedSet, type PlannedSet } from "@/lib/sets";
 import { selectInChunks } from "@/lib/previous-sets";
-import { createClient } from "@/lib/supabase/server";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import { NewProgramForm } from "./new-program-form";
 
@@ -12,25 +11,7 @@ export default async function NewProgramPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  // Creating a program is a pure mutation with no read-only equivalent —
-  // redirects a superadmin away entirely rather than rendering a whole
-  // flow (including "שכפול שבוע") that would just fail on submit.
-  if (user && (await isReadOnlyViewer(supabase, user.id))) {
-    redirect(`/trainer/trainees/${id}`);
-  }
-
-  const { data: trainee } = await supabase
-    .from("profiles")
-    .select("id, full_name")
-    .eq("id", id)
-    .eq("role", "trainee")
-    .single();
-
-  if (!trainee) notFound();
+  const { supabase, viewer } = await getRequestAuth();
 
   // Candidates for "שכפול מתוכנית": the trainee's own past programs, up to
   // about a month back, PLUS the current week's own program (still
@@ -43,15 +24,44 @@ export default async function NewProgramPage({
   const monthAgoKey = toDateKey(addDays(currentWeekStart, -35));
   const currentWeekKey = toDateKey(currentWeekStart);
   const noRows = ["00000000-0000-0000-0000-000000000000"];
+  // Which of the 3 selectable target weeks (this week, +1, +2 — same
+  // offsets new-program-form.tsx's weekOptions uses) already have a
+  // (non-deleted) program, so the form can flag them red instead of
+  // letting a trainer walk into silently overwriting one.
+  const weekOptionKeys = [0, 1, 2].map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
 
-  const { data: pastPrograms } = await supabase
-    .from("programs")
-    .select("id, title, week_start_date, status")
-    .eq("trainee_id", id)
-    .gte("week_start_date", monthAgoKey)
-    .lte("week_start_date", currentWeekKey)
-    .is("deleted_at", null)
-    .order("week_start_date", { ascending: false });
+  // One wait for everything that only needs the trainee's id.
+  const [me, { data: trainee }, { data: pastPrograms }, { data: exerciseCatalog }, { data: existingAtOptionWeeks }] =
+    await Promise.all([
+      viewer,
+      supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("id", id)
+        .eq("role", "trainee")
+        .single(),
+      supabase
+        .from("programs")
+        .select("id, title, week_start_date, status")
+        .eq("trainee_id", id)
+        .gte("week_start_date", monthAgoKey)
+        .lte("week_start_date", currentWeekKey)
+        .is("deleted_at", null)
+        .order("week_start_date", { ascending: false }),
+      supabase.from("exercises").select("id, name"),
+      supabase
+        .from("programs")
+        .select("id, title, week_start_date")
+        .eq("trainee_id", id)
+        .in("week_start_date", weekOptionKeys)
+        .is("deleted_at", null),
+    ]);
+  // Creating a program is a pure mutation with no read-only equivalent —
+  // redirects a superadmin away entirely rather than rendering a whole
+  // flow (including "שכפול שבוע") that would just fail on submit.
+  if (me?.isSuperadmin) redirect(`/trainer/trainees/${id}`);
+
+  if (!trainee) notFound();
 
   const pastProgramIds = (pastPrograms ?? []).map((p) => p.id);
 
@@ -64,14 +74,11 @@ export default async function NewProgramPage({
 
   const pastWorkoutIds = (pastWorkouts ?? []).map((w) => w.id);
 
-  const [{ data: pastExercises }, { data: exerciseCatalog }] = await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
-      .in("workout_id", pastWorkoutIds.length ? pastWorkoutIds : noRows)
-      .order("order_index"),
-    supabase.from("exercises").select("id, name"),
-  ]);
+  const { data: pastExercises } = await supabase
+    .from("workout_exercises")
+    .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions")
+    .in("workout_id", pastWorkoutIds.length ? pastWorkoutIds : noRows)
+    .order("order_index");
 
   const plannedRows = await selectInChunks(
     (pastExercises ?? []).map((we) => we.id),
@@ -86,18 +93,6 @@ export default async function NewProgramPage({
   }
 
   const exerciseNameById = new Map((exerciseCatalog ?? []).map((e) => [e.id, e.name]));
-
-  // Which of the 3 selectable target weeks (this week, +1, +2 — same
-  // offsets new-program-form.tsx's weekOptions uses) already have a
-  // (non-deleted) program, so the form can flag them red instead of
-  // letting a trainer walk into silently overwriting one.
-  const weekOptionKeys = [0, 1, 2].map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
-  const { data: existingAtOptionWeeks } = await supabase
-    .from("programs")
-    .select("id, title, week_start_date")
-    .eq("trainee_id", id)
-    .in("week_start_date", weekOptionKeys)
-    .is("deleted_at", null);
 
   const existingProgramByWeek = Object.fromEntries(
     (existingAtOptionWeeks ?? []).map((p) => [p.week_start_date, { id: p.id, title: p.title }]),

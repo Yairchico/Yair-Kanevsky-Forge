@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { countExercises } from "@/lib/format";
 import { selectInChunks } from "@/lib/previous-sets";
-import { getTrainerContext } from "@/lib/require-trainer";
+import { getRequestAuth } from "@/lib/viewer";
 import { isUuid } from "@/lib/utils";
 import { addDays, formatWeekLabel, formatWeekRange, getWeekStart, israelNow, parseDateKey, toDateKey } from "@/lib/week";
 import { NewBlockForm } from "./new-block-form";
@@ -15,14 +15,14 @@ import { NewBlockForm } from "./new-block-form";
 export default async function NewBlockPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: traineeId } = await params;
   if (!isUuid(traineeId)) notFound();
-  const ctx = await getTrainerContext();
-  if (!ctx) redirect(`/trainer/trainees/${traineeId}`);
-  const { supabase } = ctx;
+  const { supabase, viewer } = await getRequestAuth();
 
   const currentWeekStart = getWeekStart(israelNow());
   const currentWeekKey = toDateKey(currentWeekStart);
 
-  const [{ data: trainee }, { data: programs }] = await Promise.all([
+  // Who is asking is verified in the same wait as the first queries.
+  const [me, { data: trainee }, { data: programs }] = await Promise.all([
+    viewer,
     supabase.from("profiles").select("id, full_name").eq("id", traineeId).eq("role", "trainee").maybeSingle(),
     supabase
       .from("programs")
@@ -32,6 +32,7 @@ export default async function NewBlockPage({ params }: { params: Promise<{ id: s
       .gte("week_start_date", toDateKey(addDays(currentWeekStart, -8 * 7)))
       .order("week_start_date", { ascending: false }),
   ]);
+  if (me?.role !== "trainer") redirect(`/trainer/trainees/${traineeId}`);
   if (!trainee) notFound();
 
   // What can be copied into week 1: recent programs that actually have exercises.

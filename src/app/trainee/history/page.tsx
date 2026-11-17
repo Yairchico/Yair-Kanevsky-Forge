@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/viewer";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatShortDateTime } from "@/lib/format";
@@ -13,7 +13,7 @@ import {
   toPlannedSet,
   type LoggedSet,
 } from "@/lib/sets";
-import { loadExercisesOfSessions, loadFreeSessionList } from "@/lib/free-session-data";
+import { loadExercisesOfSessions } from "@/lib/free-session-data";
 import { isSessionStale } from "@/lib/free-sessions";
 import { selectInChunks } from "@/lib/previous-sets";
 import { dayName } from "@/lib/week";
@@ -51,93 +51,108 @@ interface HistoryEntry {
  * עם המאמן", and free sessions the trainer assigned to this trainee are
  * listed alongside, tagged "אימון חופשי עם המאמן".
  */
-export default async function TraineeHistoryPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+function SignedOut() {
+  return (
+    <AppShell title="היסטוריה" backHref="/trainee">
+      <Card>
+        <CardContent className="p-6 text-base text-muted-foreground">שגיאת התחברות.</CardContent>
+      </Card>
+    </AppShell>
+  );
+}
 
-  if (!user) {
-    return (
-      <AppShell title="היסטוריה" backHref="/trainee">
-        <Card>
-          <CardContent className="p-6 text-base text-muted-foreground">
-            שגיאת התחברות.
-          </CardContent>
-        </Card>
-      </AppShell>
-    );
-  }
+export default async function TraineeHistoryPage() {
+  const { supabase, userId, viewer } = await getRequestAuth();
+  if (!userId) return <SignedOut />;
 
   const monthAgo = new Date();
   monthAgo.setDate(monthAgo.getDate() - 30);
+  const monthAgoIso = monthAgo.toISOString();
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const [{ data: completions }, freeSessionList] = await Promise.all([
-    supabase
+  // The workouts from the plan: submissions → their workouts and exercises
+  // → the sets. Each step needs the previous one's ids.
+  async function loadPlanHistory() {
+    const { data: completions } = await supabase
       .from("workout_completions")
       .select("workout_id, completed_at, source, notes")
-      .eq("trainee_id", user.id)
-      .gte("completed_at", monthAgo.toISOString())
-      .order("completed_at", { ascending: false }),
-    loadFreeSessionList(supabase, { traineeId: user.id, limit: 30 }),
+      .eq("trainee_id", userId!)
+      .gte("completed_at", monthAgoIso)
+      .order("completed_at", { ascending: false });
+    const workoutIds = [...new Set((completions ?? []).map((c) => c.workout_id))];
+
+    const [{ data: workouts }, { data: workoutExercises }] = await Promise.all([
+      supabase
+        .from("workouts")
+        .select("id, day_of_week, program_id")
+        .in("id", workoutIds.length ? workoutIds : noRows),
+      supabase
+        .from("workout_exercises")
+        .select("id, workout_id, exercise_id, order_index")
+        .in("workout_id", workoutIds.length ? workoutIds : noRows)
+        .order("order_index"),
+    ]);
+
+    // Per-set performance (migration 0013) and the planned targets, to mark
+    // a set that fell short of its target.
+    const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+    const [plannedRows, loggedRows] = await Promise.all([
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+      ),
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase
+          .from("set_logs")
+          .select(SET_LOG_COLUMNS)
+          .eq("trainee_id", userId!)
+          .eq("status", "done")
+          .neq("source", "legacy")
+          .in("workout_exercise_id", chunk),
+      ),
+    ]);
+    return { completions, workouts, workoutExercises, plannedRows, loggedRows };
+  }
+
+  // Free sessions the trainer assigned to this trainee, with everything
+  // performed in them.
+  async function loadFreeHistory() {
+    const { data: sessions } = await supabase
+      .from("free_sessions")
+      .select("id, started_at, finished_at, notes")
+      .eq("trainee_id", userId!)
+      .gte("started_at", monthAgoIso)
+      .order("started_at", { ascending: false })
+      .limit(30);
+    const exercisesBySession = await loadExercisesOfSessions(
+      supabase,
+      (sessions ?? []).map((session) => session.id),
+    );
+    return { sessions: sessions ?? [], exercisesBySession };
+  }
+
+  // Everything that doesn't depend on anything else starts together; the
+  // two chains above run side by side instead of one after the other.
+  const [user, plan, free, { data: logs }, { data: programs }, { data: exercises }] = await Promise.all([
+    viewer,
+    loadPlanHistory(),
+    loadFreeHistory(),
+    supabase.from("workout_logs").select("workout_exercise_id, actual_sets, notes").eq("trainee_id", userId),
+    // RLS: only this trainee's own published programs.
+    supabase.from("programs").select("id, title").eq("trainee_id", userId),
+    supabase.from("exercises").select("id, name"),
   ]);
+  if (!user) return <SignedOut />;
+  const { completions, workouts, workoutExercises, plannedRows, loggedRows } = plan;
 
   // A free session counts once it's over: finished, or left open long
   // enough that it clearly isn't in progress any more. Empty ones never do.
-  const freeSessions = freeSessionList.filter(
+  const freeSessions = free.sessions.filter(
     (session) =>
-      session.setCount > 0 &&
-      session.startedAt >= monthAgo.toISOString() &&
-      (session.finishedAt != null || isSessionStale(session.startedAt)),
+      (session.finished_at != null || isSessionStale(session.started_at)) &&
+      (free.exercisesBySession.get(session.id) ?? []).some((ex) => ex.loggedSets.length > 0),
   );
-  const [freeExercisesBySession, { data: freeSessionRows }] = await Promise.all([
-    loadExercisesOfSessions(
-      supabase,
-      freeSessions.map((session) => session.id),
-    ),
-    supabase
-      .from("free_sessions")
-      .select("id, notes")
-      .in("id", freeSessions.length ? freeSessions.map((session) => session.id) : noRows),
-  ]);
-  const freeSessionNote = new Map((freeSessionRows ?? []).map((row) => [row.id, row.notes]));
+  const freeExercisesBySession = free.exercisesBySession;
 
-  const workoutIds = [...new Set((completions ?? []).map((c) => c.workout_id))];
-
-  const [{ data: workouts }, { data: workoutExercises }, { data: logs }] = await Promise.all([
-    supabase
-      .from("workouts")
-      .select("id, day_of_week, program_id")
-      .in("id", workoutIds.length ? workoutIds : noRows),
-    supabase
-      .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index")
-      .in("workout_id", workoutIds.length ? workoutIds : noRows)
-      .order("order_index"),
-    supabase
-      .from("workout_logs")
-      .select("workout_exercise_id, actual_sets, notes")
-      .eq("trainee_id", user.id),
-  ]);
-
-  // Per-set performance (migration 0013) and the planned targets, to mark
-  // a set that fell short of its target.
-  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
-  const [plannedRows, loggedRows] = await Promise.all([
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
-    ),
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase
-        .from("set_logs")
-        .select(SET_LOG_COLUMNS)
-        .eq("trainee_id", user.id)
-        .eq("status", "done")
-        .neq("source", "legacy")
-        .in("workout_exercise_id", chunk),
-    ),
-  ]);
   const plannedByKey = new Map(plannedRows.map((r) => [`${r.workout_exercise_id}:${r.set_index}`, toPlannedSet(r)]));
   const loggedByWe = new Map<string, LoggedSet[]>();
   for (const row of loggedRows) {
@@ -145,18 +160,6 @@ export default async function TraineeHistoryPage() {
     list.push(toLoggedSet(row));
     loggedByWe.set(row.workout_exercise_id, list);
   }
-
-  const programIds = [...new Set((workouts ?? []).map((w) => w.program_id))];
-  const { data: programs } = await supabase
-    .from("programs")
-    .select("id, title")
-    .in("id", programIds.length ? programIds : noRows);
-
-  const exerciseIds = [...new Set((workoutExercises ?? []).map((we) => we.exercise_id))];
-  const { data: exercises } = await supabase
-    .from("exercises")
-    .select("id, name")
-    .in("id", exerciseIds.length ? exerciseIds : noRows);
 
   const workoutById = new Map((workouts ?? []).map((w) => [w.id, w]));
   const programTitleById = new Map((programs ?? []).map((p) => [p.id, p.title]));
@@ -208,10 +211,10 @@ export default async function TraineeHistoryPage() {
 
   const freeHistory: HistoryEntry[] = freeSessions.map((session) => ({
     key: `free-${session.id}`,
-    at: session.startedAt,
+    at: session.started_at,
     label: "אימון חופשי",
     tag: "אימון חופשי עם המאמן",
-    trainerNote: freeSessionNote.get(session.id) ?? null,
+    trainerNote: session.notes ?? null,
     exercises: (freeExercisesBySession.get(session.id) ?? [])
       .filter((ex) => ex.loggedSets.length > 0)
       .map((ex) => ({

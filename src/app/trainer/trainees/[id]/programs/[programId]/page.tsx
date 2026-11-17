@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import type { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { formatWeekLabel, formatWeekRange, parseDateKey } from "@/lib/week";
 import { ProgramBuilderClient, type BuilderBlock } from "./program-builder-client";
 import { PLANNED_SET_COLUMNS, toPlannedSet } from "@/lib/sets";
@@ -65,52 +65,77 @@ export default async function ProgramBuilderPage({
 }) {
   const { id: traineeId, programId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
+  const { supabase, viewer } = await getRequestAuth();
+  const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  const [{ data: trainee }, { data: program }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("id", traineeId)
-      .eq("role", "trainee")
-      .single(),
-    supabase
-      .from("programs")
-      .select("id, title, status, trainee_id, week_start_date, deleted_at, block_id, block_week_index, is_deload, deload_pct")
-      .eq("id", programId)
-      .single(),
-  ]);
+  // One wait for everything that can be asked for by the ids in the URL
+  // (these used to queue up one after another): who is asking, the trainee,
+  // the program and its workouts, the exercise library, and — for the
+  // training-block part below — the trainee's blocks and which of their
+  // programs belong to one.
+  const [me, { data: trainee }, { data: program }, { data: workouts }, { data: exercises }, { data: blocks }, { data: blockPrograms }] =
+    await Promise.all([
+      viewer,
+      supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("id", traineeId)
+        .eq("role", "trainee")
+        .single(),
+      supabase
+        .from("programs")
+        .select("id, title, status, trainee_id, week_start_date, deleted_at, block_id, block_week_index, is_deload, deload_pct")
+        .eq("id", programId)
+        .single(),
+      supabase
+        .from("workouts")
+        .select("id, day_of_week, order_index")
+        .eq("program_id", programId)
+        .order("day_of_week")
+        .order("order_index"),
+      supabase
+        .from("exercises")
+        .select("id, name, muscle_group, equipment, media_url, instructions")
+        .order("name"),
+      supabase
+        .from("blocks")
+        .select("id, title, weeks_count, status, default_deload_pct")
+        .eq("trainee_id", traineeId)
+        .is("deleted_at", null),
+      supabase
+        .from("programs")
+        .select("id, block_id, block_week_index")
+        .eq("trainee_id", traineeId)
+        .is("deleted_at", null)
+        .not("block_id", "is", null),
+    ]);
+  const readOnly = me?.isSuperadmin === true;
 
   if (!trainee || !program || program.trainee_id !== traineeId || program.deleted_at) notFound();
 
-  const { data: workouts } = await supabase
-    .from("workouts")
-    .select("id, day_of_week, order_index")
-    .eq("program_id", programId)
-    .order("day_of_week")
-    .order("order_index");
+  // ---- training block (migration 0017): which week this is, and whether
+  // the weeks after it still have this week's structure. Started here so it
+  // runs alongside the loading of this week's own exercises and sets.
+  const block =
+    program.block_id && program.block_week_index != null
+      ? ((blocks ?? []).find((b) => b.id === program.block_id) ?? null)
+      : null;
+  const laterIds = block
+    ? (blockPrograms ?? [])
+        .filter((p) => p.block_id === block.id && (p.block_week_index ?? 0) > (program.block_week_index ?? 0))
+        .map((p) => p.id)
+    : [];
+  const signaturesPromise = block ? structureSignatures(supabase, [programId, ...laterIds]) : null;
 
   const workoutIds = (workouts ?? []).map((w) => w.id);
 
-  const noRows = ["00000000-0000-0000-0000-000000000000"];
-
-  const [{ data: workoutExercises }, { data: exercises }] = await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .select(
-        `id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, slot_key, progression_info, ${RULE_COLUMNS}`,
-      )
-      .in("workout_id", workoutIds.length ? workoutIds : noRows)
-      .order("order_index"),
-    supabase
-      .from("exercises")
-      .select("id, name, muscle_group, equipment, media_url, instructions")
-      .order("name"),
-  ]);
+  const { data: workoutExercises } = await supabase
+    .from("workout_exercises")
+    .select(
+      `id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, slot_key, progression_info, ${RULE_COLUMNS}`,
+    )
+    .in("workout_id", workoutIds.length ? workoutIds : noRows)
+    .order("order_index");
 
   const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
   const { data: plannedSets } = await supabase
@@ -154,40 +179,21 @@ export default async function ProgramBuilderPage({
       }),
   }));
 
-  // ---- training block (migration 0017): which week this is, and whether
-  // the weeks after it still have this week's structure.
   let blockInfo: BuilderBlock | null = null;
-  if (program.block_id && program.block_week_index != null) {
-    const [{ data: block }, { data: laterPrograms }] = await Promise.all([
-      supabase
-        .from("blocks")
-        .select("id, title, weeks_count, status, default_deload_pct")
-        .eq("id", program.block_id)
-        .is("deleted_at", null)
-        .maybeSingle(),
-      supabase
-        .from("programs")
-        .select("id")
-        .eq("block_id", program.block_id)
-        .is("deleted_at", null)
-        .gt("block_week_index", program.block_week_index),
-    ]);
-    if (block) {
-      const laterIds = (laterPrograms ?? []).map((p) => p.id);
-      const signatures = await structureSignatures(supabase, [programId, ...laterIds]);
-      const own = signatures.get(programId) ?? "";
-      blockInfo = {
-        id: block.id,
-        title: block.title,
-        weeksCount: block.weeks_count,
-        weekIndex: program.block_week_index,
-        isDeload: program.is_deload,
-        deloadPct: program.deload_pct ?? block.default_deload_pct,
-        active: block.status === "active",
-        hasLaterWeeks: laterIds.length > 0,
-        laterDiffer: laterIds.some((id) => (signatures.get(id) ?? "") !== own),
-      };
-    }
+  if (block && signaturesPromise && program.block_week_index != null) {
+    const signatures = await signaturesPromise;
+    const own = signatures.get(programId) ?? "";
+    blockInfo = {
+      id: block.id,
+      title: block.title,
+      weeksCount: block.weeks_count,
+      weekIndex: program.block_week_index,
+      isDeload: program.is_deload,
+      deloadPct: program.deload_pct ?? block.default_deload_pct,
+      active: block.status === "active",
+      hasLaterWeeks: laterIds.length > 0,
+      laterDiffer: laterIds.some((id) => (signatures.get(id) ?? "") !== own),
+    };
   }
   const progressionInfo = Object.fromEntries((workoutExercises ?? []).map((we) => [we.id, we.progression_info]));
 

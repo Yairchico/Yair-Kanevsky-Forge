@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { rollForwardBlocks } from "@/lib/block-server";
+import { getRequestAuth } from "@/lib/viewer";
+import { loadWithBlocksRolled } from "@/lib/block-server";
 import { traineeJumpLabel } from "@/lib/blocks";
 import { AppShell } from "@/components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import {
   type LoggedSet,
   type PlannedSet,
 } from "@/lib/sets";
-import { getPreviousPerformance, selectInChunks } from "@/lib/previous-sets";
+import { loadPreviousIndex, selectInChunks } from "@/lib/previous-sets";
 import { playableVideoUrl } from "@/lib/video";
 
 /** ±4 weeks around the current one — "up to a month forward and back". */
@@ -29,6 +29,16 @@ const WEEK_OFFSETS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
  * still gets its own slot, just an empty one (TraineeWeekBrowser shows a
  * "no program" message for it instead of a workout list).
  */
+function SignedOut() {
+  return (
+    <AppShell title="האימונים שלי" backHref="/trainee">
+      <Card>
+        <CardContent className="p-6 text-base text-muted-foreground">שגיאת התחברות.</CardContent>
+      </Card>
+    </AppShell>
+  );
+}
+
 export default async function TraineeWorkoutsPage({
   searchParams,
 }: {
@@ -36,113 +46,102 @@ export default async function TraineeWorkoutsPage({
 }) {
   const { week: requestedWeek } = await searchParams;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return (
-      <AppShell title="האימונים שלי" backHref="/trainee">
-        <Card>
-          <CardContent className="p-6 text-base text-muted-foreground">
-            שגיאת התחברות.
-          </CardContent>
-        </Card>
-      </AppShell>
-    );
-  }
+  const { supabase, userId, viewer } = await getRequestAuth();
+  if (!userId) return <SignedOut />;
 
   const currentWeekStart = getWeekStart(israelNow());
   const weekKeys = WEEK_OFFSETS.map((offset) => toDateKey(addDays(currentWeekStart, offset * 7)));
   const noRows = ["00000000-0000-0000-0000-000000000000"];
 
-  // Training blocks: the once-a-week maintenance first (it may publish this
-  // week's program or re-derive its targets), so what's read below is current.
-  await rollForwardBlocks(supabase, user.id);
+  // The weekly plan is a chain where each step needs the previous one's ids
+  // (programs → workouts → exercises → sets). Fetched for the whole window
+  // at once, which is what makes switching between weeks (and, within a
+  // week, between its workout tabs) a local state change instead of a
+  // fresh server request.
+  async function loadPlan() {
+    // With the training blocks' once-a-week maintenance applied: it may
+    // publish this week's program or re-derive its targets.
+    const { programs, blocks } = await loadWithBlocksRolled(supabase, userId!, true, async () => {
+      const [{ data: programs }, { data: blocks }] = await Promise.all([
+        supabase
+          .from("programs")
+          .select("id, title, week_start_date, block_id, block_week_index, is_deload")
+          .eq("trainee_id", userId!)
+          .eq("status", "published")
+          .is("deleted_at", null)
+          .in("week_start_date", weekKeys),
+        // RLS: only this trainee's own blocks.
+        supabase.from("blocks").select("id, weeks_count").is("deleted_at", null),
+      ]);
+      return { programs: programs ?? [], blocks: blocks ?? [] };
+    });
+    const programIds = programs.map((p) => p.id);
 
-  const [{ data: profile }, { data: programs }, { data: blocks }] = await Promise.all([
-    supabase.from("profiles").select("username").eq("id", user.id).single(),
-    supabase
-      .from("programs")
-      .select("id, title, week_start_date, block_id, block_week_index, is_deload")
-      .eq("trainee_id", user.id)
-      .eq("status", "published")
-      .is("deleted_at", null)
-      .in("week_start_date", weekKeys),
-    // RLS: only this trainee's own blocks.
-    supabase.from("blocks").select("id, weeks_count").is("deleted_at", null),
-  ]);
-  const blockWeeks = new Map((blocks ?? []).map((b) => [b.id, b.weeks_count]));
+    const { data: workouts } = await supabase
+      .from("workouts")
+      .select("id, program_id, day_of_week, order_index")
+      .in("program_id", programIds.length ? programIds : noRows)
+      .order("day_of_week")
+      .order("order_index");
+    const workoutIds = (workouts ?? []).map((w) => w.id);
 
-  const publishedPrograms = programs ?? [];
-  const programIds = publishedPrograms.map((p) => p.id);
-  const previousWeekKey = toDateKey(addDays(currentWeekStart, -7));
+    const [{ data: workoutExercises }, { data: workoutCompletions }] = await Promise.all([
+      supabase
+        .from("workout_exercises")
+        .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, progression_info")
+        .in("workout_id", workoutIds.length ? workoutIds : noRows)
+        .order("order_index"),
+      supabase
+        .from("workout_completions")
+        .select("workout_id, completed_at")
+        .eq("trainee_id", userId!)
+        .in("workout_id", workoutIds.length ? workoutIds : noRows),
+    ]);
 
-  const { data: workouts } = await supabase
-    .from("workouts")
-    .select("id, program_id, day_of_week, order_index")
-    .in("program_id", programIds.length ? programIds : noRows)
-    .order("day_of_week")
-    .order("order_index");
+    // Per-set plan + what's already been logged (migration 0013), and the
+    // exercise-level notes.
+    const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
+    const [plannedRows, loggedRows, noteRows] = await Promise.all([
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
+      ),
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase
+          .from("set_logs")
+          .select(SET_LOG_COLUMNS)
+          .eq("trainee_id", userId!)
+          .eq("status", "done")
+          .in("workout_exercise_id", chunk),
+      ),
+      selectInChunks(workoutExerciseIds, (chunk) =>
+        supabase
+          .from("workout_logs")
+          .select("workout_exercise_id, notes")
+          .eq("trainee_id", userId!)
+          .in("workout_exercise_id", chunk),
+      ),
+    ]);
+    return { programs, blocks, workouts, workoutExercises, workoutCompletions, plannedRows, loggedRows, noteRows };
+  }
 
-  const workoutIds = (workouts ?? []).map((w) => w.id);
-
-  // Everything below only depends on workoutIds — fetched together so
-  // every week's workouts are ready in one round trip, which is what
-  // makes switching between weeks (and, within a week, between its own
-  // workout tabs) a local state change instead of a fresh server request.
-  const [
-    { data: workoutExercises },
-    { data: exercises },
-    { data: workoutCompletions },
-    { data: exerciseCompletions },
-  ] = await Promise.all([
-    supabase
-      .from("workout_exercises")
-      .select("id, workout_id, exercise_id, order_index, rest_seconds, instructions, hide_library_note, progression_info")
-      .in("workout_id", workoutIds.length ? workoutIds : noRows)
-      .order("order_index"),
+  // Everything else depends on nothing but who is asking, so it all runs
+  // next to that chain rather than before or after it: the verification of
+  // who is asking, the exercise library, the "done" marks, and "last time"
+  // for every exercise (a chain of its own).
+  const [user, plan, { data: exercises }, { data: exerciseCompletions }, previousLookup] = await Promise.all([
+    viewer,
+    loadPlan(),
     supabase.from("exercises").select("id, name, muscle_group, media_url, instructions, video_url, video_storage_path"),
-    supabase
-      .from("workout_completions")
-      .select("workout_id, completed_at")
-      .eq("trainee_id", user.id)
-      .in("workout_id", workoutIds.length ? workoutIds : noRows),
-    supabase
-      .from("workout_exercise_completions")
-      .select("workout_exercise_id")
-      .eq("trainee_id", user.id),
+    supabase.from("workout_exercise_completions").select("workout_exercise_id").eq("trainee_id", userId),
+    loadPreviousIndex(supabase, userId),
   ]);
-
-  // Per-set plan + what's already been logged (migration 0013), the
-  // exercise-level notes, and "last time" for every exercise in the window.
-  const workoutExerciseIds = (workoutExercises ?? []).map((we) => we.id);
-  const [plannedRows, loggedRows, noteRows, previousByWorkoutExerciseId] = await Promise.all([
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase.from("workout_exercise_sets").select(PLANNED_SET_COLUMNS).in("workout_exercise_id", chunk),
-    ),
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase
-        .from("set_logs")
-        .select(SET_LOG_COLUMNS)
-        .eq("trainee_id", user.id)
-        .eq("status", "done")
-        .in("workout_exercise_id", chunk),
-    ),
-    selectInChunks(workoutExerciseIds, (chunk) =>
-      supabase
-        .from("workout_logs")
-        .select("workout_exercise_id, notes")
-        .eq("trainee_id", user.id)
-        .in("workout_exercise_id", chunk),
-    ),
-    getPreviousPerformance(
-      supabase,
-      user.id,
-      (workoutExercises ?? []).map((we) => ({ key: we.id, exerciseId: we.exercise_id })),
-    ),
-  ]);
+  if (!user) return <SignedOut />;
+  const { programs: publishedPrograms, blocks, workouts, workoutExercises, workoutCompletions, plannedRows, loggedRows, noteRows } = plan;
+  const blockWeeks = new Map(blocks.map((b) => [b.id, b.weeks_count]));
+  const previousWeekKey = toDateKey(addDays(currentWeekStart, -7));
+  const previousByWorkoutExerciseId = previousLookup(
+    (workoutExercises ?? []).map((we) => ({ key: we.id, exerciseId: we.exercise_id })),
+  );
 
   const exerciseById = new Map((exercises ?? []).map((e) => [e.id, e]));
   const submittedAtByWorkoutId = new Map(
@@ -219,7 +218,7 @@ export default async function TraineeWorkoutsPage({
   });
 
   return (
-    <AppShell title="האימונים שלי" backHref="/trainee" username={profile?.username}>
+    <AppShell title="האימונים שלי" backHref="/trainee" username={user.username}>
       <TraineeWeekBrowser weeks={weeks} initialWeek={requestedWeek} />
     </AppShell>
   );

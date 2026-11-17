@@ -1,19 +1,15 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/app-shell";
 import { buttonVariants } from "@/components/ui/button";
-import { isReadOnlyViewer } from "@/lib/viewer";
+import { getRequestAuth } from "@/lib/viewer";
 import { TraineeList } from "./trainee-list";
 
 export default async function TraineesPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const readOnly = user ? await isReadOnlyViewer(supabase, user.id) : false;
+  const { supabase, viewer } = await getRequestAuth();
 
   // Independent of each other — run together instead of one after another.
-  const [{ data: trainees }, { data: completions }] = await Promise.all([
+  const [me, { data: trainees }, { data: completions }] = await Promise.all([
+    viewer,
     supabase
       .from("profiles")
       .select("id, full_name, username, phone")
@@ -24,6 +20,8 @@ export default async function TraineesPage() {
       .select("trainee_id, completed_at")
       .order("completed_at", { ascending: false }),
   ]);
+
+  const readOnly = me?.isSuperadmin === true;
 
   // completions is already newest-first, so the first row seen per
   // trainee_id is their most recent submission.

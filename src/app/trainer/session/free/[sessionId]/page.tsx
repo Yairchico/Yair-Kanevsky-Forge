@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { loadFreeSessionExercises } from "@/lib/free-session-data";
+import { getRequestAuth } from "@/lib/viewer";
+import { getPreviousPerformance } from "@/lib/previous-sets";
+import { loadExercisesOfSessions } from "@/lib/free-session-data";
 import { isUuid } from "@/lib/utils";
 import { FreeSessionRunner } from "./free-session-runner";
 import { FreeSessionSummary } from "./free-session-summary";
@@ -22,37 +23,40 @@ export default async function FreeSessionPage({
   const { template: templateParam } = await searchParams;
   if (!isUuid(sessionId)) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const { supabase, viewer } = await getRequestAuth();
 
-  const { data: viewer } = await supabase
-    .from("profiles")
-    .select("role, is_superadmin")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isTrainer = viewer?.role === "trainer";
-  if (!isTrainer && !viewer?.is_superadmin) redirect("/trainee");
-
-  const { data: session } = await supabase
-    .from("free_sessions")
-    .select("id, trainee_id, guest_label, template_id, started_at, finished_at, notes")
-    .eq("id", sessionId)
-    .maybeSingle();
-  if (!session) notFound();
-
-  const live = isTrainer && !session.finished_at;
-
-  const [exercises, { data: trainees }, { data: template }, { data: catalog }] = await Promise.all([
-    loadFreeSessionExercises(supabase, session),
+  // One wait for everything that only needs the session's id.
+  const [me, { data: session }, baseExercises, { data: trainees }, { data: fullCatalog }] = await Promise.all([
+    viewer,
+    supabase
+      .from("free_sessions")
+      .select("id, trainee_id, guest_label, template_id, started_at, finished_at, notes")
+      .eq("id", sessionId)
+      .maybeSingle(),
+    loadExercisesOfSessions(supabase, [sessionId]),
     supabase
       .from("profiles")
       .select("id, full_name, status")
       .eq("role", "trainee")
       .eq("is_superadmin", false)
       .order("full_name"),
+    supabase
+      .from("exercises")
+      .select("id, name, muscle_group, equipment, media_url, instructions")
+      .order("name"),
+  ]);
+  if (!me) redirect("/login");
+  const isTrainer = me.role === "trainer";
+  if (!isTrainer && !me.isSuperadmin) redirect("/trainee");
+  if (!session) notFound();
+
+  const live = isTrainer && !session.finished_at;
+  const catalog = live ? fullCatalog : [];
+
+  // Then what needs the session row itself: its saved workout, and — when
+  // it belongs to a trainee — what they did last time on each exercise.
+  let exercises = baseExercises.get(sessionId) ?? [];
+  const [{ data: template }, previous] = await Promise.all([
     session.template_id
       ? supabase
           .from("session_templates")
@@ -60,13 +64,15 @@ export default async function FreeSessionPage({
           .eq("id", session.template_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
-    live
-      ? supabase
-          .from("exercises")
-          .select("id, name, muscle_group, equipment, media_url, instructions")
-          .order("name")
-      : Promise.resolve({ data: [] }),
+    session.trainee_id && exercises.length > 0
+      ? getPreviousPerformance(
+          supabase,
+          session.trainee_id,
+          exercises.map((e) => ({ key: e.id, exerciseId: e.exerciseId })),
+        )
+      : null,
   ]);
+  if (previous) exercises = exercises.map((e) => ({ ...e, previous: previous.get(e.id) ?? null }));
 
   const traineeName = (trainees ?? []).find((t) => t.id === session.trainee_id)?.full_name ?? null;
   // An inactive trainee stays selectable only if this session is already theirs.

@@ -8,7 +8,7 @@ import { formatShortDateTime, countExercises, countSets } from "@/lib/format";
 import { loadFreeSessionList } from "@/lib/free-session-data";
 import { isSessionStale } from "@/lib/free-sessions";
 import { selectInChunks } from "@/lib/previous-sets";
-import { getTrainerContext } from "@/lib/require-trainer";
+import { getRequestAuth } from "@/lib/viewer";
 import { cn, isUuid } from "@/lib/utils";
 import {
   addDays,
@@ -43,9 +43,7 @@ export default async function SessionPickerPage({
   searchParams: Promise<{ trainee?: string; week?: string; mode?: string }>;
 }) {
   const params = await searchParams;
-  const ctx = await getTrainerContext();
-  if (!ctx) redirect("/trainer");
-  const { supabase } = ctx;
+  const { supabase, viewer } = await getRequestAuth();
 
   const mode = params.mode === "free" ? "free" : "trainee";
   const now = israelNow();
@@ -53,99 +51,49 @@ export default async function SessionPickerPage({
   const currentWeekKey = toDateKey(currentWeekStart);
   const todayIndex = now.getDay();
 
-  const [{ data: traineeRows }, { data: weekPrograms }, { data: templateRows }, freeSessions] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, full_name")
-      .eq("role", "trainee")
-      .eq("is_superadmin", false)
-      .eq("status", "active")
-      .order("full_name"),
-    supabase
-      .from("programs")
-      .select("id, trainee_id, status")
-      .eq("week_start_date", currentWeekKey)
-      .is("deleted_at", null),
-    supabase
+  // The saved workouts, each with how many exercises it has.
+  async function loadTemplates() {
+    const { data: templateRows } = await supabase
       .from("session_templates")
       .select("id, title")
       .is("deleted_at", null)
-      .order("updated_at", { ascending: false }),
-    loadFreeSessionList(supabase, { limit: 20 }),
-  ]);
+      .order("updated_at", { ascending: false });
+    const templateExercises = await selectInChunks(
+      (templateRows ?? []).map((t) => t.id),
+      (chunk) => supabase.from("session_template_exercises").select("template_id").in("template_id", chunk),
+    );
+    return (templateRows ?? []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      exerciseCount: templateExercises.filter((e) => e.template_id === t.id).length,
+    }));
+  }
 
-  const trainees = traineeRows ?? [];
-  const traineeOptions = trainees.map((t) => ({ id: t.id, name: t.full_name }));
-  const traineeNameById = new Map(trainees.map((t) => [t.id, t.full_name]));
-  const selectedTrainee =
-    mode === "trainee" && isUuid(params.trainee) ? (trainees.find((t) => t.id === params.trainee) ?? null) : null;
-
-  const templateExercises = await selectInChunks(
-    (templateRows ?? []).map((t) => t.id),
-    (chunk) => supabase.from("session_template_exercises").select("template_id").in("template_id", chunk),
-  );
-  const templates = (templateRows ?? []).map((t) => ({
-    id: t.id,
-    title: t.title,
-    exerciseCount: templateExercises.filter((e) => e.template_id === t.id).length,
-  }));
-
-  // Still worth offering "continue": opened in the last day, or left open with sets in it.
-  const openSessions = freeSessions.filter(
-    (s) => !s.finishedAt && (s.setCount > 0 || !isSessionStale(s.startedAt)),
-  );
-
-  // ---- step 1: every trainee, with what this week looks like for them
-  let pickList: PickerTrainee[] = [];
-  if (mode === "trainee" && !selectedTrainee) {
+  // Step 1's data: this week's programs of every trainee, their workouts and which were submitted.
+  async function loadWeekOverview() {
+    const { data: weekPrograms } = await supabase
+      .from("programs")
+      .select("id, trainee_id, status")
+      .eq("week_start_date", currentWeekKey)
+      .is("deleted_at", null);
     const programs = weekPrograms ?? [];
     const { data: weekWorkouts } = await supabase
       .from("workouts")
       .select("id, program_id")
       .in("program_id", programs.length ? programs.map((p) => p.id) : NO_ROWS);
-    const workoutIds = (weekWorkouts ?? []).map((w) => w.id);
-    const completions = await selectInChunks(workoutIds, (chunk) =>
-      supabase.from("workout_completions").select("workout_id").in("workout_id", chunk),
+    const completions = await selectInChunks(
+      (weekWorkouts ?? []).map((w) => w.id),
+      (chunk) => supabase.from("workout_completions").select("workout_id").in("workout_id", chunk),
     );
-    const doneWorkoutIds = new Set(completions.map((c) => c.workout_id));
-    const programByTrainee = new Map(programs.map((p) => [p.trainee_id, p]));
-
-    pickList = trainees.map((t) => {
-      const program = programByTrainee.get(t.id);
-      if (!program) return { id: t.id, name: t.full_name, subtitle: "אין תוכנית לשבוע הזה" };
-      const workouts = (weekWorkouts ?? []).filter((w) => w.program_id === program.id);
-      const done = workouts.filter((w) => doneWorkoutIds.has(w.id)).length;
-      return {
-        id: t.id,
-        name: t.full_name,
-        subtitle:
-          workouts.length === 0
-            ? "התוכנית של השבוע ריקה"
-            : `${done}/${workouts.length} אימונים בוצעו${program.status === "draft" ? " · טיוטה" : ""}`,
-      };
-    });
+    return { programs, weekWorkouts: weekWorkouts ?? [], doneWorkoutIds: new Set(completions.map((c) => c.workout_id)) };
   }
 
-  // ---- step 2: the selected trainee's workouts for the chosen week
-  let weekView: {
-    weekKey: string;
-    program: { id: string; title: string; status: "draft" | "published" } | null;
-    workouts: {
-      id: string;
-      label: string;
-      isToday: boolean;
-      exerciseCount: number;
-      exerciseNames: string[];
-      submitted: boolean;
-    }[];
-    otherWeeks: { weekKey: string; title: string }[];
-  } | null = null;
-
-  if (selectedTrainee) {
+  // Step 2's data: one trainee's programs around now, and the chosen week's workouts.
+  async function loadTraineeWeek(traineeId: string) {
     const { data: programs } = await supabase
       .from("programs")
       .select("id, title, status, week_start_date")
-      .eq("trainee_id", selectedTrainee.id)
+      .eq("trainee_id", traineeId)
       .is("deleted_at", null)
       .gte("week_start_date", toDateKey(addDays(currentWeekStart, -4 * 7)))
       .lte("week_start_date", toDateKey(addDays(currentWeekStart, 4 * 7)))
@@ -174,14 +122,85 @@ export default async function SessionPickerPage({
       supabase
         .from("workout_completions")
         .select("workout_id")
-        .eq("trainee_id", selectedTrainee.id)
+        .eq("trainee_id", traineeId)
         .in("workout_id", workoutIds.length ? workoutIds : NO_ROWS),
     ]);
-    const exerciseIds = [...new Set(workoutExercises.map((we) => we.exercise_id))];
-    const { data: exercises } = await supabase
-      .from("exercises")
-      .select("id, name")
-      .in("id", exerciseIds.length ? exerciseIds : NO_ROWS);
+    return { programs, weekKey, program, workouts, workoutExercises, completions };
+  }
+
+  // Which of the two steps this is can be told from the URL alone, so each
+  // step's own chain of queries starts right away, next to everything else
+  // (instead of after it). A trainee id that turns out not to be an active
+  // trainee falls back to step 1 below.
+  const requestedTraineeId = mode === "trainee" && isUuid(params.trainee) ? params.trainee : null;
+
+  const [me, { data: traineeRows }, templates, freeSessions, { data: exercises }, weekOverviewEarly, traineeWeek] =
+    await Promise.all([
+      viewer,
+      supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "trainee")
+        .eq("is_superadmin", false)
+        .eq("status", "active")
+        .order("full_name"),
+      loadTemplates(),
+      loadFreeSessionList(supabase, { limit: 20 }),
+      supabase.from("exercises").select("id, name"),
+      mode === "trainee" && !requestedTraineeId ? loadWeekOverview() : null,
+      requestedTraineeId ? loadTraineeWeek(requestedTraineeId) : null,
+    ]);
+  if (me?.role !== "trainer") redirect("/trainer");
+
+  const trainees = traineeRows ?? [];
+  const traineeOptions = trainees.map((t) => ({ id: t.id, name: t.full_name }));
+  const traineeNameById = new Map(trainees.map((t) => [t.id, t.full_name]));
+  const selectedTrainee = requestedTraineeId ? (trainees.find((t) => t.id === requestedTraineeId) ?? null) : null;
+
+  // Still worth offering "continue": opened in the last day, or left open with sets in it.
+  const openSessions = freeSessions.filter(
+    (s) => !s.finishedAt && (s.setCount > 0 || !isSessionStale(s.startedAt)),
+  );
+
+  // ---- step 1: every trainee, with what this week looks like for them
+  let pickList: PickerTrainee[] = [];
+  if (mode === "trainee" && !selectedTrainee) {
+    const { programs, weekWorkouts, doneWorkoutIds } = weekOverviewEarly ?? (await loadWeekOverview());
+    const programByTrainee = new Map(programs.map((p) => [p.trainee_id, p]));
+
+    pickList = trainees.map((t) => {
+      const program = programByTrainee.get(t.id);
+      if (!program) return { id: t.id, name: t.full_name, subtitle: "אין תוכנית לשבוע הזה" };
+      const workouts = weekWorkouts.filter((w) => w.program_id === program.id);
+      const done = workouts.filter((w) => doneWorkoutIds.has(w.id)).length;
+      return {
+        id: t.id,
+        name: t.full_name,
+        subtitle:
+          workouts.length === 0
+            ? "התוכנית של השבוע ריקה"
+            : `${done}/${workouts.length} אימונים בוצעו${program.status === "draft" ? " · טיוטה" : ""}`,
+      };
+    });
+  }
+
+  // ---- step 2: the selected trainee's workouts for the chosen week
+  let weekView: {
+    weekKey: string;
+    program: { id: string; title: string; status: "draft" | "published" } | null;
+    workouts: {
+      id: string;
+      label: string;
+      isToday: boolean;
+      exerciseCount: number;
+      exerciseNames: string[];
+      submitted: boolean;
+    }[];
+    otherWeeks: { weekKey: string; title: string }[];
+  } | null = null;
+
+  if (selectedTrainee && traineeWeek) {
+    const { programs, weekKey, program, workouts, workoutExercises, completions } = traineeWeek;
     const exerciseName = new Map((exercises ?? []).map((e) => [e.id, e.name]));
     const submittedIds = new Set((completions ?? []).map((c) => c.workout_id));
 
