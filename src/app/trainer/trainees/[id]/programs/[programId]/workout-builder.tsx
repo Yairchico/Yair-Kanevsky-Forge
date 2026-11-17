@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   ExerciseListEditor,
   type InitialEditorItem,
@@ -13,6 +13,7 @@ import {
   type ExerciseListApi,
 } from "@/lib/exercise-editor-types";
 import type { ProgressionInfo } from "@/lib/supabase/types";
+import { useDeferredSync } from "@/lib/use-deferred-sync";
 import {
   addExerciseToWorkout,
   addSet,
@@ -25,6 +26,9 @@ import {
   updateSet,
   updateWorkoutExercise,
 } from "./actions";
+
+/** A few quiet seconds: long enough that the catch-up rarely lands between two edits. */
+const BUILDER_SYNC_DELAY_MS = 5000;
 
 /**
  * One workout of a weekly program, edited with the shared exercise/set
@@ -64,21 +68,36 @@ export function WorkoutBuilder({
   /** The read-only superadmin viewer (migration 0011) — hides every mutation control, disables drag-reorder. */
   readOnly?: boolean;
 }) {
-  const api = useMemo<ExerciseListApi>(
-    () => ({
-      addExercise: (exerciseId) => addExerciseToWorkout(traineeId, programId, workoutId, exerciseId),
-      deleteExercise: (id) => deleteWorkoutExercise(traineeId, programId, id),
-      duplicateExercise: (id) => duplicateWorkoutExercise(traineeId, programId, id),
-      reorder: (ids) => reorderWorkoutExercises(traineeId, programId, ids),
-      updateFields: (id, fields) => updateWorkoutExercise(traineeId, programId, id, fields),
-      addSet: (id) => addSet(traineeId, programId, id),
-      updateSet: (setId, fields) => updateSet(traineeId, programId, setId, fields),
-      deleteSet: (setId) => deleteSet(traineeId, programId, setId),
-      updateProgression: (id, rule) => updateProgression(traineeId, programId, id, rule),
-      clearSetOverride: (setId) => clearSetOverride(traineeId, programId, setId),
-    }),
-    [traineeId, programId, workoutId],
-  );
+  // The row-level saves below don't reload the page's data (the editor
+  // already shows what was saved, and each of these reloads used to make
+  // the next edit wait). One catch-up request follows a few quiet seconds
+  // after the last save — see src/app/sync-actions.ts.
+  const inFlight = useRef(0);
+  const scheduleSync = useDeferredSync(BUILDER_SYNC_DELAY_MS, () => inFlight.current > 0);
+
+  const api = useMemo<ExerciseListApi>(() => {
+    async function saved<T>(action: Promise<T>): Promise<T> {
+      inFlight.current += 1;
+      try {
+        return await action;
+      } finally {
+        inFlight.current -= 1;
+        scheduleSync();
+      }
+    }
+    return {
+      addExercise: (exerciseId) => saved(addExerciseToWorkout(traineeId, programId, workoutId, exerciseId)),
+      deleteExercise: (id) => saved(deleteWorkoutExercise(traineeId, programId, id)),
+      duplicateExercise: (id) => saved(duplicateWorkoutExercise(traineeId, programId, id)),
+      reorder: (ids) => saved(reorderWorkoutExercises(traineeId, programId, ids)),
+      updateFields: (id, fields) => saved(updateWorkoutExercise(traineeId, programId, id, fields)),
+      addSet: (id) => saved(addSet(traineeId, programId, id)),
+      updateSet: (setId, fields) => saved(updateSet(traineeId, programId, setId, fields)),
+      deleteSet: (setId) => saved(deleteSet(traineeId, programId, setId)),
+      updateProgression: (id, rule) => saved(updateProgression(traineeId, programId, id, rule)),
+      clearSetOverride: (setId) => saved(clearSetOverride(traineeId, programId, setId)),
+    };
+  }, [traineeId, programId, workoutId, scheduleSync]);
   const inBlock = blockWeekIndex != null;
 
   return (
@@ -99,7 +118,7 @@ export function WorkoutBuilder({
                 info={progressionInfo?.[item.id] ?? null}
                 readOnly={readOnly || item.id.startsWith("temp-")}
                 onSave={async (rule) => {
-                  const result = await updateProgression(traineeId, programId, item.id, rule);
+                  const result = await api.updateProgression!(item.id, rule);
                   if (result.row) replaceItem(result.row);
                   return { error: result.error };
                 }}

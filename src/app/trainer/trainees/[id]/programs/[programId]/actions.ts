@@ -82,32 +82,17 @@ async function hasRecordedHistory(supabase: Supabase, workoutExerciseIds: string
   return (setLogs ?? 0) > 0 || (exerciseLogs ?? 0) > 0;
 }
 
+/**
+ * For the workout-level actions (create / move / delete a workout). The
+ * row-level saves further down — exercises, sets, progression rules —
+ * deliberately don't revalidate: the editor already shows what was saved,
+ * and the builder asks for one catch-up shortly after the last of them
+ * (syncAfterEdits, src/app/sync-actions.ts). Their unused `traineeId`
+ * parameter is kept so the call sites and their meaning stay the same.
+ */
 function revalidateBuilder(traineeId: string, programId: string) {
   revalidatePath(`/trainer/trainees/${traineeId}/programs/${programId}`);
   revalidatePath(`/trainer/trainees/${traineeId}`);
-}
-
-/** The training block this program is a week of, if it is one (migration 0017). */
-async function blockWeekOf(
-  supabase: Supabase,
-  programId: string,
-): Promise<{ blockId: string; weekIndex: number } | null> {
-  const { data } = await supabase
-    .from("programs")
-    .select("block_id, block_week_index")
-    .eq("id", programId)
-    .maybeSingle();
-  return data?.block_id && data.block_week_index != null
-    ? { blockId: data.block_id, weekIndex: data.block_week_index }
-    : null;
-}
-
-/** A block's later weeks follow this one: other weeks' pages (and the block page, and the trainee) changed too. */
-function revalidateBlock(traineeId: string, blockId: string) {
-  revalidatePath(`/trainer/trainees/${traineeId}/blocks/${blockId}`);
-  revalidatePath("/trainer/trainees/[id]/programs/[programId]", "page");
-  revalidatePath("/trainee");
-  revalidatePath("/trainee/workouts");
 }
 
 /**
@@ -317,7 +302,6 @@ export async function addExerciseToWorkout(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { row: { ...row, sets: (sets ?? []).map(toPlannedSet), progression: ruleFromRow(row) }, revertedToDraft };
 }
 
@@ -348,7 +332,6 @@ export async function updateWorkoutExercise(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { revertedToDraft };
 }
 
@@ -369,7 +352,6 @@ export async function deleteWorkoutExercise(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { revertedToDraft };
 }
 
@@ -421,7 +403,6 @@ export async function duplicateWorkoutExercise(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { row: { ...row, sets: (sets ?? []).map(toPlannedSet), progression: ruleFromRow(row) }, revertedToDraft };
 }
 
@@ -459,7 +440,6 @@ export async function addSet(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { set: toPlannedSet(data), revertedToDraft };
 }
 
@@ -475,11 +455,16 @@ export async function updateSet(
   }
 
   const supabase = await createClient();
-  const { data: before } = await supabase
-    .from("workout_exercise_sets")
-    .select("workout_exercise_id, reps_min, reps_max, reps_note, weight_kg, weight_note")
-    .eq("id", setId)
-    .maybeSingle();
+  // Together (this is the builder's most frequent save): the set as it is
+  // now, and what's needed to know about the program afterwards.
+  const [{ data: before }, { data: program }] = await Promise.all([
+    supabase
+      .from("workout_exercise_sets")
+      .select("workout_exercise_id, reps_min, reps_max, reps_note, weight_kg, weight_note")
+      .eq("id", setId)
+      .maybeSingle(),
+    supabase.from("programs").select("status, block_id, block_week_index").eq("id", programId).maybeSingle(),
+  ]);
   if (!before) return { error: "הסט לא נמצא" };
 
   // Did the TARGET change (reps / weight), as opposed to only the type or RPE?
@@ -499,7 +484,10 @@ export async function updateSet(
   // weeks after it are computed FROM it). An exercise with nothing before
   // it in the block — all of week 1, or one added later — is the trainer's
   // own numbers to begin with; progression_info is what tells them apart.
-  const block = targetChanged ? await blockWeekOf(supabase, programId) : null;
+  const block =
+    targetChanged && program?.block_id && program.block_week_index != null
+      ? { blockId: program.block_id, weekIndex: program.block_week_index }
+      : null;
   let isComputed = false;
   if (block) {
     const { data: exercise } = await supabase
@@ -526,13 +514,15 @@ export async function updateSet(
     return { error: "שגיאה בשמירת הסט" };
   }
 
-  if (block) {
-    await supabase.rpc("recompute_block", { p_block_id: block.blockId, p_from_index: block.weekIndex + 1 });
-    revalidateBlock(traineeId, block.blockId);
-  }
-
-  const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
+  // The later weeks of the block follow the new target; and an edit to a
+  // published program takes it back to draft (see revertToDraftIfPublished).
+  const revertedToDraft = program?.status === "published";
+  await Promise.all([
+    block
+      ? supabase.rpc("recompute_block", { p_block_id: block.blockId, p_from_index: block.weekIndex + 1 })
+      : null,
+    revertedToDraft ? supabase.from("programs").update({ status: "draft" }).eq("id", programId) : null,
+  ]);
   return { set: toPlannedSet(data), revertedToDraft };
 }
 
@@ -574,9 +564,6 @@ export async function updateProgression(
     .single();
   if (!row) return { error: "התרגיל לא נמצא" };
 
-  const block = await blockWeekOf(supabase, programId);
-  if (block) revalidateBlock(traineeId, block.blockId);
-  revalidateBuilder(traineeId, programId);
   return { row: { ...row, sets: await loadSets(supabase, workoutExerciseId), progression: ruleFromRow(row) } };
 }
 
@@ -597,10 +584,7 @@ export async function clearSetOverride(
     .single();
   if (!data) return { error: "הסט לא נמצא" };
 
-  const block = await blockWeekOf(supabase, programId);
-  if (block) revalidateBlock(traineeId, block.blockId);
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { set: toPlannedSet(data), revertedToDraft };
 }
 
@@ -652,7 +636,6 @@ export async function deleteSet(
   }
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { revertedToDraft };
 }
 
@@ -671,6 +654,5 @@ export async function reorderWorkoutExercises(
   );
 
   const revertedToDraft = await revertToDraftIfPublished(supabase, programId);
-  revalidateBuilder(traineeId, programId);
   return { revertedToDraft };
 }
