@@ -1,0 +1,10 @@
+import { BASE, cookiesFor, readLog, waves, sleep } from "./lib.mjs";
+const [role, url] = process.argv.slice(2);
+const cookie = (await cookiesFor(role)).map((c) => `${c.name}=${c.value}`).join("; ");
+const t0 = Date.now();
+const res = await fetch(BASE + url, { headers: { cookie }, redirect: "manual" });
+await res.text();
+await sleep(100);
+const reqs = readLog(t0);
+for (const r of reqs) console.log(String(r.start - t0).padStart(5), String(r.end - t0).padStart(5), r.status, r.method, r.path);
+console.log("waves", waves(reqs), "status", res.status);

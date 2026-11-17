@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     ".open-next/**",
     ".wrangler/**",
+    // Local measurement scripts (tools/perf/README.md) — not part of the app.
+    "tools/**",
   ]),
 ]);
 
