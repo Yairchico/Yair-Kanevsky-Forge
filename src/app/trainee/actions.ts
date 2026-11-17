@@ -2,14 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { applyBlockProgression } from "@/lib/block-server";
-import { createClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/viewer";
 import { addDays, getWeekStart, toDateKey, israelNow } from "@/lib/week";
 import {
   STALE_WORKOUT_ERROR,
   deleteSetLog,
   isStaleError,
   programForWorkout,
-  programForWorkoutExercise,
+  setLogContext,
   saveExerciseNotes,
   saveSetLog,
   validateSetIndex,
@@ -43,14 +43,9 @@ export async function toggleExerciseCompletion(
   workoutExerciseId: string,
   completed: boolean,
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-
-  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
-  if (!program || !isEditableWeek(program.weekStartDate)) return;
+  const { supabase, viewer } = await getRequestAuth();
+  const [user, context] = await Promise.all([viewer, setLogContext(supabase, workoutExerciseId)]);
+  if (!user || !context || !isEditableWeek(context.program.weekStartDate)) return;
 
   if (completed) {
     await supabase
@@ -86,24 +81,17 @@ export async function logSet(
   const validationError = validateSetIndex(setIndex) ?? validateSetLogInput(input);
   if (validationError) return { error: validationError };
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Who is asking, and everything about the exercise that's needed before
+  // writing — together, one wait. (Through RLS: the context resolves only
+  // for the trainee's own published program.)
+  const { supabase, viewer } = await getRequestAuth();
+  const [user, context] = await Promise.all([viewer, setLogContext(supabase, workoutExerciseId)]);
   if (!user) return { error: "שגיאת התחברות" };
+  if (!context || context.program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
+  if (!isEditableWeek(context.program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
 
-  // Through RLS: resolves only for the trainee's own published program.
-  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
-  if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
-  if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
-
-  const result = await saveSetLog(supabase, { workoutExerciseId, setIndex, input, traineeId: user.id });
-  if (!result.error) {
-    // In a training block, what was just logged can change next week's targets.
-    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
-    revalidateTraineeAndTrainer();
-  }
-  return result;
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
+  return saveSetLog(supabase, { workoutExerciseId, setIndex, input, context });
 }
 
 /** Un-confirms a set (the trainee tapped ✓ again). Doesn't touch the exercise's "done" mark. */
@@ -111,21 +99,16 @@ export async function unlogSet(
   workoutExerciseId: string,
   setIndex: number,
 ): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, viewer } = await getRequestAuth();
+  const [user, context] = await Promise.all([viewer, setLogContext(supabase, workoutExerciseId)]);
   if (!user) return { error: "שגיאת התחברות" };
-
-  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
-  if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
-  if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
+  if (!context || context.program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
+  if (!isEditableWeek(context.program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
 
   const result = await deleteSetLog(supabase, { workoutExerciseId, setIndex, traineeId: user.id });
-  if (!result.error) {
-    if (program.blockId) await applyBlockProgression(supabase, program.workoutId);
-    revalidateTraineeAndTrainer();
-  }
+  // In a training block, what's logged decides next week's targets.
+  if (!result.error && context.program.blockId) await applyBlockProgression(supabase, context.program.workoutId);
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
   return result;
 }
 
@@ -152,13 +135,10 @@ export async function submitWorkout(
   submitted: boolean,
   notes: ExerciseNoteEntry[] = [],
 ): Promise<SubmitWorkoutState> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, viewer } = await getRequestAuth();
+  const [user, program] = await Promise.all([viewer, programForWorkout(supabase, workoutId)]);
   if (!user) return { error: "שגיאת התחברות" };
 
-  const program = await programForWorkout(supabase, workoutId);
   if (!program || program.traineeId !== user.id) return { error: STALE_WORKOUT_ERROR };
   if (!isEditableWeek(program.weekStartDate)) return { error: LOCKED_WEEK_ERROR };
 

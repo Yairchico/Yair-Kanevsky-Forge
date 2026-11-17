@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { useDeferredSync } from "@/lib/use-deferred-sync";
 import {
   formatKg,
   isSetTargetMet,
@@ -33,6 +34,11 @@ import {
  *   edits and saves that couldn't reach the server. An entry is dropped the
  *   moment it's saved — or when the server's copy of that set has changed
  *   underneath it, so a stale phone never overwrites newer numbers.
+ *
+ * The save itself returns as soon as the set is written, without reloading
+ * the page's data (that reload used to make every ✓ slow, and the next ✓
+ * wait behind it). The server copy is refreshed once, shortly after the
+ * last ✓ of a burst — see scheduleSync below and src/app/sync-actions.ts.
  *
  * Confirming a set (✓) saves it right away; with no reception it's kept as
  * `pending` and retried on mount, when the browser comes back online, when
@@ -179,6 +185,9 @@ function sameAsLog(values: SetLogValues, log: LoggedSet): boolean {
   return values.reps === log.reps && values.weightKg === log.weightKg && values.rpe === log.rpe;
 }
 
+/** How long after the last confirmed / un-confirmed set the page's server copy is refreshed. */
+const SYNC_DELAY_MS = 2500;
+
 // ---------------------------------------------------------------------------
 // The hook
 // ---------------------------------------------------------------------------
@@ -305,6 +314,13 @@ export function useSetEntry({
   function setError(exerciseId: string, message: string | null) {
     setErrors((prev) => (prev[exerciseId] === message ? prev : { ...prev, [exerciseId]: message }));
   }
+
+  // ---- catching up with the server after saves
+  // Saving a set doesn't reload the page's data. Once things have been quiet
+  // for a moment, one request does what every save used to do: brings this
+  // page's fresh server copy (in a training block, next week's targets may
+  // have changed) and marks every other visited page to be re-fetched.
+  const scheduleSync = useDeferredSync(SYNC_DELAY_MS, () => latest.current.saving.size > 0);
 
   // ---- reading
 
@@ -461,6 +477,7 @@ export function useSetEntry({
         return { ...ex, sets, extraSets };
       });
       setError(exercise.id, null);
+      scheduleSync();
       if (result.exerciseDone) onExerciseDone?.(exercise.id);
       if (!quiet) onToast?.(`סט ${setIndex} נשמר ✓`);
       return true;
@@ -502,6 +519,7 @@ export function useSetEntry({
       // followed by fixing one of them and confirming again.
       if (previous) setEntry(exercise.id, setIndex, { ...fromLog(previous), basedOn: null });
       setError(exercise.id, null);
+      scheduleSync();
     } catch {
       onToast?.("אין חיבור — אי אפשר לבטל את הסט כרגע");
     } finally {

@@ -425,6 +425,24 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      /**
+       * Everything needed before a set is written, in one round trip (migration 0020). SECURITY
+       * INVOKER, so RLS applies; null when the caller may not see the exercise.
+       */
+      set_log_context: {
+        Args: { p_workout_exercise_id: string };
+        Returns: {
+          workout_id: string;
+          program_id: string;
+          trainee_id: string;
+          week_start_date: string;
+          status: "draft" | "published";
+          deleted_at: string | null;
+          block_id: string | null;
+          planned: { id: string; set_index: number; set_type: string }[];
+          logged: number[];
+        } | null;
+      };
       email_for_username: {
         Args: { p_username: string };
         Returns: string | null;

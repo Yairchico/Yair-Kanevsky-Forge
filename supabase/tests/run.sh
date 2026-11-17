@@ -33,7 +33,7 @@ for suite in 00*.sql; do
     [ -f "$m" ] || continue
     $PSQL -d "$db" -f "$m" >/dev/null 2>/tmp/forge_test_err.txt || { echo "migration is not re-runnable: $m"; cat /tmp/forge_test_err.txt; exit 2; }
   done
-  case "$suite" in 0014*|0016*) $PSQL -d "$db" -f fixture.sql >/dev/null || exit 2 ;; esac
+  case "$suite" in 0014*|0016*|0020*) $PSQL -d "$db" -f fixture.sql >/dev/null || exit 2 ;; esac
 
   out=$(psql -X -q -d "$db" -f "$suite" 2>&1)
   pass=$(printf '%s\n' "$out" | grep -c "PASS  ")

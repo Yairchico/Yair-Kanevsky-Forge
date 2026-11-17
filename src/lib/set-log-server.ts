@@ -10,6 +10,7 @@
  * authenticated Supabase client, not endpoints.
  */
 
+import { applyBlockProgression } from "@/lib/block-server";
 import type { createClient } from "@/lib/supabase/server";
 import { SET_LOG_COLUMNS, toLoggedSet, type LoggedSet } from "@/lib/sets";
 
@@ -111,24 +112,82 @@ export async function programForWorkoutExercise(
   return programForWorkout(supabase, we.workout_id);
 }
 
+/** What has to be known about an exercise before one of its sets is written. */
+export interface SetLogContext {
+  program: ProgramRef;
+  /** The exercise's plan. */
+  planned: { id: string; setIndex: number; setType: string }[];
+  /** The set numbers the program's trainee has already performed. */
+  loggedIndexes: number[];
+}
+
+/**
+ * The program an exercise belongs to, its planned sets and which were
+ * already performed — read through the caller's RLS, so for a trainee this
+ * only resolves for their own published, non-deleted program.
+ *
+ * One round trip (set_log_context, migration 0020). On a database where
+ * that migration hasn't run yet it falls back to the separate queries, so
+ * the code can be deployed before or after it.
+ */
+export async function setLogContext(supabase: Supabase, workoutExerciseId: string): Promise<SetLogContext | null> {
+  const { data, error } = await supabase.rpc("set_log_context", { p_workout_exercise_id: workoutExerciseId });
+  if (!error) {
+    if (!data) return null;
+    return {
+      program: {
+        workoutId: data.workout_id,
+        programId: data.program_id,
+        traineeId: data.trainee_id,
+        weekStartDate: data.week_start_date,
+        status: data.status,
+        deletedAt: data.deleted_at,
+        blockId: data.block_id,
+      },
+      planned: (data.planned ?? []).map((s) => ({ id: s.id, setIndex: s.set_index, setType: s.set_type })),
+      loggedIndexes: data.logged ?? [],
+    };
+  }
+
+  // Migration 0020 not applied (or anything else unexpected): the long way.
+  const program = await programForWorkoutExercise(supabase, workoutExerciseId);
+  if (!program) return null;
+  const [{ data: plannedSets }, { data: logged }] = await Promise.all([
+    supabase.from("workout_exercise_sets").select("id, set_index, set_type").eq("workout_exercise_id", workoutExerciseId),
+    supabase
+      .from("set_logs")
+      .select("set_index")
+      .eq("workout_exercise_id", workoutExerciseId)
+      .eq("trainee_id", program.traineeId)
+      .eq("status", "done"),
+  ]);
+  return {
+    program,
+    planned: (plannedSets ?? []).map((s) => ({ id: s.id, setIndex: s.set_index, setType: s.set_type })),
+    loggedIndexes: (logged ?? []).map((l) => l.set_index),
+  };
+}
+
 /**
  * Upserts one performed set on (workout_exercise_id, trainee_id, set_index)
  * — confirming a set again after fixing a typo updates it in place — and,
  * when that completes every working (non-warm-up) set of the exercise's
  * plan, marks the exercise done too. Who logged it (`logged_by`, `source`)
  * is filled in by a DB trigger from the session, not passed in.
+ *
+ * `context` is what setLogContext returned just before (the plan, and what
+ * was already performed), so nothing has to be read again here. In a
+ * training block the write is followed by the block's recompute (what was
+ * just logged can change next week's targets) — together with the "done"
+ * mark, not after it.
  */
 export async function saveSetLog(
   supabase: Supabase,
-  args: { workoutExerciseId: string; setIndex: number; input: SetLogInput; traineeId: string },
+  args: { workoutExerciseId: string; setIndex: number; input: SetLogInput; context: SetLogContext },
 ): Promise<LogSetResult> {
-  const { workoutExerciseId, setIndex, input, traineeId } = args;
-
-  const { data: plannedSets } = await supabase
-    .from("workout_exercise_sets")
-    .select("id, set_index, set_type")
-    .eq("workout_exercise_id", workoutExerciseId);
-  const planned = (plannedSets ?? []).find((s) => s.set_index === setIndex);
+  const { workoutExerciseId, setIndex, input, context } = args;
+  const traineeId = context.program.traineeId;
+  const planned = context.planned.find((s) => s.setIndex === setIndex);
 
   const { data: row, error } = await supabase
     .from("set_logs")
@@ -153,28 +212,22 @@ export async function saveSetLog(
     return { error: isStaleError(error?.code) ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הסט" };
   }
 
-  let exerciseDone = false;
-  const workingIndexes = (plannedSets ?? [])
-    .filter((s) => s.set_type !== "warmup")
-    .map((s) => s.set_index);
-  if (workingIndexes.length > 0) {
-    const { data: logged } = await supabase
-      .from("set_logs")
-      .select("set_index")
-      .eq("workout_exercise_id", workoutExerciseId)
-      .eq("trainee_id", traineeId)
-      .eq("status", "done");
-    const loggedIndexes = new Set((logged ?? []).map((l) => l.set_index));
-    if (workingIndexes.every((i) => loggedIndexes.has(i))) {
-      await supabase
-        .from("workout_exercise_completions")
-        .upsert(
-          { workout_exercise_id: workoutExerciseId, trainee_id: traineeId },
-          { onConflict: "workout_exercise_id,trainee_id" },
-        );
-      exerciseDone = true;
-    }
-  }
+  // Done = every working set is performed: the ones performed before, plus this one.
+  const workingIndexes = context.planned.filter((s) => s.setType !== "warmup").map((s) => s.setIndex);
+  const loggedIndexes = new Set([...context.loggedIndexes, setIndex]);
+  const exerciseDone = workingIndexes.length > 0 && workingIndexes.every((i) => loggedIndexes.has(i));
+
+  await Promise.all([
+    exerciseDone
+      ? supabase
+          .from("workout_exercise_completions")
+          .upsert(
+            { workout_exercise_id: workoutExerciseId, trainee_id: traineeId },
+            { onConflict: "workout_exercise_id,trainee_id" },
+          )
+      : null,
+    context.program.blockId ? applyBlockProgression(supabase, context.program.workoutId) : null,
+  ]);
 
   return { log: toLoggedSet(row), exerciseDone };
 }

@@ -279,7 +279,7 @@ export async function logFreeSet(
 
   const log = freeSetToLogged(row);
   if (!log) return { error: "שגיאה בשמירת הסט" };
-  revalidateFreeSession(found.session.id, [found.session.trainee_id]);
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
   return { log };
 }
 
@@ -307,7 +307,7 @@ export async function unlogFreeSet(sessionExerciseId: string, setIndex: number):
     : await ctx.supabase.from("free_session_sets").delete().eq("id", row.id);
   if (error) return { error: "שגיאה בביטול הסט" };
 
-  revalidateFreeSession(found.session.id, [found.session.trainee_id]);
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
   return {};
 }
 

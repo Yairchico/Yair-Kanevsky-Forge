@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { applyBlockProgression } from "@/lib/block-server";
 import { NOT_TRAINER_ERROR, getTrainerContext } from "@/lib/require-trainer";
+import { getRequestAuth } from "@/lib/viewer";
 import {
   STALE_WORKOUT_ERROR,
   deleteSetLog,
   isStaleError,
   programForWorkout,
-  programForWorkoutExercise,
+  setLogContext,
   saveExerciseNotes,
   saveSetLog,
   validateSetIndex,
@@ -91,47 +92,36 @@ export async function logSetForTrainee(
   const validationError = validateSetIndex(setIndex) ?? validateSetLogInput(input);
   if (validationError) return { error: validationError };
 
-  const ctx = await getTrainerContext();
-  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  // Who is asking, and everything about the exercise that's needed before
+  // writing — together, one wait.
+  const { supabase, viewer } = await getRequestAuth();
+  const [me, context] = await Promise.all([viewer, setLogContext(supabase, workoutExerciseId)]);
+  if (me?.role !== "trainer") return { error: NOT_TRAINER_ERROR };
+  if (!context) return { error: STALE_WORKOUT_ERROR };
+  if (context.program.deletedAt) return { error: DELETED_PROGRAM_ERROR };
 
-  const program = await programForWorkoutExercise(ctx.supabase, workoutExerciseId);
-  if (!program) return { error: STALE_WORKOUT_ERROR };
-  if (program.deletedAt) return { error: DELETED_PROGRAM_ERROR };
-
-  const result = await saveSetLog(ctx.supabase, {
-    workoutExerciseId,
-    setIndex,
-    input,
-    traineeId: program.traineeId,
-  });
-  if (!result.error) {
-    // In a training block, what was just logged can change next week's targets.
-    if (program.blockId) await applyBlockProgression(ctx.supabase, program.workoutId);
-    revalidateSession(program.traineeId);
-  }
-  return result;
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
+  return saveSetLog(supabase, { workoutExerciseId, setIndex, input, context });
 }
 
 export async function unlogSetForTrainee(
   workoutExerciseId: string,
   setIndex: number,
 ): Promise<{ error?: string }> {
-  const ctx = await getTrainerContext();
-  if (!ctx) return { error: NOT_TRAINER_ERROR };
+  const { supabase, viewer } = await getRequestAuth();
+  const [me, context] = await Promise.all([viewer, setLogContext(supabase, workoutExerciseId)]);
+  if (me?.role !== "trainer") return { error: NOT_TRAINER_ERROR };
+  if (!context) return { error: STALE_WORKOUT_ERROR };
+  if (context.program.deletedAt) return { error: DELETED_PROGRAM_ERROR };
 
-  const program = await programForWorkoutExercise(ctx.supabase, workoutExerciseId);
-  if (!program) return { error: STALE_WORKOUT_ERROR };
-  if (program.deletedAt) return { error: DELETED_PROGRAM_ERROR };
-
-  const result = await deleteSetLog(ctx.supabase, {
+  const result = await deleteSetLog(supabase, {
     workoutExerciseId,
     setIndex,
-    traineeId: program.traineeId,
+    traineeId: context.program.traineeId,
   });
-  if (!result.error) {
-    if (program.blockId) await applyBlockProgression(ctx.supabase, program.workoutId);
-    revalidateSession(program.traineeId);
-  }
+  // In a training block, what's logged decides next week's targets.
+  if (!result.error && context.program.blockId) await applyBlockProgression(supabase, context.program.workoutId);
+  // No revalidatePath here on purpose — see syncAfterEdits (src/app/sync-actions.ts).
   return result;
 }
 
