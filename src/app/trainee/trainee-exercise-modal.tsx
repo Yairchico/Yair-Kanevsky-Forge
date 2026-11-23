@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Check, Dumbbell, Lock, Pin, Plus, RefreshCw } from "lucide-react";
+import { ArrowUp, Check, Dumbbell, Loader2, Lock, Pin, Plus, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,11 +41,15 @@ function SetEntryRow({
   values,
   placeholder,
   state,
+  hasUnsaved,
   saving,
   editable,
   isNext,
+  removable,
   onChange,
-  onConfirm,
+  onBlur,
+  onClear,
+  onRemove,
 }: {
   setIndex: number;
   planned: PlannedSet | undefined;
@@ -53,16 +57,23 @@ function SetEntryRow({
   values: SetDraft;
   placeholder: { weight: string; reps: string; rpe: string };
   state: SetRowState;
+  /** Something was typed here that isn't saved yet (it will be, by itself). */
+  hasUnsaved: boolean;
   saving: boolean;
   editable: boolean;
   isNext: boolean;
+  /** The last row beyond the plan — an extra set, which can be removed altogether. */
+  removable: boolean;
   onChange: (next: Partial<Pick<SetDraft, "weight" | "reps" | "rpe">>) => void;
-  onConfirm: () => void;
+  onBlur: () => void;
+  onClear: () => void;
+  onRemove: () => void;
 }) {
   // RPE is asked for only where the trainer set an RPE target, or one was
   // already recorded — it's optional noise otherwise.
   const showRpe = planned?.rpe != null || values.rpe.trim() !== "";
   const saved = state === "logged" || state === "logged-short";
+  const canClear = saved || hasUnsaved;
 
   return (
     <div
@@ -70,8 +81,8 @@ function SetEntryRow({
         "rounded-xl border p-2.5 transition-colors",
         state === "logged" && "border-success/30 bg-success/5",
         (state === "logged-short" || state === "pending") && "border-warning/40 bg-warning/5",
-        state === "changed" && "border-primary/50 bg-card",
-        state === "open" && (isNext ? "border-primary bg-card ring-2 ring-primary-deep" : "border-border bg-card"),
+        (state === "changed" || (state === "open" && hasUnsaved)) && "border-primary/50 bg-card",
+        state === "open" && !hasUnsaved && (isNext ? "border-primary bg-card ring-2 ring-primary-deep" : "border-border bg-card"),
       )}
     >
       <div className="flex items-center gap-2">
@@ -105,6 +116,7 @@ function SetEntryRow({
             value={values.weight}
             placeholder={placeholder.weight}
             onChange={(e) => onChange({ weight: e.target.value })}
+            onBlur={onBlur}
             className="h-10 w-16 rounded-md px-1.5 text-center text-base"
           />
         </label>
@@ -117,6 +129,7 @@ function SetEntryRow({
             value={values.reps}
             placeholder={placeholder.reps}
             onChange={(e) => onChange({ reps: e.target.value })}
+            onBlur={onBlur}
             className="h-10 w-12 rounded-md px-1 text-center text-base"
           />
         </label>
@@ -130,40 +143,42 @@ function SetEntryRow({
               value={values.rpe}
               placeholder={placeholder.rpe}
               onChange={(e) => onChange({ rpe: e.target.value })}
+              onBlur={onBlur}
               className="h-10 w-11 rounded-md px-1 text-center text-base"
             />
           </label>
         )}
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={!editable || saving}
-          aria-label={saved ? `ביטול סט ${setIndex}` : `אישור סט ${setIndex}`}
-          aria-pressed={saved}
-          className={cn(
-            "mt-3 flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
-            state === "logged" && "border-success bg-success text-success-foreground",
-            state === "logged-short" && "border-warning bg-warning/20 text-warning-foreground",
-            state === "pending" && "border-warning bg-warning/15 text-warning-foreground",
-            state === "changed" && "border-primary bg-primary text-primary-foreground",
-            state === "open" && "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary-text",
+        {/* No ✓: a row saves itself. What's left is undoing — emptying a
+            row, or removing an extra set added by mistake. */}
+        <div className="mt-3 flex h-11 w-9 shrink-0 items-center justify-center">
+          {editable && (removable || canClear) && (
+            <button
+              type="button"
+              onClick={removable ? onRemove : onClear}
+              disabled={saving}
+              aria-label={removable ? `הסר סט ${setIndex}` : `נקה סט ${setIndex}`}
+              title={removable ? "הסר את הסט" : "נקה את הסט"}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:opacity-50"
+            >
+              {removable ? <Trash2 className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            </button>
           )}
-        >
-          {state === "pending" ? (
-            <RefreshCw className={cn("h-5 w-5", saving && "animate-spin")} />
-          ) : (
-            <Check className="h-6 w-6" />
-          )}
-        </button>
+        </div>
       </div>
-      {state === "logged-short" && (
-        <p className="mt-1 text-[11px] text-warning-foreground">נשמר · פחות מהיעד</p>
-      )}
-      {state === "logged" && <p className="mt-1 text-[11px] text-success">נשמר ✓</p>}
-      {state === "pending" && (
+      {saving ? (
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          שומר…
+        </p>
+      ) : state === "pending" ? (
         <p className="mt-1 text-[11px] text-warning-foreground">ממתין לחיבור — יישלח שוב אוטומטית</p>
-      )}
-      {state === "changed" && <p className="mt-1 text-[11px] text-muted-foreground">לחצו ✓ כדי לשמור את השינוי</p>}
+      ) : hasUnsaved ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">יישמר אוטומטית</p>
+      ) : state === "logged-short" ? (
+        <p className="mt-1 text-[11px] text-warning-foreground">נשמר · פחות מהיעד</p>
+      ) : state === "logged" ? (
+        <p className="mt-1 text-[11px] text-success">נשמר ✓</p>
+      ) : null}
     </div>
   );
 }
@@ -173,26 +188,30 @@ function SetEntryRow({
  * guidance (the exercise's permanent note, the note for this program, rest),
  * the exercise's image and demo video, and one row per set — the set's own
  * target, what the trainee did on this exercise last time, and the fields
- * for what they actually do now. Tapping ✓ saves that one set to the server
- * right away; tapping it again un-confirms it. All of the entry state lives
- * in useSetEntry (src/lib/use-set-entry.ts), owned by the workout panel.
+ * for what they actually do now. Built for filling a workout in quickly,
+ * usually afterwards: every row shows its target, a row is saved by itself
+ * once something is typed in it, and "סמן כבוצע" saves every untouched row
+ * as its target in one go — so only what was different needs typing. All
+ * of the entry state lives in useSetEntry (src/lib/use-set-entry.ts,
+ * autoSave), owned by the workout panel.
  */
 export function TraineeExerciseModal({
   exercise,
   entry,
   done,
+  doneBusy,
   editable,
   onToggleDone,
   onClose,
-  onToast,
 }: {
   exercise: TraineeExerciseData;
   entry: SetEntry;
   done: boolean;
+  /** "done" (or taking it back) is being saved. */
+  doneBusy: boolean;
   editable: boolean;
   onToggleDone: (next: boolean) => void;
   onClose: () => void;
-  onToast: (message: string) => void;
 }) {
   const image = getExerciseImage({
     name: exercise.name,
@@ -204,12 +223,7 @@ export function TraineeExerciseModal({
   const previousByIndex = new Map((exercise.previous?.sets ?? []).map((s) => [s.setIndex, s]));
   const nextOpen = indexes.find((i) => entry.stateFor(exercise, i) === "open");
   const error = entry.errors[exercise.id] ?? null;
-
-  function handleToggleDone() {
-    const next = !done;
-    onToggleDone(next);
-    onToast(next ? "סומן כבוצע ✓" : "הסימון בוטל");
-  }
+  const removableIndex = entry.removableIndexFor(exercise);
 
   return (
     <Modal open onClose={onClose} title={exercise.name} className="max-w-lg">
@@ -264,7 +278,7 @@ export function TraineeExerciseModal({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-muted-foreground">
-              {editable ? "סטים · כל סט נשמר כשמאשרים ✓" : "סטים"}
+              {editable ? "סטים · משנים רק מה שהיה שונה, השאר כמתוכנן" : "סטים"}
             </p>
             <p className="text-sm font-medium">
               {entry.loggedCountFor(exercise)}/{indexes.length}
@@ -287,11 +301,15 @@ export function TraineeExerciseModal({
               values={entry.valuesFor(exercise.id, setIndex)}
               placeholder={entry.placeholderFor(exercise, setIndex)}
               state={entry.stateFor(exercise, setIndex)}
+              hasUnsaved={!!entry.draft[exercise.id]?.sets[setIndex] && entry.stateFor(exercise, setIndex) !== "pending"}
               saving={entry.isSaving(exercise.id, setIndex)}
               editable={editable}
               isNext={setIndex === nextOpen}
+              removable={setIndex === removableIndex}
               onChange={(next) => entry.changeSet(exercise.id, setIndex, next)}
-              onConfirm={() => entry.confirmSet(exercise, setIndex)}
+              onBlur={() => entry.blurSet(exercise.id, setIndex)}
+              onClear={() => entry.clearSet(exercise, setIndex)}
+              onRemove={() => void entry.removeExtraSet(exercise)}
             />
           ))}
 
@@ -324,12 +342,12 @@ export function TraineeExerciseModal({
           <Button
             type="button"
             variant={done ? "outline" : "default"}
-            onClick={handleToggleDone}
-            disabled={!editable}
+            onClick={() => onToggleDone(!done)}
+            disabled={!editable || doneBusy}
             className="w-full"
           >
-            <Check className="h-4 w-4" />
-            {done ? "בוצע ✓ (לחיצה לביטול הסימון)" : "סמן כבוצע"}
+            {doneBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {done ? "בוצע ✓ (לחיצה לביטול הסימון)" : "סמן כבוצע · כל השאר כמתוכנן"}
           </Button>
           <Button type="button" variant="outline" onClick={onClose} className="w-full">
             סגור

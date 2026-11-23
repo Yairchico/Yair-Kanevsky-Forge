@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check } from "lucide-react";
+import { Check, ListChecks } from "lucide-react";
 import { submitWorkout, type ExerciseNoteEntry } from "./actions";
 import { Button } from "@/components/ui/button";
 import { WorkoutSubmittedModal } from "./workout-submitted-modal";
@@ -15,6 +15,12 @@ import { WorkoutSubmittedModal } from "./workout-submitted-modal";
  * getter at click time so it always sees the latest draft. A successful
  * false→true submit also pops WorkoutSubmittedModal — a branded
  * confirmation a trainee scrolled past this button could easily miss.
+ *
+ * "הכל בוצע כמתוכנן" (onCompleteAsPlanned, before the workout is submitted)
+ * is the fast path for a trainee filling the workout in afterwards: every
+ * set not entered yet is saved as its target, every exercise is marked
+ * done and the workout is submitted — after one confirmation, since it
+ * writes the whole workout at once.
  */
 export function SubmitWorkoutButton({
   workoutId,
@@ -23,6 +29,7 @@ export function SubmitWorkoutButton({
   getNotes,
   flushPending,
   onSubmitted,
+  onCompleteAsPlanned,
 }: {
   workoutId: string;
   submitted: boolean;
@@ -32,6 +39,8 @@ export function SubmitWorkoutButton({
   flushPending: () => Promise<number>;
   /** The notes reached the server with a successful submit. */
   onSubmitted?: () => void;
+  /** Saves everything not entered yet as planned and submits; resolves to an error message, if any. */
+  onCompleteAsPlanned?: () => Promise<{ error?: string }>;
 }) {
   const [submitted, setSubmitted] = useState(initialSubmitted);
   // The server's answer can change under an open tab (the trainer finished
@@ -44,6 +53,27 @@ export function SubmitWorkoutButton({
   const [error, setError] = useState<string | undefined>();
   const [showSuccess, setShowSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [confirmingPlanned, setConfirmingPlanned] = useState(false);
+
+  function completeAsPlanned() {
+    if (!onCompleteAsPlanned) return;
+    setError(undefined);
+    startTransition(async () => {
+      const stillPending = await flushPending();
+      if (stillPending > 0) {
+        setError("יש סטים שעדיין לא נשמרו (אין חיבור). נסו שוב כשהחיבור יחזור.");
+        return;
+      }
+      const result = await onCompleteAsPlanned();
+      setConfirmingPlanned(false);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setSubmitted(true);
+      setShowSuccess(true);
+    });
+  }
 
   function toggle() {
     const next = !submitted;
@@ -76,9 +106,36 @@ export function SubmitWorkoutButton({
   return (
     <div className="space-y-1.5">
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {onCompleteAsPlanned && !submitted && !disabled && (
+        confirmingPlanned ? (
+          <div className="space-y-2 rounded-xl border border-primary-deep bg-primary-tint p-3">
+            <p className="text-sm">כל סט שלא מילאת יישמר לפי התוכנית, כל התרגילים יסומנו כבוצעו והאימון יוגש.</p>
+            <div className="flex gap-2">
+              <Button type="button" onClick={completeAsPlanned} disabled={pending} className="flex-1">
+                <Check className="h-4 w-4" />
+                כן, הגש
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmingPlanned(false)}
+                disabled={pending}
+                className="flex-1"
+              >
+                ביטול
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" onClick={() => setConfirmingPlanned(true)} disabled={pending} className="w-full">
+            <ListChecks className="h-4 w-4" />
+            הכל בוצע כמתוכנן
+          </Button>
+        )
+      )}
       <Button
         type="button"
-        variant={submitted ? "outline" : "default"}
+        variant={submitted || onCompleteAsPlanned ? "outline" : "default"}
         onClick={toggle}
         disabled={pending || disabled}
         className="w-full"

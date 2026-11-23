@@ -109,9 +109,10 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   the *other* person: every page is rendered per request, so they see it on
   their next navigation or refresh regardless.)
   **The exception, on purpose (2026-11 speed work):** the small, frequent
-  saves whose result the screen already shows don't revalidate — confirming
-  / un-confirming a set (`logSet`, `unlogSet`, `logSetForTrainee`,
-  `unlogSetForTrainee`, `logFreeSet`, `unlogFreeSet`) and the program
+  saves whose result the screen already shows don't revalidate — saving /
+  removing a set (`logSet`, `unlogSet`, `markExerciseDone`,
+  `unmarkExerciseDone`, `logSetForTrainee`, `unlogSetForTrainee`,
+  `logFreeSet`, `unlogFreeSet`) and the program
   builder's row-level saves (exercises, sets, progression rules). The
   screen instead calls `syncAfterEdits()` (`src/app/sync-actions.ts`,
   `revalidatePath("/", "layout")`) ONCE, a few quiet seconds after the last
@@ -165,20 +166,37 @@ supabase/tests/                      SQL suites run against a throwaway local Po
   place that still calls `getUser()` is `requireTrainer()` in
   `src/app/trainer/trainees/actions.ts`, in front of the service-role
   client, where RLS does NOT stand behind the check.
-- **Per-set save + localStorage draft** (the trainee's performance entry,
-  `src/lib/workout-draft.ts`, since migration 0013): each set is saved to
-  the server on its own the moment the trainee taps ✓ (`logSet` in
-  `src/app/trainee/actions.ts` — an upsert on `set_logs`); typed-but-
-  unconfirmed values live in local React state mirrored into
-  `localStorage` (keyed per `workoutId`), so they survive a closed tab. A
-  set whose save can't reach the server (a thrown server action = no
-  reception) is kept in the draft as `pending` and retried on mount, on the
-  browser's `online` event, and before "הגש אימון" (`submitWorkout`, which
-  now only writes the exercise notes + `workout_completions`). This
-  replaced the earlier batch-on-submit design on purpose: the requirement
-  is that every set is submitted individually. For other multi-field
-  entry with one real "done" action and no per-item meaning, batch-on-
-  submit is still the simpler choice.
+- **Per-set save + localStorage draft** (performance entry,
+  `src/lib/workout-draft.ts`, since migration 0013): every set is its own
+  `set_logs` row, saved on its own; typed-but-unsaved values live in local
+  React state mirrored into `localStorage` (keyed per `workoutId`), so they
+  survive a closed tab. A set whose save can't reach the server (a thrown
+  server action = no reception) is kept in the draft as `pending` and
+  retried on mount, on the browser's `online` event, and before "הגש
+  אימון". All of it is `useSetEntry` (`src/lib/use-set-entry.ts`); how a
+  set gets saved depends on the screen:
+  - **The trainee's own workout — quick entry (2026-11, the trainer's
+    request: "most trainees fill it in after the workout, not after every
+    set").** `useSetEntry({ autoSave: true })`: no ✓ per set. Every row
+    shows its target; a row saves itself 1.2s after typing stops, 0.4s
+    after a field is left, at once when the exercise is closed, and — if
+    the page was left first — when that workout's screen opens again. An
+    empty field means "as planned". "סמן כבוצע" (`markExerciseDone`) saves
+    every row not saved yet — as typed, or its target — in ONE upsert and
+    marks the exercise done; taking it back (`unmarkExerciseDone`) removes
+    the mark and the sets that are exactly the target with no RPE
+    (`autoFilledIndexes` — what "done" filled in); sets typed differently
+    stay. "הכל בוצע כמתוכנן" (`completeWorkoutAsPlanned`, after one
+    confirmation) does that for the whole workout plus the notes and the
+    submission, in one request. ✕ empties a row (removes its saved set);
+    the last row beyond the plan has a 🗑 that removes the extra set. A row
+    with nothing to go on (no reps typed and no numeric target, e.g.
+    "AMRAP") is never filled automatically. A save that comes back after
+    the trainee kept typing never wipes or overwrites the newer text
+    (`editVersion` in the hook).
+  - **The trainer's sessions** (planned workout, free session) keep the
+    ✓ per set and the −/+ steppers: the trainer enters each set live,
+    standing next to the trainee.
 - **Sets are rows, not columns** (migration 0013): `workout_exercise_sets`
   holds the plan (one row per set: `reps_min`/`reps_max` or a `reps_note`,
   `weight_kg` or a `weight_note`, `rpe`, `set_type`), `set_logs` holds what
@@ -417,8 +435,11 @@ Supabase stand-in over that same local Postgres, which delays every
 request by 100ms and records them — `pages.mjs` (requests and sequential
 waits per page, per role), `actions.mjs` (confirm a set, builder edit, in
 a real browser), `crawl.mjs` (every screen as trainee / trainer /
-read-only viewer: console errors, failed requests, redirects) and
-`flows.mjs` (log sets → leave → come back → reload). The stand-in doesn't
+read-only viewer: console errors, failed requests, redirects),
+`flows.mjs` (log sets → leave → come back → reload) and
+`trainee-entry.mjs` (the trainee's quick entry, step by step against the
+database: rows saving themselves, "done" / un-done, ✕, removing an extra
+set, leaving mid-typing, no reception, the whole workout as planned). The stand-in doesn't
 do embedded selects or Storage. Numbers from the 2026-11 speed work are in
 `planning/PLAN.md`.
 

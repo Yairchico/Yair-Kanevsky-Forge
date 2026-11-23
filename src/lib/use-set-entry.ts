@@ -40,6 +40,15 @@ import {
  * wait behind it). The server copy is refreshed once, shortly after the
  * last ✓ of a burst — see scheduleSync below and src/app/sync-actions.ts.
  *
+ * Two ways a set gets saved, chosen by the screen (`autoSave`):
+ * - the session screens: tapping ✓ saves it; tapping again un-confirms it.
+ * - the trainee's own workout (autoSave): no ✓ at all. A row is saved by
+ *   itself a moment after typing stops or when the field is left, and
+ *   "done" fills every untouched set with its target in one request
+ *   (fillsFor + applyLogs, driven by the screen). Most trainees fill the
+ *   workout in afterwards, so the default is "as planned" and only what
+ *   was different gets typed.
+ *
  * Confirming a set (✓) saves it right away; with no reception it's kept as
  * `pending` and retried on mount, when the browser comes back online, when
  * the tab becomes visible again, and before the workout is submitted.
@@ -188,6 +197,11 @@ function sameAsLog(values: SetLogValues, log: LoggedSet): boolean {
 /** How long after the last confirmed / un-confirmed set the page's server copy is refreshed. */
 const SYNC_DELAY_MS = 2500;
 
+/** autoSave: how long after the last keystroke a row is saved. */
+const AUTOSAVE_TYPING_MS = 1200;
+/** autoSave: leaving a field saves sooner — but not at once, so moving to the next field of the same row doesn't save half a row. */
+const AUTOSAVE_BLUR_MS = 400;
+
 // ---------------------------------------------------------------------------
 // The hook
 // ---------------------------------------------------------------------------
@@ -198,6 +212,7 @@ export function useSetEntry({
   api,
   editable = true,
   openEnded = false,
+  autoSave = false,
   onToast,
   onExerciseDone,
 }: {
@@ -212,6 +227,11 @@ export function useSetEntry({
    * empty means "same as the previous set".
    */
   openEnded?: boolean;
+  /**
+   * The trainee's own workout: rows save themselves (after typing stops, or
+   * when a field is left) instead of waiting for a ✓. See commitSet.
+   */
+  autoSave?: boolean;
   onToast?: (message: string) => void;
   onExerciseDone?: (exerciseId: string) => void;
 }) {
@@ -416,14 +436,45 @@ export function useSetEntry({
 
   // ---- writing
 
+  // Bumped on every edit of a set, so a save that comes back after the user
+  // kept typing knows not to throw the newer text away.
+  const editVersion = useRef(new Map<string, number>());
+  function bumpVersion(key: string) {
+    editVersion.current.set(key, (editVersion.current.get(key) ?? 0) + 1);
+  }
+
+  // autoSave: one pending timer per set.
+  const autoSaveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  function scheduleCommit(exerciseId: string, setIndex: number, delayMs: number) {
+    if (!autoSave) return;
+    const key = keyOf(exerciseId, setIndex);
+    const existing = autoSaveTimers.current.get(key);
+    if (existing) clearTimeout(existing);
+    autoSaveTimers.current.set(
+      key,
+      setTimeout(() => {
+        autoSaveTimers.current.delete(key);
+        commitSet(exerciseId, setIndex, false);
+      }, delayMs),
+    );
+  }
+
   function changeSet(exerciseId: string, setIndex: number, patch: Partial<Pick<SetDraft, "weight" | "reps" | "rpe">>) {
     if (!editable) return;
+    bumpVersion(keyOf(exerciseId, setIndex));
+    scheduleCommit(exerciseId, setIndex, AUTOSAVE_TYPING_MS);
     const log = latest.current.logged[exerciseId]?.[setIndex];
     updateExerciseDraft(exerciseId, (ex) => {
       const current = ex.sets[setIndex];
       const base: SetDraft = current ?? (log ? { ...fromLog(log), basedOn: log.loggedAt } : { ...EMPTY_SET_DRAFT, basedOn: null });
-      const next: SetDraft = { ...base, ...patch };
-      if (next.status === "pending") next.at = Date.now();
+      let next: SetDraft = { ...base, ...patch };
+      if (autoSave && next.status === "pending") {
+        // Typing over a set that's waiting for reception: what's typed now is
+        // what should be saved, by the row's own save (which keeps it pending
+        // again if there's still no reception). Based on the server copy on
+        // screen, so it isn't mistaken for an outdated edit.
+        next = { ...next, status: undefined, at: undefined, basedOn: log?.loggedAt ?? null };
+      } else if (next.status === "pending") next.at = Date.now();
       const sets = { ...ex.sets };
       // Back to exactly what's saved (or to nothing at all) = no unsaved edit.
       const untouched = log
@@ -451,6 +502,7 @@ export function useSetEntry({
   /** Sends one set. Resolves false only when the server couldn't be reached (the set is kept as pending). */
   async function sendSet(exercise: SetEntryExercise, setIndex: number, values: SetLogValues, quiet = false): Promise<boolean> {
     const key = keyOf(exercise.id, setIndex);
+    const versionAtSend = editVersion.current.get(key) ?? 0;
     setSavingFlag(key, true);
     try {
       const result = await api.log(exercise.id, setIndex, values);
@@ -467,9 +519,14 @@ export function useSetEntry({
       }
       const log = result.log;
       applyLogged((prev) => ({ ...prev, [exercise.id]: { ...prev[exercise.id], [setIndex]: log } }));
+      // Typed on while this was being saved: keep the newer text (now based
+      // on the copy just saved) and save again, instead of dropping it.
+      const editedSince = (editVersion.current.get(key) ?? 0) !== versionAtSend;
       updateExerciseDraft(exercise.id, (ex) => {
         const sets = { ...ex.sets };
-        delete sets[setIndex];
+        const current = sets[setIndex];
+        if (editedSince && current && current.status !== "pending") sets[setIndex] = { ...current, basedOn: log.loggedAt };
+        else delete sets[setIndex];
         // An extra row the user opened is accounted for by the saved set
         // itself from here on; keep counting only rows opened beyond it.
         const maxPlanned = Math.max(0, ...exercise.plannedSets.map((s) => s.setIndex));
@@ -478,12 +535,20 @@ export function useSetEntry({
       });
       setError(exercise.id, null);
       scheduleSync();
+      if (editedSince) scheduleCommit(exercise.id, setIndex, AUTOSAVE_BLUR_MS);
       if (result.exerciseDone) onExerciseDone?.(exercise.id);
       if (!quiet) onToast?.(`סט ${setIndex} נשמר ✓`);
       return true;
     } catch {
       // A thrown server action = no answer at all (no reception, server
-      // unreachable), unlike result.error above. Keep it and retry later.
+      // unreachable, the page being left), unlike result.error above.
+      // Typed on meanwhile: the newer text stays as it is and gets its own
+      // save — never overwritten by these older values.
+      if ((editVersion.current.get(key) ?? 0) !== versionAtSend) {
+        scheduleCommit(exercise.id, setIndex, AUTOSAVE_BLUR_MS);
+        return false;
+      }
+      // Otherwise keep it and retry later.
       const log = latest.current.logged[exercise.id]?.[setIndex];
       setEntry(exercise.id, setIndex, {
         weight: values.weightKg != null ? formatKg(values.weightKg) : "",
@@ -500,7 +565,13 @@ export function useSetEntry({
     }
   }
 
-  async function sendUnlog(exercise: SetEntryExercise, setIndex: number) {
+  /**
+   * Removes a saved set. `keepValues`: leave its numbers in the fields,
+   * unsaved (the ✓ screens — un-confirming is usually followed by fixing a
+   * number and confirming again); otherwise the row goes back to empty.
+   * Resolves true when it's gone from the server.
+   */
+  async function sendUnlog(exercise: SetEntryExercise, setIndex: number, keepValues = true): Promise<boolean> {
     const key = keyOf(exercise.id, setIndex);
     const previous = latest.current.logged[exercise.id]?.[setIndex];
     setSavingFlag(key, true);
@@ -508,7 +579,7 @@ export function useSetEntry({
       const result = await api.unlog(exercise.id, setIndex);
       if (result.error) {
         setError(exercise.id, result.error);
-        return;
+        return false;
       }
       applyLogged((prev) => {
         const sets = { ...prev[exercise.id] };
@@ -517,11 +588,14 @@ export function useSetEntry({
       });
       // Leave the numbers in the fields, unsaved — un-confirming is usually
       // followed by fixing one of them and confirming again.
-      if (previous) setEntry(exercise.id, setIndex, { ...fromLog(previous), basedOn: null });
+      if (previous && keepValues) setEntry(exercise.id, setIndex, { ...fromLog(previous), basedOn: null });
+      else setEntry(exercise.id, setIndex, null);
       setError(exercise.id, null);
       scheduleSync();
+      return true;
     } catch {
       onToast?.("אין חיבור — אי אפשר לבטל את הסט כרגע");
+      return false;
     } finally {
       setSavingFlag(key, false);
     }
@@ -550,6 +624,217 @@ export function useSetEntry({
       return;
     }
     void sendSet(exercise, setIndex, parsed.values);
+  }
+
+  /**
+   * autoSave: saves one row if it holds an unsaved edit. `fromBlur` = the
+   * user left the field — only then is a problem (e.g. no reps and no
+   * target to fall back on) shown; mid-typing it's simply not saved yet.
+   */
+  function commitSet(exerciseId: string, setIndex: number, fromBlur: boolean) {
+    const exercise = latest.current.exercises.find((ex) => ex.id === exerciseId);
+    if (!exercise || !editable) return;
+    const key = keyOf(exerciseId, setIndex);
+    if (latest.current.saving.has(key)) {
+      // A save of this row is in flight; it reschedules itself if needed.
+      return;
+    }
+    const entry = reconcile(readDraft(storageKey), latest.current.logged, latest.current.saving)[exerciseId]?.sets[setIndex];
+    if (!entry || entry.status === "pending") return;
+    const log = latest.current.logged[exerciseId]?.[setIndex];
+    const parsed = parseValues(exercise, setIndex);
+    if ("error" in parsed) {
+      if (fromBlur) setError(exerciseId, parsed.error);
+      return;
+    }
+    if (log && sameAsLog(parsed.values, log)) {
+      setEntry(exerciseId, setIndex, null);
+      setError(exerciseId, null);
+      return;
+    }
+    void sendSet(exercise, setIndex, parsed.values, true);
+  }
+
+  /**
+   * autoSave: saves every row that's still waiting for its delayed save,
+   * now — when the exercise is closed, so the save is under way before the
+   * user can leave the page.
+   */
+  function saveNow() {
+    for (const [key, timer] of autoSaveTimers.current) {
+      clearTimeout(timer);
+      autoSaveTimers.current.delete(key);
+      const [exerciseId, index] = key.split(":");
+      commitSet(exerciseId, Number(index), false);
+    }
+  }
+
+  /** autoSave: the user left one of the row's fields. */
+  function blurSet(exerciseId: string, setIndex: number) {
+    if (!autoSave) return;
+    const entry = readDraft(storageKey)[exerciseId]?.sets[setIndex];
+    if (!entry || entry.status === "pending") return;
+    scheduleCommit(exerciseId, setIndex, AUTOSAVE_BLUR_MS);
+    // A value that can't be saved (e.g. no reps and no target to fall back
+    // on) wasn't reported while typing; leaving the field is when to say so.
+    const exercise = latest.current.exercises.find((ex) => ex.id === exerciseId);
+    const parsed = exercise ? parseValues(exercise, setIndex) : null;
+    if (parsed && "error" in parsed) setError(exerciseId, parsed.error);
+  }
+
+  /** autoSave: empties one row — removes the saved set, or just what was typed. */
+  function clearSet(exercise: SetEntryExercise, setIndex: number) {
+    if (!editable) return;
+    const key = keyOf(exercise.id, setIndex);
+    const timer = autoSaveTimers.current.get(key);
+    if (timer) clearTimeout(timer);
+    autoSaveTimers.current.delete(key);
+    bumpVersion(key);
+    if (latest.current.saving.has(key)) return;
+    if (latest.current.logged[exercise.id]?.[setIndex]) void sendUnlog(exercise, setIndex, false);
+    else setEntry(exercise.id, setIndex, null);
+    setError(exercise.id, null);
+  }
+
+  /** The highest set number in the plan (0 when nothing is planned). */
+  function maxPlannedOf(exercise: SetEntryExercise): number {
+    return Math.max(0, ...exercise.plannedSets.map((s) => s.setIndex));
+  }
+
+  /** The row that "remove set" would remove: the last row, if it's beyond the plan. */
+  function removableIndexFor(exercise: SetEntryExercise): number | null {
+    const indexes = indexesFor(exercise);
+    const last = indexes[indexes.length - 1];
+    return last != null && last > maxPlannedOf(exercise) ? last : null;
+  }
+
+  /** Removes the last row beyond the plan (an extra set added by mistake), and its saved set if there is one. */
+  async function removeExtraSet(exercise: SetEntryExercise) {
+    if (!editable) return;
+    const setIndex = removableIndexFor(exercise);
+    if (setIndex == null) return;
+    const key = keyOf(exercise.id, setIndex);
+    if (latest.current.saving.has(key)) return;
+    const timer = autoSaveTimers.current.get(key);
+    if (timer) clearTimeout(timer);
+    autoSaveTimers.current.delete(key);
+    bumpVersion(key);
+    if (latest.current.logged[exercise.id]?.[setIndex]) {
+      const removed = await sendUnlog(exercise, setIndex, false);
+      if (!removed) return;
+    }
+    const maxPlanned = maxPlannedOf(exercise);
+    updateExerciseDraft(exercise.id, (ex) => {
+      const sets = { ...ex.sets };
+      delete sets[setIndex];
+      // Rows up to (setIndex - 1) stay; this one is gone.
+      return { ...ex, sets, extraSets: Math.max(0, setIndex - 1 - maxPlanned) };
+    });
+    setError(exercise.id, null);
+  }
+
+  // ---- "done": every set at once (the trainee's screen)
+
+  /**
+   * What "done" saves for one exercise: every row that isn't saved yet (or
+   * holds an unsaved edit), as typed — or, where nothing was typed, its
+   * target. A row with nothing to go on (no reps typed and no numeric
+   * target, e.g. "AMRAP") is left out; the screen leaves it open.
+   */
+  function fillsFor(exercise: SetEntryExercise): { setIndex: number; values: SetLogValues }[] {
+    const current = reconcile(readDraft(storageKey), latest.current.logged, latest.current.saving)[exercise.id]?.sets ?? {};
+    const fills: { setIndex: number; values: SetLogValues }[] = [];
+    for (const setIndex of indexesFor(exercise)) {
+      const log = latest.current.logged[exercise.id]?.[setIndex];
+      if (log && !current[setIndex]) continue;
+      const parsed = parseValues(exercise, setIndex);
+      if ("error" in parsed) continue;
+      if (log && sameAsLog(parsed.values, log)) continue;
+      fills.push({ setIndex, values: parsed.values });
+    }
+    return fills;
+  }
+
+  /**
+   * What un-marking "done" takes back: the saved sets that are exactly the
+   * target with no RPE — what "done" itself would have filled in. A set the
+   * trainee typed differently stays.
+   */
+  function autoFilledIndexes(exercise: SetEntryExercise): number[] {
+    return Object.values(latest.current.logged[exercise.id] ?? {})
+      .filter((log) => {
+        const planned = plannedFor(exercise, log.setIndex);
+        if (!planned || planned.repsMin == null || log.rpe != null) return false;
+        return log.reps === planned.repsMin && log.weightKg === planned.weightKg;
+      })
+      .map((log) => log.setIndex);
+  }
+
+  /** Marks rows as being saved while a batch ("done") is in flight, so they can't be edited meanwhile. */
+  function markSaving(exerciseId: string, indexes: number[], on: boolean) {
+    const keys = indexes.map((i) => keyOf(exerciseId, i));
+    if (on) {
+      // The batch saves these rows; a row's own delayed save would only repeat it.
+      for (const key of keys) {
+        const timer = autoSaveTimers.current.get(key);
+        if (timer) clearTimeout(timer);
+        autoSaveTimers.current.delete(key);
+      }
+    }
+    applySaving((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) {
+        if (on) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+  }
+
+  /** Sets the server saved in a batch: on screen at once, and their draft entries are done with. */
+  function applyLogs(exerciseId: string, logs: LoggedSet[]) {
+    if (logs.length === 0) return;
+    applyLogged((prev) => ({
+      ...prev,
+      [exerciseId]: { ...prev[exerciseId], ...Object.fromEntries(logs.map((l) => [l.setIndex, l])) },
+    }));
+    const indexes = new Set(logs.map((l) => l.setIndex));
+    updateExerciseDraft(exerciseId, (ex) => ({
+      ...ex,
+      sets: Object.fromEntries(Object.entries(ex.sets).filter(([i]) => !indexes.has(Number(i)))),
+    }));
+    setError(exerciseId, null);
+    scheduleSync();
+  }
+
+  /** Sets the server removed in a batch. */
+  function applyUnlogs(exerciseId: string, indexes: number[]) {
+    if (indexes.length === 0) return;
+    const gone = new Set(indexes);
+    applyLogged((prev) => ({
+      ...prev,
+      [exerciseId]: Object.fromEntries(Object.entries(prev[exerciseId] ?? {}).filter(([i]) => !gone.has(Number(i)))),
+    }));
+    updateExerciseDraft(exerciseId, (ex) => ({
+      ...ex,
+      sets: Object.fromEntries(Object.entries(ex.sets).filter(([i]) => !gone.has(Number(i)))),
+    }));
+    scheduleSync();
+  }
+
+  /** "done" couldn't reach the server: keep what it would have saved as pending, to be retried set by set. */
+  function keepAsPending(exerciseId: string, fills: { setIndex: number; values: SetLogValues }[]) {
+    for (const { setIndex, values } of fills) {
+      const log = latest.current.logged[exerciseId]?.[setIndex];
+      setEntry(exerciseId, setIndex, {
+        weight: values.weightKg != null ? formatKg(values.weightKg) : "",
+        reps: values.reps != null ? String(values.reps) : "",
+        rpe: values.rpe != null ? String(values.rpe) : "",
+        status: "pending",
+        at: Date.now(),
+        basedOn: log?.loggedAt ?? null,
+      });
+    }
   }
 
   /** Retries every pending set. Resolves to how many are still pending. */
@@ -630,21 +915,42 @@ export function useSetEntry({
       router.refresh();
     }
   });
+  const onLeaveCommit = useEffectEvent((exerciseId: string, setIndex: number) => commitSet(exerciseId, setIndex, false));
   // Closing the tab with sets that never reached the server: ask first. They
   // stay in localStorage either way, but they're only retried from here.
   const onBeforeUnload = useEffectEvent((event: BeforeUnloadEvent) => {
     if (pendingCount > 0) event.preventDefault();
   });
+  // autoSave: a row typed into but not saved before the page was left
+  // (closed tab, reload) is saved when the screen opens again.
+  const onMountCommit = useEffectEvent(() => {
+    if (!autoSave || !editable) return;
+    const current = readDraft(storageKey);
+    for (const [exerciseId, ex] of Object.entries(current)) {
+      for (const [index, entry] of Object.entries(ex.sets)) {
+        if (entry.status !== "pending") scheduleCommit(exerciseId, Number(index), AUTOSAVE_BLUR_MS);
+      }
+    }
+  });
   useEffect(() => {
     lastRefresh.current = Date.now();
     onOnline();
+    onMountCommit();
     window.addEventListener("online", onOnline);
     window.addEventListener("beforeunload", onBeforeUnload);
     document.addEventListener("visibilitychange", onVisible);
+    const timers = autoSaveTimers.current;
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("beforeunload", onBeforeUnload);
       document.removeEventListener("visibilitychange", onVisible);
+      // Leaving the screen with a row still waiting to be saved: save it now.
+      for (const [key, timer] of timers) {
+        clearTimeout(timer);
+        const [exerciseId, index] = key.split(":");
+        onLeaveCommit(exerciseId, Number(index));
+      }
+      timers.clear();
     };
   }, []);
 
@@ -663,6 +969,18 @@ export function useSetEntry({
     changeSet,
     stepSet,
     confirmSet,
+    commitSet,
+    saveNow,
+    blurSet,
+    clearSet,
+    removableIndexFor,
+    removeExtraSet,
+    fillsFor,
+    autoFilledIndexes,
+    markSaving,
+    applyLogs,
+    applyUnlogs,
+    keepAsPending,
     addExtraSet,
     noteFor,
     setNote,

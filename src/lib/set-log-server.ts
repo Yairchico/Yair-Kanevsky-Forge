@@ -168,12 +168,53 @@ export async function setLogContext(supabase: Supabase, workoutExerciseId: strin
   };
 }
 
+/** One set to save, as typed (or its target). */
+export interface SetToSave {
+  setIndex: number;
+  input: SetLogInput;
+}
+
+/** Validates a list of sets sent from the screen: indexes in range, no index twice, every value sane. */
+export function validateSetsToSave(sets: SetToSave[]): string | null {
+  if (!Array.isArray(sets) || sets.length > MAX_SET_INDEX) return "סטים לא תקינים";
+  const seen = new Set<number>();
+  for (const set of sets) {
+    const error = validateSetIndex(set.setIndex) ?? validateSetLogInput(set.input);
+    if (error) return error;
+    if (seen.has(set.setIndex)) return "סטים לא תקינים";
+    seen.add(set.setIndex);
+  }
+  return null;
+}
+
+/** The set_logs row for one set of an exercise, linked to its planned set when there is one. */
+export function setLogRow(
+  workoutExerciseId: string,
+  traineeId: string,
+  planned: { id: string; setIndex: number }[],
+  set: SetToSave,
+  loggedAt: string,
+) {
+  return {
+    workout_exercise_id: workoutExerciseId,
+    workout_exercise_set_id: planned.find((p) => p.setIndex === set.setIndex)?.id ?? null,
+    trainee_id: traineeId,
+    set_index: set.setIndex,
+    weight_kg: set.input.weightKg,
+    reps: set.input.reps,
+    rpe: set.input.rpe,
+    status: "done" as const,
+    logged_at: loggedAt,
+  };
+}
+
 /**
- * Upserts one performed set on (workout_exercise_id, trainee_id, set_index)
- * — confirming a set again after fixing a typo updates it in place — and,
- * when that completes every working (non-warm-up) set of the exercise's
- * plan, marks the exercise done too. Who logged it (`logged_by`, `source`)
- * is filled in by a DB trigger from the session, not passed in.
+ * Upserts performed sets of one exercise on (workout_exercise_id,
+ * trainee_id, set_index) in ONE request — confirming a set again after
+ * fixing a typo updates it in place — and marks the exercise done when
+ * `markDone` is set or this completes every working (non-warm-up) set of
+ * its plan. Who logged them (`logged_by`, `source`) is filled in by a DB
+ * trigger from the session, not passed in.
  *
  * `context` is what setLogContext returned just before (the plan, and what
  * was already performed), so nothing has to be read again here. In a
@@ -181,43 +222,36 @@ export async function setLogContext(supabase: Supabase, workoutExerciseId: strin
  * just logged can change next week's targets) — together with the "done"
  * mark, not after it.
  */
-export async function saveSetLog(
+export async function saveSetLogs(
   supabase: Supabase,
-  args: { workoutExerciseId: string; setIndex: number; input: SetLogInput; context: SetLogContext },
-): Promise<LogSetResult> {
-  const { workoutExerciseId, setIndex, input, context } = args;
+  args: { workoutExerciseId: string; sets: SetToSave[]; context: SetLogContext; markDone?: boolean },
+): Promise<{ error?: string; logs?: LoggedSet[]; exerciseDone?: boolean }> {
+  const { workoutExerciseId, sets, context, markDone = false } = args;
   const traineeId = context.program.traineeId;
-  const planned = context.planned.find((s) => s.setIndex === setIndex);
 
-  const { data: row, error } = await supabase
-    .from("set_logs")
-    .upsert(
-      {
-        workout_exercise_id: workoutExerciseId,
-        workout_exercise_set_id: planned?.id ?? null,
-        trainee_id: traineeId,
-        set_index: setIndex,
-        weight_kg: input.weightKg,
-        reps: input.reps,
-        rpe: input.rpe,
-        status: "done",
-        logged_at: new Date().toISOString(),
-      },
-      { onConflict: "workout_exercise_id,trainee_id,set_index" },
-    )
-    .select(SET_LOG_COLUMNS)
-    .single();
-
-  if (error || !row) {
-    return { error: isStaleError(error?.code) ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הסט" };
+  let logs: LoggedSet[] = [];
+  if (sets.length > 0) {
+    const loggedAt = new Date().toISOString();
+    const { data: rows, error } = await supabase
+      .from("set_logs")
+      .upsert(
+        sets.map((set) => setLogRow(workoutExerciseId, traineeId, context.planned, set, loggedAt)),
+        { onConflict: "workout_exercise_id,trainee_id,set_index" },
+      )
+      .select(SET_LOG_COLUMNS);
+    if (error || !rows || rows.length !== sets.length) {
+      return { error: isStaleError(error?.code) ? STALE_WORKOUT_ERROR : "שגיאה בשמירת הסט" };
+    }
+    logs = rows.map(toLoggedSet);
   }
 
-  // Done = every working set is performed: the ones performed before, plus this one.
+  // Done = asked for, or every working set is performed: the ones performed before, plus these.
   const workingIndexes = context.planned.filter((s) => s.setType !== "warmup").map((s) => s.setIndex);
-  const loggedIndexes = new Set([...context.loggedIndexes, setIndex]);
-  const exerciseDone = workingIndexes.length > 0 && workingIndexes.every((i) => loggedIndexes.has(i));
+  const loggedIndexes = new Set([...context.loggedIndexes, ...sets.map((s) => s.setIndex)]);
+  const exerciseDone =
+    markDone || (workingIndexes.length > 0 && workingIndexes.every((i) => loggedIndexes.has(i)));
 
-  await Promise.all([
+  const [completion] = await Promise.all([
     exerciseDone
       ? supabase
           .from("workout_exercise_completions")
@@ -226,10 +260,25 @@ export async function saveSetLog(
             { onConflict: "workout_exercise_id,trainee_id" },
           )
       : null,
-    context.program.blockId ? applyBlockProgression(supabase, context.program.workoutId) : null,
+    context.program.blockId && sets.length > 0 ? applyBlockProgression(supabase, context.program.workoutId) : null,
   ]);
+  if (markDone && completion?.error) return { error: "שגיאה בסימון התרגיל", logs };
 
-  return { log: toLoggedSet(row), exerciseDone };
+  return { logs, exerciseDone };
+}
+
+/** One performed set — saveSetLogs for a single set. */
+export async function saveSetLog(
+  supabase: Supabase,
+  args: { workoutExerciseId: string; setIndex: number; input: SetLogInput; context: SetLogContext },
+): Promise<LogSetResult> {
+  const result = await saveSetLogs(supabase, {
+    workoutExerciseId: args.workoutExerciseId,
+    sets: [{ setIndex: args.setIndex, input: args.input }],
+    context: args.context,
+  });
+  if (result.error) return { error: result.error };
+  return { log: result.logs?.[0], exerciseDone: result.exerciseDone };
 }
 
 /** Removes one performed set. Doesn't touch the exercise's "done" mark. */

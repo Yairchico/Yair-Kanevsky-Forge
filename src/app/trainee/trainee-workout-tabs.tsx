@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowUp, Check, ChevronLeft, History, Lock, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { summarizeSets } from "@/lib/sets";
 import { useSetEntry, type SetEntryApi } from "@/lib/use-set-entry";
 import { draftKeys } from "@/lib/workout-draft";
 import { SubmitWorkoutButton } from "./workout-actions";
-import { logSet, toggleExerciseCompletion, unlogSet } from "./actions";
+import { completeWorkoutAsPlanned, logSet, markExerciseDone, unlogSet, unmarkExerciseDone } from "./actions";
 import { TraineeExerciseModal, type TraineeExerciseData } from "./trainee-exercise-modal";
 
 interface ExerciseData extends TraineeExerciseData {
@@ -111,10 +111,11 @@ const TRAINEE_SET_API: SetEntryApi = { log: logSet, unlog: unlogSet };
 
 /**
  * One workout: the list of exercise cards, the exercise modal, and the
- * submit button. All of the per-set entry state — what's saved, what's
+ * submit buttons. All of the per-set entry state — what's saved, what's
  * typed but not saved, what's waiting for a connection — is useSetEntry's
- * (src/lib/use-set-entry.ts); this component only adds the exercise "done"
- * marks and wires things together.
+ * (src/lib/use-set-entry.ts, in autoSave mode: rows save themselves); this
+ * component adds the exercise "done" marks — which fill every untouched
+ * set with its target in one request — and "the whole workout as planned".
  */
 function WorkoutPanel({ workout }: { workout: WorkoutData }) {
   const toast = useToast();
@@ -122,24 +123,104 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
   // The server's "done" marks, plus whatever this screen changed since.
   const [doneOverrides, setDoneOverrides] = useState<Record<string, boolean>>({});
   const isDone = (ex: ExerciseData) => doneOverrides[ex.id] ?? ex.done;
-  const [, startDoneTransition] = useTransition();
+  const [doneBusy, setDoneBusy] = useState<Record<string, boolean>>({});
+  const setDone = (exerciseId: string, value: boolean) =>
+    setDoneOverrides((prev) => ({ ...prev, [exerciseId]: value }));
 
   const entry = useSetEntry({
     storageKey: draftKeys.trainee(workout.id),
     exercises: workout.exercises,
     api: TRAINEE_SET_API,
     editable: workout.editable,
+    autoSave: true,
     onToast: toast.show,
     onExerciseDone: (exerciseId) => setDoneOverrides((prev) => ({ ...prev, [exerciseId]: true })),
   });
 
   const [openExerciseId, setOpenExerciseId] = useState<string | null>(null);
 
-  function toggleDone(exerciseId: string, next: boolean) {
-    setDoneOverrides((prev) => ({ ...prev, [exerciseId]: next }));
-    startDoneTransition(() => {
-      void toggleExerciseCompletion(exerciseId, next);
-    });
+  /**
+   * "סמן כבוצע": every set that isn't saved yet goes in as typed, or as its
+   * target where nothing was typed — one request — and the exercise is
+   * marked done. Taking it back removes the mark and the sets that are
+   * exactly the target (what "done" filled in); sets typed differently stay.
+   */
+  async function toggleDone(exercise: ExerciseData, next: boolean) {
+    if (doneBusy[exercise.id]) return;
+    setDoneBusy((prev) => ({ ...prev, [exercise.id]: true }));
+    setDone(exercise.id, next);
+    try {
+      if (next) {
+        const fills = entry.fillsFor(exercise);
+        const indexes = fills.map((f) => f.setIndex);
+        entry.markSaving(exercise.id, indexes, true);
+        try {
+          const result = await markExerciseDone(
+            exercise.id,
+            fills.map((f) => ({ setIndex: f.setIndex, input: f.values })),
+          );
+          if (result.error) {
+            setDone(exercise.id, false);
+            entry.setError(exercise.id, result.error);
+            return;
+          }
+          entry.applyLogs(exercise.id, result.logs ?? []);
+          toast.show("סומן כבוצע ✓");
+        } catch {
+          // No reception: the sets wait in the draft and are sent one by one
+          // when it's back — the server marks the exercise done by itself
+          // once every working set is in.
+          entry.keepAsPending(exercise.id, fills);
+          toast.show("אין חיבור — יישמר כשהחיבור יחזור");
+        } finally {
+          entry.markSaving(exercise.id, indexes, false);
+        }
+      } else {
+        const indexes = entry.autoFilledIndexes(exercise);
+        try {
+          const result = await unmarkExerciseDone(exercise.id, indexes);
+          if (result.error) {
+            setDone(exercise.id, true);
+            entry.setError(exercise.id, result.error);
+            return;
+          }
+          entry.applyUnlogs(exercise.id, indexes);
+          toast.show("הסימון בוטל");
+        } catch {
+          setDone(exercise.id, true);
+          toast.show("אין חיבור — אי אפשר לבטל את הסימון כרגע");
+        }
+      }
+    } finally {
+      setDoneBusy((prev) => ({ ...prev, [exercise.id]: false }));
+    }
+  }
+
+  /** "הכל בוצע כמתוכנן": every exercise, as typed or as its target, done and submitted — one request. */
+  async function completeAsPlanned(): Promise<{ error?: string }> {
+    const perExercise = workout.exercises.map((ex) => ({ ex, fills: entry.fillsFor(ex) }));
+    for (const { ex, fills } of perExercise) entry.markSaving(ex.id, fills.map((f) => f.setIndex), true);
+    try {
+      const notes = entry.getNotes().map((n) => ({ workoutExerciseId: n.exerciseId, notes: n.notes }));
+      const result = await completeWorkoutAsPlanned(
+        workout.id,
+        perExercise.flatMap(({ ex, fills }) =>
+          fills.map((f) => ({ workoutExerciseId: ex.id, setIndex: f.setIndex, input: f.values })),
+        ),
+        notes,
+      );
+      if (result.error) return { error: result.error };
+      for (const { ex } of perExercise) {
+        entry.applyLogs(ex.id, result.logs?.[ex.id] ?? []);
+        setDone(ex.id, true);
+      }
+      entry.markNotesSaved();
+      return {};
+    } catch {
+      return { error: "אין חיבור — נסו שוב בעוד רגע" };
+    } finally {
+      for (const { ex, fills } of perExercise) entry.markSaving(ex.id, fills.map((f) => f.setIndex), false);
+    }
   }
 
   const openExercise = openExerciseId
@@ -247,6 +328,7 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
         getNotes={() => entry.getNotes().map((n) => ({ workoutExerciseId: n.exerciseId, notes: n.notes }))}
         flushPending={entry.flushPending}
         onSubmitted={entry.markNotesSaved}
+        onCompleteAsPlanned={completeAsPlanned}
       />
 
       {openExercise && (
@@ -254,10 +336,15 @@ function WorkoutPanel({ workout }: { workout: WorkoutData }) {
           exercise={openExercise}
           entry={entry}
           done={isDone(openExercise)}
+          doneBusy={!!doneBusy[openExercise.id]}
           editable={workout.editable}
-          onToggleDone={(next) => toggleDone(openExercise.id, next)}
-          onClose={() => setOpenExerciseId(null)}
-          onToast={toast.show}
+          onToggleDone={(next) => void toggleDone(openExercise, next)}
+          onClose={() => {
+            // Whatever was just typed starts saving now, not in a second —
+            // closing the exercise is often followed by leaving the page.
+            entry.saveNow();
+            setOpenExerciseId(null);
+          }}
         />
       )}
 
