@@ -54,16 +54,24 @@ async function seen(locator) {
 }
 const browser = await chromium.launch();
 
-// ---- trainee: confirm sets in a block week
+// ---- trainee (block week): rows save by themselves; "done" fills the rest; the whole workout at once
 {
   const page = await open("trainee", "/trainee/workouts");
   await page.getByText("Ab Wheel Rollout").first().click();
-  const confirm = (i) => page.getByRole("button", { name: `אישור סט ${i}`, exact: true });
-  const undo = (i) => page.getByRole("button", { name: `ביטול סט ${i}`, exact: true });
-  await confirm(1).waitFor();
-  await measure("מתאמן: אישור סט (בתוך בלוק)", () => confirm(1).click(), () => seen(undo(1)));
-  await measure("מתאמן: 2 סטים ברצף מהיר (האחרון משלים תרגיל)", async () => { await confirm(2).click(); await confirm(3).click(); }, async () => { await seen(undo(2)); await seen(undo(3)); });
-  await measure("מתאמן: ביטול סט", () => undo(3).click(), () => seen(confirm(3)));
+  const reps = (i) => page.getByLabel(`חזרות בסט ${i}`, { exact: true });
+  await reps(1).waitFor();
+  // "saved" = the row says so; the 1.2s wait after typing is on purpose and included
+  await measure("מתאמן: הקלדת סט אחד (נשמר לבד)", () => reps(1).fill("7"), () => seen(page.getByText("נשמר · פחות מהיעד")));
+  await measure("מתאמן: סמן כבוצע (שאר הסטים כמתוכנן)", () => page.getByRole("button", { name: /סמן כבוצע/ }).click(), () => seen(page.getByRole("button", { name: /בוצע ✓/ })));
+  await measure("מתאמן: ביטול הסימון", () => page.getByRole("button", { name: /בוצע ✓/ }).click(), () => seen(page.getByRole("button", { name: /סמן כבוצע/ })));
+  await page.getByRole("button", { name: "סגור", exact: true }).last().click();
+  // another workout of the week (Tuesday: 5 exercises), so the trainer's session below still has sets to confirm
+  await page.getByRole("button", { name: "יום ג׳" }).click();
+  await measure(
+    "מתאמן: הכל בוצע כמתוכנן (אימון של 5 תרגילים)",
+    async () => { await page.getByRole("button", { name: "הכל בוצע כמתוכנן" }).click(); await page.getByRole("button", { name: "כן, הגש" }).click(); },
+    () => seen(page.getByText(/האימון הוגש ✓/)),
+  );
   await page.close();
 }
 // ---- trainer-led session on the same workout

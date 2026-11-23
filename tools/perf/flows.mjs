@@ -17,6 +17,7 @@ async function open(role, url) {
   await page.goto(BASE + url, { waitUntil: "networkidle" });
   return page;
 }
+async function waitFor(fn, ms = 6000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(100); } return false; }
 const btn = (page, name) => page.getByRole("button", { name, exact: true });
 
 // ---------- trainee
@@ -25,12 +26,17 @@ const btn = (page, name) => page.getByRole("button", { name, exact: true });
   const homeBefore = await page.locator("body").innerText();
   await page.getByRole("link", { name: /לצפייה בתוכנית|האימונים/ }).first().click();
   await page.waitForURL(/\/trainee\/workouts/);
+  // The trainee's screen saves rows by itself (no ✓) — tools/perf/trainee-entry.mjs covers that flow in
+  // detail; here: "done" on a block-week exercise, the engine, leaving and coming back.
   await page.getByText("Ab Wheel Rollout").first().click();
-  await btn(page, "אישור סט 1").click();
-  await btn(page, "ביטול סט 1").waitFor();
-  check("trainee: set 1 shows as saved", true);
-  check("trainee: set 1 is in the database", (await q("select count(*)::int n from set_logs l join workout_exercises we on we.id=l.workout_exercise_id join exercises e on e.id=we.exercise_id where e.name='Ab Wheel Rollout' and l.set_index=1 and l.source='trainee'"))[0].n === 1);
+  await page.getByRole("button", { name: /סמן כבוצע/ }).click();
+  await page.getByRole("button", { name: /בוצע ✓/ }).waitFor();
+  const abSets = async () => (await q("select count(*)::int n from set_logs l join workout_exercises we on we.id=l.workout_exercise_id join exercises e on e.id=we.exercise_id where e.name='Ab Wheel Rollout' and we.workout_id='20000000-0000-0000-0000-000000000001' and l.source='trainee'"))[0].n;
+  check("trainee: 'done' saved all three sets", await waitFor(async () => (await abSets()) === 3));
+  check("trainee: exercise was marked done in the database", await waitFor(async () => (await q("select count(*)::int n from workout_exercise_completions c join workout_exercises we on we.id=c.workout_exercise_id join exercises e on e.id=we.exercise_id where e.name='Ab Wheel Rollout'"))[0].n >= 1));
+  check("block: next week's target moved after logging (engine ran)", (await q("select count(*)::int n from workout_exercises where progression_info is not null"))[0].n > 0);
   // leave right away (before the delayed sync), then come back with the browser's Back button
+  await page.getByRole("button", { name: "סגור", exact: true }).last().click();
   await page.goBack();
   await page.waitForURL(/\/trainee$/);
   await sleep(1500);
@@ -38,18 +44,12 @@ const btn = (page, name) => page.getByRole("button", { name, exact: true });
   await page.waitForURL(/\/trainee\/workouts/);
   await sleep(1500);
   await page.getByText("Ab Wheel Rollout").first().click();
-  check("trainee: after leaving at once and coming back (Back/Forward), set 1 is still shown as saved", (await btn(page, "ביטול סט 1").count()) === 1);
-  // finish the exercise: sets 2,3 quickly
-  await btn(page, "אישור סט 2").click();
-  await btn(page, "אישור סט 3").click();
-  await btn(page, "ביטול סט 3").waitFor();
+  check("trainee: after leaving at once and coming back (Back/Forward), still shown as done", await waitFor(async () => (await page.getByText("נשמר ✓").count()) === 3));
   await sleep(4000); // the delayed sync has run
-  check("trainee: all three still shown as saved after the background sync", (await btn(page, "ביטול סט 1").count()) + (await btn(page, "ביטול סט 2").count()) + (await btn(page, "ביטול סט 3").count()) === 3);
-  check("trainee: exercise was marked done in the database", (await q("select count(*)::int n from workout_exercise_completions c join workout_exercises we on we.id=c.workout_exercise_id join exercises e on e.id=we.exercise_id where e.name='Ab Wheel Rollout'"))[0].n >= 1);
-  check("block: next week's target moved after logging (engine ran)", (await q("select count(*)::int n from workout_exercises where progression_info is not null"))[0].n > 0);
+  check("trainee: still shown as saved after the background sync", (await page.getByText("נשמר ✓").count()) === 3);
   await page.reload({ waitUntil: "networkidle" });
   await page.getByText("Ab Wheel Rollout").first().click();
-  check("trainee: after a full reload the sets are there", (await btn(page, "ביטול סט 2").count()) === 1);
+  check("trainee: after a full reload the sets are there", (await page.getByText("נשמר ✓").count()) === 3);
   // home reflects the finished exercise (Back button → page restored from the client cache must be fresh)
   await page.keyboard.press("Escape");
   await page.goto(BASE + "/trainee", { waitUntil: "networkidle" });

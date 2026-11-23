@@ -26,6 +26,7 @@ node pages.mjs                          # every page, as trainee / trainer / rea
 node actions.mjs                        # confirm a set, un-confirm, trainer session, builder edit (real browser)
 node crawl.mjs                          # opens every screen per role: console errors, failed requests, redirects
 node flows.mjs                          # log sets → leave → come back → reload; free session; the viewer can't write
+node trainee-entry.mjs                  # the trainee's quick entry, every step checked against the database
 node one.mjs trainer /trainer/session   # the request timeline of one page
 
 ./reset.sh                              # fresh database between runs that write (actions.mjs, flows.mjs)
